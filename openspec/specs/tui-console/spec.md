@@ -174,3 +174,10 @@ TUI SHALL 提供「設定」畫面，分為 Email、Redmine、排程與門檻三
 #### Scenario: Digest time changed
 - **WHEN** 使用者將摘要時間由 08:30 改為 07:45 並儲存
 - **THEN** 畫面提示排程已變更，按 `i` 後 `cvewatch\digest` 的觸發時間更新為 07:45
+
+### Requirement: Export VEX from findings view
+Findings 畫面 SHALL 提供以目前篩選條件匯出 CycloneDX VEX 的操作，並 SHALL 讓使用者確認或修改輸出路徑。
+
+#### Scenario: Exporting filtered findings
+- **WHEN** 使用者在 Findings 篩選 `FW-01` 後按 `E` 並確認預設路徑
+- **THEN** 文件資料夾中產生只含 FW-01 命中的 VEX 檔，狀態列顯示路徑與「此檔未加密」提示
