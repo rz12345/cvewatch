@@ -1,0 +1,34 @@
+schema: spec-driven
+
+# Project context — constraints an agent cannot infer from the code.
+context: |
+  專案名稱：cvewatch — 單人使用的「資產 × CVE」比對工具。
+  使用者：一位研究機構的網路/系統管理員，自己維護資產清冊（Excel/CSV）。
+  執行環境：使用者自己的 Windows 筆電/工作站（Windows 10/11 x64），可直接上網（不需 proxy，但需尊重 HTTPS_PROXY 環境變數）。
+  語言與技術：Rust（stable，edition 2021），單一執行檔 cvewatch.exe；介面為 TUI（ratatui + crossterm）；資料庫為 SQLite 單檔。
+  架構原則：同步（sync）與檢視（tui）分離。`cvewatch sync` 由 Windows 工作排程器定期執行；TUI 只讀寫本機 SQLite，不在背景抓資料。
+  MVP 不使用任何 AI/LLM；比對全部是可解釋的規則（CPE、CNA affected 版本區間、OSV 套件比對）。
+  資產範圍：網路/資安設備（Palo Alto PA-460 / PAN-OS）、虛擬化與伺服器（VMware ESXi/vCenter、Proxmox VE、Dell iDRAC）、
+  儲存（Synology DSM）、作業系統與套件（Linux/Windows 主機，透過匯入 SBOM/套件清單）。
+  資料來源：CVE.org cvelistV5（主要，含 CNA affected 與 CISA ADP Vulnrichment）、NVD API 2.0（CPE/CVSS 補充）、CISA KEV、FIRST EPSS、
+  OSV.dev（OS 套件）、原廠 CSAF 2.0 公告（通用讀取器，預設 Palo Alto）、TWCERT/CC（透過 cvelistV5 的 assigner 篩選）。
+  重要外部事實：NVD 自 2026-04-15 起只優先 enrich KEV、聯邦使用軟體與 EO 14028 critical software，其餘標為 Lowest Priority；
+  CISA ADP 自 2024-12-10 起不再加 CPE。因此不得假設每個 CVE 都有 CPE，比對必須能使用 CNA 提供的 vendor/product/versions。
+  秘密（NVD API key、SMTP 密碼、Redmine API key）存放在 Windows Credential Manager，不得寫入設定檔或資料庫。
+  文件語言：敘述用繁體中文；OpenSpec 關鍵字（SHALL/MUST、WHEN/THEN）、Requirement/Scenario 標題前綴與程式識別字維持英文。
+
+rules:
+  proposal:
+    - 每份 proposal 必須寫明 Out of scope
+  tasks:
+    - 每個任務控制在 2 小時內可完成，並附可驗證的完成條件
+    - 每個任務群組最後一項必須是對應的測試
+  design:
+    - 外部 API 的 URL、速率限制與失敗處理要寫在 design.md，不寫在 spec
+
+operations:
+  apply:
+    guidance:
+      - 依 change 編號順序實作（01 → 07），前一個 change archive 後才開始下一個
+      - 每完成一個任務群組就執行 cargo fmt、cargo clippy -- -D warnings、cargo test
+      - 對外 HTTP 的測試一律使用錄製好的 fixture（tests/fixtures），不打真實 API
