@@ -91,7 +91,7 @@ impl fmt::Debug for DbKey {
 
 impl PartialEq for DbKey {
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_ref() == other.0.as_ref()
+        self.0[..] == other.0[..]
     }
 }
 

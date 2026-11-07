@@ -1,0 +1,232 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:00000000-0000-4000-8000-000000000007",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-03T00:00:00Z",
+    "tools": {
+      "components": [
+        {
+          "type": "application",
+          "name": "cvewatch",
+          "version": "0.0.0-test"
+        }
+      ]
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "cvewatch:FW-01:paloalto-panos",
+      "type": "operating-system",
+      "name": "PAN-OS",
+      "version": "11.1.4-h7",
+      "supplier": {
+        "name": "Palo Alto Networks"
+      },
+      "cpe": "cpe:2.3:o:paloaltonetworks:pan-os:11.1.4-h7:*:*:*:*:*:*:*",
+      "properties": [
+        {
+          "name": "cvewatch:asset_tag",
+          "value": "FW-01"
+        }
+      ]
+    },
+    {
+      "bom-ref": "cvewatch:WEB-01:pkg:deb/debian/openssl",
+      "type": "library",
+      "name": "openssl",
+      "version": "3.0.11-1",
+      "purl": "pkg:deb/debian/openssl@3.0.11-1",
+      "properties": [
+        {
+          "name": "cvewatch:asset_tag",
+          "value": "WEB-01"
+        }
+      ]
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "id": "CVE-2026-1001",
+      "source": {
+        "name": "CVE",
+        "url": "https://www.cve.org/CVERecord?id=CVE-2026-1001"
+      },
+      "ratings": [
+        {
+          "source": {
+            "name": "NVD"
+          },
+          "score": 9.0,
+          "method": "CVSSv31"
+        }
+      ],
+      "affects": [
+        {
+          "ref": "cvewatch:FW-01:paloalto-panos"
+        }
+      ],
+      "analysis": {
+        "state": "in_triage",
+        "firstIssued": "2026-11-01T00:00:00Z",
+        "lastUpdated": "2026-11-01T00:00:00Z"
+      },
+      "properties": [
+        {
+          "name": "cvewatch:priority",
+          "value": "P1"
+        },
+        {
+          "name": "cvewatch:confidence",
+          "value": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "CVE-2026-1002",
+      "source": {
+        "name": "CVE",
+        "url": "https://www.cve.org/CVERecord?id=CVE-2026-1002"
+      },
+      "ratings": [
+        {
+          "source": {
+            "name": "NVD"
+          },
+          "score": 8.0,
+          "method": "CVSSv31"
+        }
+      ],
+      "affects": [
+        {
+          "ref": "cvewatch:FW-01:paloalto-panos"
+        }
+      ],
+      "analysis": {
+        "state": "resolved",
+        "response": [
+          "update"
+        ],
+        "detail": "已升級至 11.1.5",
+        "firstIssued": "2026-11-01T00:00:00Z",
+        "lastUpdated": "2026-11-02T00:00:00Z"
+      },
+      "properties": [
+        {
+          "name": "cvewatch:priority",
+          "value": "P2"
+        },
+        {
+          "name": "cvewatch:confidence",
+          "value": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "CVE-2026-1003",
+      "source": {
+        "name": "CVE",
+        "url": "https://www.cve.org/CVERecord?id=CVE-2026-1003"
+      },
+      "ratings": [
+        {
+          "source": {
+            "name": "NVD"
+          },
+          "score": 7.0,
+          "method": "CVSSv31"
+        }
+      ],
+      "affects": [
+        {
+          "ref": "cvewatch:FW-01:paloalto-panos"
+        }
+      ],
+      "analysis": {
+        "state": "not_affected",
+        "justification": "requires_configuration",
+        "detail": "未啟用 GlobalProtect",
+        "firstIssued": "2026-11-01T00:00:00Z",
+        "lastUpdated": "2026-11-02T00:00:00Z"
+      },
+      "properties": [
+        {
+          "name": "cvewatch:priority",
+          "value": "P2"
+        },
+        {
+          "name": "cvewatch:confidence",
+          "value": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "CVE-2026-1004",
+      "source": {
+        "name": "CVE",
+        "url": "https://www.cve.org/CVERecord?id=CVE-2026-1004"
+      },
+      "ratings": [
+        {
+          "source": {
+            "name": "NVD"
+          },
+          "score": 6.0,
+          "method": "CVSSv31"
+        }
+      ],
+      "affects": [
+        {
+          "ref": "cvewatch:FW-01:paloalto-panos"
+        }
+      ],
+      "analysis": {
+        "state": "exploitable",
+        "response": [
+          "will_not_fix"
+        ],
+        "detail": "內網設備，接受風險",
+        "firstIssued": "2026-11-01T00:00:00Z",
+        "lastUpdated": "2026-11-02T00:00:00Z"
+      },
+      "properties": [
+        {
+          "name": "cvewatch:priority",
+          "value": "P3"
+        },
+        {
+          "name": "cvewatch:confidence",
+          "value": "confirmed"
+        }
+      ]
+    },
+    {
+      "id": "CVE-2023-5678",
+      "source": {
+        "name": "CVE",
+        "url": "https://www.cve.org/CVERecord?id=CVE-2023-5678"
+      },
+      "affects": [
+        {
+          "ref": "cvewatch:WEB-01:pkg:deb/debian/openssl"
+        }
+      ],
+      "analysis": {
+        "state": "false_positive",
+        "firstIssued": "2026-11-01T00:00:00Z",
+        "lastUpdated": "2026-11-02T00:00:00Z"
+      },
+      "properties": [
+        {
+          "name": "cvewatch:priority",
+          "value": "P3"
+        },
+        {
+          "name": "cvewatch:confidence",
+          "value": "confirmed"
+        }
+      ]
+    }
+  ]
+}

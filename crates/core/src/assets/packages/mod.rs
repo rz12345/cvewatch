@@ -190,27 +190,35 @@ fn collect(format: PackageFormat, raw: Vec<RawEntry>) -> ParsedPackages {
     parsed
 }
 
-/// 完整 purl → 識別（去掉版本與隨版本變動的 qualifier）。沒有版本或無法解析時回傳 `None`。
-fn entry_from_purl(text: &str) -> Option<PackageEntry> {
-    let full: PackageUrl<'static> = text.parse().ok()?;
-    let version = full.version()?.to_string();
-    let epoch = full.qualifiers().get("epoch").map(|e| e.to_string());
-    let mut identity = full.clone();
-    identity.without_version();
-    let kept: Vec<(String, String)> = full
-        .qualifiers()
+/// purl 的版本；epoch 不為 0 時併入為 `<epoch>:<version>`（與元件 `version_raw` 相同）。
+pub(crate) fn purl_version(p: &PackageUrl<'_>) -> Option<String> {
+    let version = p.version()?.to_string();
+    Some(match p.qualifiers().get("epoch") {
+        Some(e) if e.as_ref() != "0" => format!("{e}:{version}"),
+        _ => version,
+    })
+}
+
+/// 識別套件用的 qualifier（去掉隨版本變動者）。
+pub(crate) fn identity_qualifiers(p: &PackageUrl<'_>) -> Vec<(String, String)> {
+    p.qualifiers()
         .iter()
         .filter(|(k, _)| !VERSIONED_QUALIFIERS.contains(&k.as_ref()))
         .map(|(k, v)| (k.to_string(), v.to_string()))
-        .collect();
+        .collect()
+}
+
+/// 完整 purl → 識別（去掉版本與隨版本變動的 qualifier）。沒有版本或無法解析時回傳 `None`。
+fn entry_from_purl(text: &str) -> Option<PackageEntry> {
+    let full: PackageUrl<'static> = text.parse().ok()?;
+    let version = purl_version(&full)?;
+    let mut identity = full.clone();
+    identity.without_version();
+    let kept = identity_qualifiers(&full);
     identity.clear_qualifiers();
     for (k, v) in kept {
         identity.add_qualifier(k, v).ok()?;
     }
-    let version = match epoch {
-        Some(e) if e != "0" => format!("{e}:{version}"),
-        _ => version,
-    };
     Some(PackageEntry {
         purl: identity.to_string(),
         purl_full: full.to_string(),

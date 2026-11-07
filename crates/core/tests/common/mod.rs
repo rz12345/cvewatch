@@ -64,3 +64,4 @@ pub fn read_ingest(rel: &str) -> Vec<u8> {
 }
 pub mod ingest;
 pub mod matching;
+pub mod vex;

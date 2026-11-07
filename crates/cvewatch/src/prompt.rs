@@ -18,9 +18,14 @@ pub fn secret(prompt: &str) -> Result<Zeroizing<String>, CoreError> {
     Ok(value)
 }
 
-/// 輸入兩次口令並確認一致。
+/// 輸入兩次備份口令並確認一致。
 pub fn new_passphrase() -> Result<Zeroizing<String>, CoreError> {
-    let first = secret("輸入備份口令（不會顯示）：")?;
+    new_passphrase_for("備份口令")
+}
+
+/// 輸入兩次口令（`label` 例如「備份口令」）並確認一致。
+pub fn new_passphrase_for(label: &str) -> Result<Zeroizing<String>, CoreError> {
+    let first = secret(&format!("輸入{label}（不會顯示）："))?;
     let second = secret("再輸入一次：")?;
     if first.as_str() != second.as_str() {
         return Err(CoreError::Invalid("兩次輸入的口令不一致".to_string()));

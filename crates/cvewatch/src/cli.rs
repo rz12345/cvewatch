@@ -73,6 +73,11 @@ pub enum Command {
         #[command(subcommand)]
         action: ScheduleAction,
     },
+    /// CycloneDX VEX：匯出與匯入命中的處理判斷（是否受影響、為什麼）
+    Vex {
+        #[command(subcommand)]
+        action: VexAction,
+    },
 }
 
 impl Command {
@@ -90,6 +95,7 @@ impl Command {
             Command::Db { .. } => "db",
             Command::Notify { .. } => "notify",
             Command::Schedule { .. } => "schedule",
+            Command::Vex { .. } => "vex",
         }
     }
 }
@@ -118,6 +124,61 @@ pub enum NotifyAction {
     TestRedmine,
     /// 列出送出佇列（等待重送與無法送出的通知）
     Outbox,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum VexAction {
+    /// 將命中與處理狀態匯出為 CycloneDX 1.6 JSON VEX（檔案不可已存在）
+    #[command(long_about = concat!(
+        "將命中與處理狀態匯出為 CycloneDX 1.6 JSON VEX（檔案不可已存在）。
+
+",
+        "狀態對應：未處理 → in_triage；已處理 → resolved（response: update）；",
+        "忽略／不受影響 → not_affected（附 justification）；忽略／接受風險 → exploitable",
+        "（response: will_not_fix）；忽略／比對錯誤 → false_positive。備註輸出為 detail。
+
+",
+        "匯出檔含資產清單與處理狀態，與資料庫同等敏感；--encrypt 以口令加密為 <檔名>.age。",
+    ))]
+    Export {
+        /// 輸出檔（.json）
+        file: PathBuf,
+        /// 只匯出指定資產
+        #[arg(long, value_name = "ASSET_TAG")]
+        asset: Option<String>,
+        /// 狀態（可逗號分隔）：open、resolved、ignored
+        #[arg(long, value_delimiter = ',', value_parser = ["open", "resolved", "ignored"])]
+        status: Vec<String>,
+        /// 等級（可逗號分隔）：P1、P2、P3、P4
+        #[arg(long, value_delimiter = ',', value_parser = ["P1", "P2", "P3", "P4"], ignore_case = true)]
+        priority: Vec<String>,
+        /// 以口令加密（age 格式，輸出 <檔名>.age，不產生明文檔）
+        #[arg(long)]
+        encrypt: bool,
+    },
+    /// 匯入 CycloneDX 1.4–1.6 JSON VEX，套用到本機已有的命中（不新建命中）
+    #[command(long_about = concat!(
+        "匯入 CycloneDX 1.4–1.6 JSON VEX，套用到本機已有的命中（不新建命中）。
+
+",
+        "元件對應順序：cvewatch bom-ref → purl → CPE → 名稱 + 版本（產品目錄別名）；命中以 CVE ID 對應",
+        "（VEX id 不是 CVE 時查 references 中的 CVE 別名）。
+",
+        "本機最後一次人為變更晚於 VEX 的 lastUpdated（缺少時以 metadata.timestamp）時不套用，",
+        "列為「本機較新」；加 --force 才覆蓋。not_affected 缺少 justification 或缺少 analysis 的項目不套用。
+",
+        "套用的變更記錄於時間軸，操作者為 import、備註含檔名。age 加密檔（.age）會要求輸入口令。",
+    ))]
+    Import {
+        /// VEX 檔（.json 或 .json.age）
+        file: PathBuf,
+        /// 只報告將套用、已相同、未對應、本機較新、格式不完整的數量與明細，不寫入資料庫
+        #[arg(long)]
+        dry_run: bool,
+        /// 本機較新時仍以檔案內容覆蓋
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]

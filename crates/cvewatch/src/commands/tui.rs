@@ -47,6 +47,7 @@ pub fn run(app: &App) -> Result<ExitCode, CoreError> {
             secrets: Box::new(KeyringStore::default()),
             backend: Arc::new(LiveBackend { exe, config }),
             spawner: Box::new(ThreadSpawner),
+            documents_dir: cvewatch_core::paths::documents_dir(),
         },
         glyphs: glyphs::detect(),
     };

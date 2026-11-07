@@ -20,6 +20,19 @@ use crate::glyphs::Glyphs;
 use crate::services::{RunningSync, Services};
 use crate::settings::{Form, Leave, SettingsPage};
 
+/// 預設匯出檔名已存在時附加的序號上限（`-2` … `-N`）。
+const MAX_NAME_SUFFIX: u32 = 99;
+
+/// `<dir>/<stem>.json`；已存在時改用 `<stem>-2.json`、`<stem>-3.json`…（同一分鐘內多次匯出）。
+/// 序號用完時回傳原檔名，由寫入時回報已存在。
+fn unused_path(dir: &std::path::Path, stem: &str) -> PathBuf {
+    let first = dir.join(format!("{stem}.json"));
+    std::iter::once(first.clone())
+        .chain((2..=MAX_NAME_SUFFIX).map(|n| dir.join(format!("{stem}-{n}.json"))))
+        .find(|p| !p.exists())
+        .unwrap_or(first)
+}
+
 /// 檢查是否有新同步資料的間隔。
 pub const NEW_DATA_POLL: Duration = Duration::from_secs(5);
 
@@ -371,6 +384,7 @@ impl App {
                     self.copy(&cve);
                 }
             }
+            KeyCode::Char('E') => self.start_vex_export(),
             KeyCode::Esc => {
                 self.findings.selected.clear();
                 self.findings.search.clear();
@@ -395,6 +409,36 @@ impl App {
             let len = self.findings.visible.len();
             self.findings.cursor = moved(self.findings.cursor, len, KeyCode::Down);
         }
+    }
+
+    /// `E`：以目前篩選（含搜尋）匯出 VEX；預設存到「文件」資料夾，可在對話框修改路徑。
+    fn start_vex_export(&mut self) {
+        let count = self.findings.visible.len();
+        if count == 0 {
+            self.message = Some("目前篩選沒有命中，未匯出".into());
+            return;
+        }
+        let stamp = self
+            .services
+            .tz
+            .format(self.services.now().fixed_offset(), "%Y%m%d-%H%M");
+        let path = unused_path(
+            &self.services.documents_dir,
+            &format!("cvewatch-vex-{stamp}"),
+        );
+        self.dialog = Some(Dialog::ExportVex {
+            input: Input::default().with_value(path.display().to_string()),
+            count,
+        });
+    }
+
+    /// 目前篩選（含搜尋）的命中 id，依畫面順序。
+    pub fn visible_ids(&self) -> Vec<i64> {
+        self.findings
+            .visible
+            .iter()
+            .map(|i| self.data.findings[*i].id)
+            .collect()
     }
 
     fn open_filter(&mut self) {

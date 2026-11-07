@@ -161,29 +161,90 @@ fn ignore_details(
     Ok((Some(reason), justification))
 }
 
+/// 系統或使用者事件的操作者。匯入事件只經 [`apply_decision`]（[`Decider::Import`]）寫入，
+/// 必帶來源檔名，不能以此建立。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Actor {
+    System,
+    User,
+}
+
+impl Actor {
+    pub const SYSTEM: &'static str = "system";
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Actor::System => Self::SYSTEM,
+            Actor::User => Decider::USER_ACTOR,
+        }
+    }
+}
+
 /// 寫入一筆時間軸事件。
 pub fn record_event(
     conn: &Connection,
     finding_id: i64,
     at: &str,
-    actor: &str,
+    actor: Actor,
+    from: Option<Status>,
+    to: Status,
+    note: &str,
+) -> Result<(), CoreError> {
+    insert_event(conn, finding_id, at, (actor.as_str(), None), from, to, note)
+}
+
+/// 匯入事件的（來源檔名, 來源判定時間）。
+type ImportSource<'a> = Option<(&'a str, Option<&'a str>)>;
+
+fn insert_event(
+    conn: &Connection,
+    finding_id: i64,
+    at: &str,
+    (actor, source): (&str, ImportSource<'_>),
     from: Option<Status>,
     to: Status,
     note: &str,
 ) -> Result<(), CoreError> {
     conn.execute(
-        "INSERT INTO finding_event (finding_id, at, actor, from_status, to_status, note)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        "INSERT INTO finding_event
+             (finding_id, at, actor, from_status, to_status, note, import_file, decided_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
         params![
             finding_id,
             at,
             actor,
             from.map(Status::as_str),
             to.as_str(),
-            note
+            note,
+            source.map(|(file, _)| file),
+            source.and_then(|(_, decided)| decided)
         ],
     )?;
     Ok(())
+}
+
+/// 人為的狀態判定來源：使用者操作，或 CycloneDX VEX 匯入（來源檔名、來源中的判定時間）。
+/// 兩者都受 04 的自動規則約束（例如之後列入 KEV 時重新開啟）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Decider<'a> {
+    User,
+    Import {
+        file: &'a str,
+        /// VEX 的 lastUpdated（缺少時為 metadata.timestamp），RFC 3339
+        decided_at: Option<&'a str>,
+    },
+}
+
+impl Decider<'_> {
+    pub const USER_ACTOR: &'static str = "user";
+    pub const IMPORT_ACTOR: &'static str = "import";
+
+    fn who(&self) -> (&str, ImportSource<'_>) {
+        match self {
+            Decider::User => (Self::USER_ACTOR, None),
+            Decider::Import { file, decided_at } => (Self::IMPORT_ACTOR, Some((file, *decided_at))),
+        }
+    }
 }
 
 /// 使用者變更狀態：一律記錄事件（備註可為空字串）。KEV 狀態同時更新，
@@ -277,6 +338,18 @@ pub fn apply_user_change(
     dismissed: bool,
     now: &str,
 ) -> Result<(), CoreError> {
+    apply_decision(conn, finding_id, change, Decider::User, dismissed, now)
+}
+
+/// 人為的狀態變更（使用者或 VEX 匯入）：同步 KEV 狀態、清除或設定等待區忽略標記並記錄事件。
+pub fn apply_decision(
+    conn: &Connection,
+    finding_id: i64,
+    change: &Change,
+    decider: Decider<'_>,
+    dismissed: bool,
+    now: &str,
+) -> Result<(), CoreError> {
     let current: Option<(String, String, bool, bool)> = conn
         .query_row(
             "SELECT status, cve_id, in_range, kev_listed FROM finding WHERE id = ?1",
@@ -308,11 +381,11 @@ pub fn apply_user_change(
             dismissed
         ],
     )?;
-    record_event(
+    insert_event(
         conn,
         finding_id,
         now,
-        "user",
+        decider.who(),
         Some(from),
         change.status,
         &change.note,

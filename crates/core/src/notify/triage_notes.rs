@@ -29,7 +29,18 @@ pub fn queue_notes(
     change: &Change,
     now: DateTime<Utc>,
 ) -> Result<usize, CoreError> {
-    if !enabled(cfg) || changed.is_empty() {
+    let items: Vec<(i64, Change)> = changed.iter().map(|id| (*id, change.clone())).collect();
+    queue_notes_each(conn, cfg, &items, now)
+}
+
+/// 各命中各有自己的變更（例如 VEX 匯入）時排入註記：仍是一個 CVE 一則註記。
+pub fn queue_notes_each(
+    conn: &Connection,
+    cfg: &NotifyConfig,
+    items: &[(i64, Change)],
+    now: DateTime<Utc>,
+) -> Result<usize, CoreError> {
+    if !enabled(cfg) || items.is_empty() {
         return Ok(0);
     }
     let mut by_cve: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -38,7 +49,7 @@ pub fn queue_notes(
          JOIN component c ON c.id = f.component_id JOIN asset a ON a.id = c.asset_id
          WHERE f.id = ?1",
     )?;
-    for id in changed {
+    for (id, change) in items {
         let (cve, tag): (String, String) =
             stmt.query_row(params![id], |r| Ok((r.get(0)?, r.get(1)?)))?;
         by_cve

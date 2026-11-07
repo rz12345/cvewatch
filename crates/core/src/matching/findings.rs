@@ -19,7 +19,7 @@ use super::engine::{Confidence, Decision};
 use super::evaluate::PairDecision;
 use super::load::{ids_json, ActiveComponent, MatchData};
 use super::scoring::{priority, Priority, ScoreInputs, ScoringConfig};
-use super::triage::{record_event, IgnoreReason, Status};
+use super::triage::{record_event, Actor, IgnoreReason, Status};
 use crate::error::CoreError;
 
 pub const NOTE_REJECTED: &str = "CVE 已撤銷";
@@ -150,7 +150,7 @@ impl Ctx<'_> {
         to: Status,
         note: &str,
     ) -> Result<(), CoreError> {
-        record_event(self.conn, id, &self.now, "system", from, to, note)
+        record_event(self.conn, id, &self.now, Actor::System, from, to, note)
     }
 
     fn replace_evidence(&self, id: i64, decision: &Decision) -> Result<(), CoreError> {

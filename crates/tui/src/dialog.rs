@@ -54,6 +54,11 @@ pub enum Dialog {
         options: Vec<String>,
         cursor: usize,
     },
+    /// 匯出 VEX：確認或修改輸出路徑（`count` 為目前篩選的命中數）
+    ExportVex {
+        input: Input,
+        count: usize,
+    },
     ConfirmQuit {
         back: Box<Dialog>,
     },
@@ -82,6 +87,8 @@ pub enum Command {
     },
     Open(String),
     ApplyFilter(Filter),
+    /// 以目前篩選匯出 VEX 到指定路徑
+    ExportVex(String),
     Quit,
 }
 
@@ -215,6 +222,15 @@ impl Dialog {
                 options,
                 cursor,
             } => target_key(cve, options, cursor, key.code),
+            Dialog::ExportVex { input, count } => match key.code {
+                KeyCode::Enter => {
+                    Outcome::Submit(Command::ExportVex(input.value().trim().to_string()))
+                }
+                _ => Outcome::Keep(Dialog::ExportVex {
+                    input: edit(&input, key),
+                    count,
+                }),
+            },
             Dialog::ConfirmQuit { back } => match key.code {
                 KeyCode::Char('y' | 'Y') => Outcome::Submit(Command::Quit),
                 _ => Outcome::Keep(*back),
@@ -470,6 +486,29 @@ mod tests {
         };
         assert_eq!(f.statuses, [Status::Open, Status::Resolved]);
         assert_eq!(f.asset.as_deref(), Some("PVE-01"));
+    }
+
+    #[test]
+    fn export_dialog_edits_path_and_submits_trimmed() {
+        let d = Dialog::ExportVex {
+            input: Input::default().with_value("C:/docs/a.json".into()),
+            count: 3,
+        };
+        let d = keep(d.handle(key(KeyCode::Backspace)));
+        let d = keep(d.handle(key(KeyCode::Backspace)));
+        let d = keep(d.handle(key(KeyCode::Backspace)));
+        let d = keep(d.handle(key(KeyCode::Backspace)));
+        let d = type_text(d, "vex ");
+        assert!(!d.has_unsaved_note(), "路徑不是備註，離開時不需確認");
+        let Outcome::Submit(Command::ExportVex(path)) = d.handle(key(KeyCode::Enter)) else {
+            panic!("expected submit");
+        };
+        assert_eq!(path, "C:/docs/a.vex");
+        let d = Dialog::ExportVex {
+            input: Input::default(),
+            count: 1,
+        };
+        assert!(matches!(d.handle(key(KeyCode::Esc)), Outcome::Close));
     }
 
     #[test]

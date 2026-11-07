@@ -240,6 +240,10 @@ impl Default for Recorder {
 }
 
 impl Recorder {
+    pub fn documents_dir(&self) -> PathBuf {
+        self.dir.path().join("Documents")
+    }
+
     pub fn config_path(&self) -> PathBuf {
         self.dir.path().join("cvewatch.toml")
     }
@@ -259,6 +263,7 @@ pub fn services(rec: &Recorder) -> Services {
         secrets: Box::new(SharedStore(rec.secrets.clone(), rec.store_fails.clone())),
         backend: rec.backend.clone(),
         spawner: Box::new(InlineSpawner),
+        documents_dir: rec.documents_dir(),
     }
 }
 

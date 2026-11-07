@@ -13,7 +13,7 @@ use super::pending::{
     active_reason, resolve_row, stale_cutoff, KeywordIndex, PendingReason, ResolvedReason,
 };
 use super::scoring::{priority, ScoringConfig};
-use super::triage::{apply_user_change, record_event, Change, IgnoreReason, Status};
+use super::triage::{apply_user_change, record_event, Actor, Change, IgnoreReason, Status};
 use super::version::Schemes;
 use crate::catalog::Catalog;
 use crate::error::CoreError;
@@ -420,7 +420,7 @@ fn apply_one(
         Some((id, status)) => (id, false, apply_existing(conn, id, &status, note, now)?),
         None => {
             let id = insert_manual(conn, data, scoring, component, cve_id, now)?;
-            record_event(conn, id, now, "user", None, Status::Open, note)?;
+            record_event(conn, id, now, Actor::User, None, Status::Open, note)?;
             (id, true, false)
         }
     };
@@ -451,7 +451,7 @@ fn apply_existing(
         return Ok(false);
     }
     reopen_existing(conn, id, now)?;
-    record_event(conn, id, now, "user", Some(from), Status::Open, note)?;
+    record_event(conn, id, now, Actor::User, Some(from), Status::Open, note)?;
     Ok(true)
 }
 

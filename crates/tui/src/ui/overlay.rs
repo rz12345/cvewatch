@@ -76,8 +76,40 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
                 *cursor,
             );
         }
+        Dialog::ExportVex { input, count } => export_vex(frame, app, input, *count),
         Dialog::ConfirmQuit { .. } => confirm_quit(frame, app),
     }
+}
+
+fn export_vex(frame: &mut Frame<'_>, app: &App, input: &Input, count: usize) {
+    let inner = popup(frame, app, " 匯出 VEX ", 7);
+    let [desc, field, hint] = Layout::vertical([
+        Constraint::Length(2),
+        Constraint::Length(1),
+        Constraint::Length(2),
+    ])
+    .areas(inner);
+    frame.render_widget(
+        Paragraph::new(format!(
+            "將目前篩選的 {count} 筆命中匯出為 CycloneDX VEX，存到："
+        ))
+        .wrap(Wrap { trim: false }),
+        desc,
+    );
+    text_field(frame, field, input);
+    frame.render_widget(Paragraph::new("Enter 匯出（檔案未加密）  Esc 取消"), hint);
+}
+
+/// 單行輸入框（底線、水平捲動、游標）。
+fn text_field(frame: &mut Frame<'_>, field: Rect, input: &Input) {
+    let width = usize::from(field.width.saturating_sub(3));
+    let scroll = input.visual_scroll(width);
+    let shown = Paragraph::new(format!("> {}", input.value()))
+        .scroll((0, u16::try_from(scroll).unwrap_or(0)))
+        .style(Style::new().add_modifier(Modifier::UNDERLINED));
+    frame.render_widget(shown, field);
+    let x = field.x + 2 + u16::try_from(input.visual_cursor().saturating_sub(scroll)).unwrap_or(0);
+    frame.set_cursor_position((x.min(field.right().saturating_sub(1)), field.y));
 }
 
 fn popup(frame: &mut Frame<'_>, app: &App, title: &str, height: u16) -> Rect {
@@ -154,14 +186,7 @@ fn note(frame: &mut Frame<'_>, app: &App, purpose: &NotePurpose, input: &Input) 
         Paragraph::new(note_title(purpose)).wrap(Wrap { trim: false }),
         desc,
     );
-    let width = usize::from(field.width.saturating_sub(3));
-    let scroll = input.visual_scroll(width);
-    let shown = Paragraph::new(format!("> {}", input.value()))
-        .scroll((0, u16::try_from(scroll).unwrap_or(0)))
-        .style(Style::new().add_modifier(Modifier::UNDERLINED));
-    frame.render_widget(shown, field);
-    let x = field.x + 2 + u16::try_from(input.visual_cursor().saturating_sub(scroll)).unwrap_or(0);
-    frame.set_cursor_position((x.min(field.right().saturating_sub(1)), field.y));
+    text_field(frame, field, input);
     frame.render_widget(Paragraph::new("Enter 確認  Esc 取消（不變更）"), hint);
 }
 
@@ -194,8 +219,11 @@ fn help_entries(app: &App) -> Vec<(String, &'static str)> {
         ("r", "設為已處理（輸入備註）"),
         ("i", "設為忽略（選原因；不受影響時再選理由）"),
         ("u", "設為未處理"),
-        ("o", "以預設瀏覽器開啟 CVE.org / NVD / 原廠公告"),
-        ("y", "複製 CVE ID"),
+        (
+            "o / y",
+            "以瀏覽器開啟 CVE.org / NVD / 原廠公告 / 複製 CVE ID",
+        ),
+        ("E", "Findings：依目前篩選匯出 CycloneDX VEX（未加密）"),
         ("a / d", "等待區：套用到資產 / 標為不相關"),
         ("R", "重新載入資料"),
         ("S", "背景執行 sync"),

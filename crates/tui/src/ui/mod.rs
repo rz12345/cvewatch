@@ -160,7 +160,7 @@ fn hint(app: &App) -> String {
         None => match app.screen {
             Screen::Dashboard => "1-6 切換畫面  R 重新載入  S 背景 sync  ? 說明",
             Screen::Findings => {
-                "Enter 詳情  Space 多選  / 搜尋  f 篩選  s 排序  r/i/u 變更狀態  o 連結"
+                "Enter 詳情  Space 多選  / 搜尋  f 篩選  s 排序  r/i/u 狀態  o 連結  E 匯出"
             }
             Screen::Assets => "Enter 資產詳情（元件、命中、未辨識產品）",
             Screen::Pending => "a 套用到資產  d 標為不相關  o 開啟連結  y 複製",

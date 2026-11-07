@@ -1,0 +1,74 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "serialNumber": "urn:uuid:2f0c4d3e-6a2b-4b7f-9d41-0f5c7e3a9b10",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-11-05T08:30:00Z",
+    "tools": [
+      { "vendor": "OWASP", "name": "Dependency-Track", "version": "4.12.2" }
+    ],
+    "component": {
+      "bom-ref": "a3b1f0e2-9c41-4d0b-8a77-1f2e3d4c5b6a",
+      "type": "application",
+      "name": "web-01-host",
+      "version": "2026.11"
+    }
+  },
+  "components": [
+    {
+      "bom-ref": "6b8f6d6e-1c2a-4a7e-9c55-0b7d5d1f6a10",
+      "type": "library",
+      "name": "openssl",
+      "version": "3.0.11-1",
+      "purl": "pkg:deb/debian/openssl@3.0.11-1?arch=amd64&distro=debian-12",
+      "hashes": [{ "alg": "SHA-256", "content": "0f343b0931126a20f133d67c2b018a3b0f343b0931126a20f133d67c2b018a3b" }]
+    },
+    {
+      "bom-ref": "d7e3a1b2-4c5d-4e6f-8a9b-0c1d2e3f4a5b",
+      "type": "library",
+      "name": "zlib1g",
+      "version": "1:1.2.13.dfsg-1",
+      "purl": "pkg:deb/debian/zlib1g@1.2.13.dfsg-1?arch=amd64&epoch=1&distro=debian-12"
+    }
+  ],
+  "vulnerabilities": [
+    {
+      "bom-ref": "9c2f6d0a-3b4e-4f5a-8b6c-7d8e9f0a1b2c",
+      "id": "CVE-2023-5678",
+      "source": { "name": "NVD", "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-5678" },
+      "ratings": [
+        { "source": { "name": "NVD" }, "score": 5.3, "severity": "medium", "method": "CVSSv31",
+          "vector": "CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:N/I:N/A:L" }
+      ],
+      "cwes": [606, 754],
+      "description": "Generating excessively long X9.42 DH keys or checking excessively long X9.42 DH keys or parameters may be very slow.",
+      "published": "2023-11-06T16:15:00Z",
+      "updated": "2024-05-01T00:00:00Z",
+      "analysis": {
+        "state": "not_affected",
+        "justification": "code_not_reachable",
+        "response": ["will_not_fix"],
+        "detail": "主機上沒有程式呼叫 DH_generate_key"
+      },
+      "affects": [{ "ref": "6b8f6d6e-1c2a-4a7e-9c55-0b7d5d1f6a10" }]
+    },
+    {
+      "bom-ref": "4e5f6a7b-8c9d-4e0f-a1b2-c3d4e5f6a7b8",
+      "id": "GHSA-jj6q-2q3x-99vh",
+      "source": { "name": "GITHUB", "url": "https://github.com/advisories/GHSA-jj6q-2q3x-99vh" },
+      "references": [
+        { "id": "CVE-2026-7777", "source": { "name": "NVD", "url": "https://nvd.nist.gov/vuln/detail/CVE-2026-7777" } }
+      ],
+      "analysis": { "state": "exploitable", "response": ["update"] },
+      "affects": [{ "ref": "6b8f6d6e-1c2a-4a7e-9c55-0b7d5d1f6a10" }]
+    },
+    {
+      "bom-ref": "5f6a7b8c-9d0e-4f1a-b2c3-d4e5f6a7b8c9",
+      "id": "CVE-2023-45853",
+      "source": { "name": "NVD", "url": "https://nvd.nist.gov/vuln/detail/CVE-2023-45853" },
+      "analysis": { "state": "false_positive" },
+      "affects": [{ "ref": "d7e3a1b2-4c5d-4e6f-8a9b-0c1d2e3f4a5b" }]
+    }
+  ]
+}

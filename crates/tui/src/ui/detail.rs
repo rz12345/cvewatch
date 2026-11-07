@@ -249,11 +249,7 @@ fn fixes(data: &DetailData) -> Vec<Line<'static>> {
 fn timeline(app: &App, d: &FindingDetail) -> Vec<Line<'static>> {
     let mut out = vec![text(""), heading("時間軸")];
     out.extend(d.events.iter().map(|e| {
-        let actor = if e.actor == "user" {
-            "使用者"
-        } else {
-            "系統"
-        };
+        let actor = cvewatch_core::matching::query::actor_label(&e.actor);
         let from = e.from.map_or("（新）", |s| s.label());
         let note = if e.note.is_empty() {
             String::new()

@@ -7,7 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use super::engine::Confidence;
 use super::evidence::{Detail, Source, Verdict};
 use super::scoring::{rank_cmp, Priority, RankKey, ScoreInputs};
-use super::triage::Status;
+use super::triage::{Decider, Status};
 use crate::error::CoreError;
 use crate::ingest::cvss;
 
@@ -131,8 +131,8 @@ fn in_clause(col: &str, values: Vec<&'static str>, args: &mut Vec<String>) -> Op
     Some(format!("{col} IN ({marks})"))
 }
 
-/// 依篩選條件列出命中（篩選在 SQL 中進行），依風險排序（見 [`rank_cmp`]）。
-pub fn list(conn: &Connection, filter: &FindingFilter) -> Result<Vec<FindingRow>, CoreError> {
+/// 篩選條件 → `WHERE …`（沒有條件時為空字串）與參數；`list` 與 `ids` 共用。
+fn where_clause(filter: &FindingFilter) -> (String, Vec<String>) {
     let mut args: Vec<String> = Vec::new();
     let mut clauses: Vec<String> = Vec::new();
     let statuses = filter.statuses.iter().map(|s| s.as_str()).collect();
@@ -151,18 +151,36 @@ pub fn list(conn: &Connection, filter: &FindingFilter) -> Result<Vec<FindingRow>
         clauses.push("f.first_seen >= ?".into());
         args.push(from.clone());
     }
-    let sql = if clauses.is_empty() {
-        ROW_SELECT.to_string()
-    } else {
-        format!("{ROW_SELECT} WHERE {}", clauses.join(" AND "))
-    };
-    let mut stmt = conn.prepare(&sql)?;
+    if clauses.is_empty() {
+        return (String::new(), args);
+    }
+    (format!(" WHERE {}", clauses.join(" AND ")), args)
+}
+
+/// 依篩選條件列出命中（篩選在 SQL 中進行），依風險排序（見 [`rank_cmp`]）。
+pub fn list(conn: &Connection, filter: &FindingFilter) -> Result<Vec<FindingRow>, CoreError> {
+    let (clause, args) = where_clause(filter);
+    let mut stmt = conn.prepare(&format!("{ROW_SELECT}{clause}"))?;
     let mut out = stmt
         .query_map(rusqlite::params_from_iter(args.iter()), row_from)?
         .collect::<Result<Vec<_>, _>>()?;
     fill_cvss(conn, &mut out)?;
     out.sort_by(|a, b| rank_cmp(&rank_key(a), &rank_key(b)).then(a.id.cmp(&b.id)));
     Ok(out)
+}
+
+/// 符合篩選條件的命中 id（依 id 排序；不計算顯示欄位，供匯出等只需 id 的用途）。
+pub fn ids(conn: &Connection, filter: &FindingFilter) -> Result<Vec<i64>, CoreError> {
+    let (clause, args) = where_clause(filter);
+    let sql = format!(
+        "SELECT f.id FROM finding f
+         JOIN component c ON c.id = f.component_id
+         JOIN asset a ON a.id = c.asset_id{clause}
+         ORDER BY f.id"
+    );
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(rusqlite::params_from_iter(args.iter()), |r| r.get(0))?;
+    Ok(rows.collect::<Result<Vec<_>, _>>()?)
 }
 
 fn rank_key(r: &FindingRow) -> RankKey {
@@ -180,6 +198,15 @@ pub struct EvidenceRow {
     pub summary: String,
     pub fixed_versions: Vec<String>,
     pub notes: Vec<String>,
+}
+
+/// 時間軸操作者的中文名稱（CLI 與 TUI 共用）。
+pub fn actor_label(actor: &str) -> &'static str {
+    match actor {
+        Decider::USER_ACTOR => "使用者",
+        Decider::IMPORT_ACTOR => "匯入",
+        _ => "系統",
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

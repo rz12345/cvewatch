@@ -66,6 +66,7 @@ fn dispatch(app: &app::App, command: Command, config_created: bool) -> Result<Ex
         Command::Db { action } => run_db(app, action),
         Command::Notify { action } => commands::notify::run(app, action),
         Command::Schedule { action } => commands::schedule::run(app, action),
+        Command::Vex { action } => commands::vex::run(app, action),
     }
 }
 

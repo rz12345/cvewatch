@@ -13,6 +13,8 @@ pub mod pending;
 pub mod schedule;
 pub mod sync;
 pub mod tui;
+pub mod vex;
+mod vex_view;
 
 /// 提醒使用者匯出復原金鑰的共用訊息。
 pub const EXPORT_REMINDER: &str =

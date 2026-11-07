@@ -66,6 +66,18 @@ pub fn default_config_path() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|d| d.config_dir().join(APP_DIR_NAME).join(CONFIG_FILE_NAME))
 }
 
+/// 使用者「文件」資料夾（TUI 匯出 VEX 的預設位置）；取不到時依序為家目錄、目前目錄
+/// （匯出對話框仍可修改路徑）。
+pub fn documents_dir() -> PathBuf {
+    directories::UserDirs::new()
+        .map(|d| {
+            d.document_dir()
+                .map_or_else(|| d.home_dir().to_path_buf(), Path::to_path_buf)
+        })
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_default()
+}
+
 /// `%LOCALAPPDATA%\cvewatch`
 pub fn default_data_dir() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|d| d.data_local_dir().join(APP_DIR_NAME))

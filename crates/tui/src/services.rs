@@ -41,6 +41,8 @@ pub struct Services {
     pub backend: Arc<dyn NotifyBackend>,
     /// 背景工作（連線不阻塞畫面）
     pub spawner: Box<dyn Spawner>,
+    /// 匯出 VEX 的預設資料夾（使用者「文件」資料夾）
+    pub documents_dir: PathBuf,
 }
 
 /// 顯示時區：本機時區逐筆換算（含日光節約時間），或固定位移（測試用）。

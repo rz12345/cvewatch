@@ -3,9 +3,9 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-const SUBCOMMANDS: [&str; 12] = [
+const SUBCOMMANDS: [&str; 13] = [
     "init", "sync", "tui", "asset", "config", "db", "cve", "match", "finding", "pending", "notify",
-    "schedule",
+    "schedule", "vex",
 ];
 
 fn cvewatch() -> Command {
@@ -504,4 +504,104 @@ fn finding_set_help_has_no_stray_indentation() {
         .take_while(|l| !l.starts_with("Usage"))
         .collect();
     assert!(!description.contains("    "), "說明含連續空白：\n{out}");
+}
+
+#[test]
+fn vex_export_help_lists_filters_and_encryption() {
+    let assert = cvewatch()
+        .args(["vex", "export", "--help"])
+        .assert()
+        .success();
+    let out = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    for word in [
+        "--asset",
+        "--status",
+        "--priority",
+        "--encrypt",
+        "in_triage",
+        "will_not_fix",
+    ] {
+        assert!(
+            out.contains(word),
+            "缺少 {word}：
+{out}"
+        );
+    }
+}
+
+#[test]
+fn vex_export_rejects_unknown_status() {
+    cvewatch()
+        .args(["vex", "export", "x.json", "--status", "closed"])
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn vex_export_without_database_asks_for_init() {
+    let (dir, cfg) = config_with("");
+    let out = dir.path().join("all.json");
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["vex", "export"])
+        .arg(&out)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("cvewatch init"));
+    assert!(!out.exists());
+}
+
+#[test]
+fn vex_export_refuses_existing_file_before_asking_passphrase() {
+    let (dir, cfg) = config_with("");
+    let out = dir.path().join("all.json");
+    std::fs::write(dir.path().join("all.json.age"), "keep").unwrap();
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["vex", "export", "--encrypt"])
+        .arg(&out)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("已存在"));
+}
+
+#[test]
+fn vex_import_help_lists_options() {
+    let assert = cvewatch()
+        .args(["vex", "import", "--help"])
+        .assert()
+        .success();
+    let out = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    for word in ["--dry-run", "--force", "purl", "lastUpdated"] {
+        assert!(
+            out.contains(word),
+            "缺少 {word}：
+{out}"
+        );
+    }
+}
+
+#[test]
+fn vex_import_reports_unreadable_and_invalid_files_before_database() {
+    let (dir, cfg) = config_with("");
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["vex", "import"])
+        .arg(dir.path().join("none.json"))
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("無法讀取"));
+    let spdx = dir.path().join("spdx.json");
+    std::fs::write(&spdx, r#"{"spdxVersion":"SPDX-2.3"}"#).unwrap();
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["vex", "import", "--dry-run"])
+        .arg(&spdx)
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("CycloneDX"));
 }

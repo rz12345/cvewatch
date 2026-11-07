@@ -4,7 +4,11 @@
 use cvewatch_core::matching::dashboard;
 use cvewatch_core::matching::pending_ops::{self, Action, Resolution};
 use cvewatch_core::matching::triage::{self, BatchOutcome, ChangeRequest};
+use std::path::Path;
+
 use cvewatch_core::notify::triage_notes;
+use cvewatch_core::vex::export::ExportMeta;
+use cvewatch_core::vex::file as vex_file;
 use cvewatch_core::CoreError;
 
 use crate::app::{App, View};
@@ -26,7 +30,30 @@ impl App {
                 self.findings.cursor = 0;
                 self.refresh_visible();
             }
+            Command::ExportVex(path) => self.export_vex(&path),
             Command::Quit => self.quit = true,
+        }
+    }
+
+    /// 匯出目前篩選的命中（與 `cvewatch vex export` 相同的 core 函式；不覆蓋既有檔案、不加密）。
+    fn export_vex(&mut self, path: &str) {
+        if path.is_empty() {
+            self.message = Some("未指定檔名，未匯出".into());
+            return;
+        }
+        let ids = self.visible_ids();
+        let result = ExportMeta::new(self.services.now()).and_then(|meta| {
+            vex_file::export_to_file(&self.conn, &ids, &meta, Path::new(path), None)
+        });
+        match result {
+            Ok(o) => {
+                self.message = Some(format!(
+                    "已匯出 {} 筆命中至 {}（此檔未加密，含資產與處理狀態）",
+                    o.findings,
+                    o.path.display()
+                ))
+            }
+            Err(e) => self.fail("匯出 VEX 失敗", &e),
         }
     }
 

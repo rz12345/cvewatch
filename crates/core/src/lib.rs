@@ -24,5 +24,6 @@ pub mod redact;
 pub mod schedule;
 pub mod secrets;
 pub mod version_text;
+pub mod vex;
 
 pub use error::{CoreError, ExitCode};

@@ -44,7 +44,7 @@ pub fn run(app: &App, action: FindingAction) -> Result<ExitCode, CoreError> {
     }
 }
 
-fn filter(
+pub(super) fn filter(
     statuses: &[String],
     priorities: &[String],
     asset: Option<String>,
