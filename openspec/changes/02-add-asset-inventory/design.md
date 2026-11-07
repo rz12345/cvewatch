@@ -26,11 +26,14 @@ asset(id, asset_tag UNIQUE, name, category, location, owner,
 
 component(id, asset_id → asset, kind CHECK IN ('product','package'),
           product_id → catalog_product NULL,   -- kind=product
-          purl NULL,                           -- kind=package
+          purl NULL,                           -- kind=package：不含版本、不含 epoch/upstream qualifier 的識別
+          purl_full NULL,                      -- kind=package：含版本的完整 purl
           version_raw, version_norm NULL, source ('excel'|'sbom'|'dpkg'|'rpm'),
           updated_at, UNIQUE(asset_id, product_id), UNIQUE(asset_id, purl))
 
-component_history(component_id, version_raw, changed_at)   -- 版本變更軌跡
+component_history(component_id, version_raw, changed_at)   -- 版本變更軌跡（記錄舊版本）
+
+asset_unresolved(asset_id, product_raw, version_raw, seen_at)  -- 未辨識的產品寫法，每次匯入該資產時整批取代
 
 catalog_product(id, key UNIQUE, display_name, vendor_display,
                 version_scheme, advisory_source NULL)
@@ -88,7 +91,9 @@ cpe = [{ part = "o", vendor = "synology", product = "diskstation_manager" }]
 cna = [{ vendor = "synology", product = "diskstation manager" }]
 ```
 
-其餘：`vmware-esxi`（scheme `esxi`，可吃 `8.0 U3c` 或 build `24414501`）、`vmware-vcenter`、`proxmox-ve`（`dotted`）、`dell-idrac9`（`dotted`）、`debian`、`ubuntu`、`rhel`、`windows-server`（`dotted`，以 build 比較）。
+其餘：`vmware-esxi`（scheme `esxi`，可吃 `8.0 U3c` 或 build `24414501`）、`vmware-vcenter`（`esxi`）、`proxmox-ve`（`dotted`）、`dell-idrac9`（`dotted`）、`dell-poweredge-bios`（`dotted`；CPE 依機型而異，種子不列）、`debian`、`ubuntu`（`ubuntu`，可吃 `22.04.4 LTS`）、`rhel`、`windows-server`（`dotted`，以 build 比較）。
+
+`key` 與 `display_name` 自動視為別名。使用者檔與既有產品同 `key` 時：有寫的欄位覆寫、沒寫的沿用，`aliases` 與既有別名合併（只想加別名時寫 `key` + `aliases` 即可）；新 `key` 必須提供 `display_name`、`vendor_display`、`version_scheme`。`catalog.d` 依檔名排序載入，未知欄位、不存在的 version_scheme 或別名衝突都拒絕載入（結束碼 2）。
 
 `version_scheme` 實際比較邏輯在 04 實作，02 只需在匯入時呼叫 `parse()` 檢查可否解析，不可解析者給警告。
 
@@ -97,8 +102,10 @@ cna = [{ vendor = "synology", product = "diskstation manager" }]
 `cvewatch asset import-packages <asset_tag> <file> [--format auto|cyclonedx|spdx|dpkg|rpm] [--distro debian-12]`
 
 - CycloneDX / SPDX：直接讀 component 的 purl
-- `dpkg-query -W -f='${Package}\t${Version}\n'` 輸出 → `pkg:deb/<distro>/<name>@<version>`
-- `rpm -qa --qf '%{NAME}\t%{EPOCH}:%{VERSION}-%{RELEASE}\n'` → `pkg:rpm/<distro>/<name>@<evr>`
+- `dpkg-query -W -f='${Package}\t${Version}\n'` 輸出 → `pkg:deb/<發行版名稱>/<name>@<version>?distro=<distro>`，例如 `pkg:deb/debian/openssl@3.0.15-1~deb12u1?distro=debian-12`；`name:arch` 轉為 `arch` qualifier；版本為空（已移除）的列略過
+- `rpm -qa --qf '%{NAME}\t%{EPOCH}:%{VERSION}-%{RELEASE}\n'` → `pkg:rpm/<namespace>/<name>@<version>-<release>?distro=<distro>[&epoch=N]`（purl 規範的 epoch qualifier，與 syft 一致）；namespace 對應 rhel→redhat、alma→almalinux、ol→oracle、amzn→amazon，其餘沿用發行版名稱
+- 元件以**不含版本**、並去掉 `epoch` / `upstream` qualifier 的 purl 識別（版本變更時更新同一元件並寫入 history）；完整 purl 另存 `purl_full`；`version_raw` 存完整版本，rpm 為 EVR（例如 `1:3.0.7-27.el9`），供 04 比較
+- 格式自動判斷：JSON 依 `bomFormat = CycloneDX` / `spdxVersion`；文字檔須每行為兩欄 tab 分隔，第二欄全部帶 `(none):` 或 `數字:` 前綴時視為 rpm，否則為 dpkg；判斷錯誤時以 `--format` 指定
 - dpkg/rpm 文字檔需 `--distro`（OSV 查詢需要 ecosystem，例如 `Debian:12`）
 - 匯入是**整批取代**該資產的 package component（不在新清單中的套件刪除），版本變更寫入 history
 
@@ -115,4 +122,4 @@ cvewatch asset import inventory.xlsx
 ## Risks / Trade-offs
 
 - 產品別名表需要持續維護 → 用 `catalog.d` 讓使用者不改程式就能擴充；`asset catalog --unresolved` 列出待補別名
-- ESXi 版本用「8.0 U3c」與 build number 兩種寫法，CVE 資料多半用前者、VMSA 用 build → scheme `esxi` 需要內建 Update 名稱 ↔ build 對照表（實作時從 Broadcom KB 整理，放在種子檔）
+- ESXi 版本用「8.0 U3c」與 build number 兩種寫法，CVE 資料多半用前者、VMSA 用 build → scheme `esxi` 需要內建 Update 名稱 ↔ build 對照表（由 04 任務 1.3 實作版本比較時從 Broadcom KB 整理並放入種子檔；02 只檢查可否解析）

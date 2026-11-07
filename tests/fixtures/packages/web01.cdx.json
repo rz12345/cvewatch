@@ -1,0 +1,41 @@
+{
+  "$schema": "http://cyclonedx.org/schema/bom-1.6.schema.json",
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.6",
+  "serialNumber": "urn:uuid:0d6c6a3e-2f1b-4f0f-9f55-0e5c2c1f1a01",
+  "version": 1,
+  "metadata": {
+    "tools": { "components": [{ "type": "application", "author": "anchore", "name": "syft", "version": "1.18.1" }] },
+    "component": { "type": "container", "name": "web01" }
+  },
+  "components": [
+    {
+      "bom-ref": "pkg:deb/debian/openssl@3.0.15-1~deb12u1?arch=amd64&distro=debian-12",
+      "type": "library",
+      "name": "openssl",
+      "version": "3.0.15-1~deb12u1",
+      "purl": "pkg:deb/debian/openssl@3.0.15-1~deb12u1?arch=amd64&distro=debian-12"
+    },
+    {
+      "type": "library",
+      "name": "libssl3",
+      "version": "3.0.15-1~deb12u1",
+      "purl": "pkg:deb/debian/libssl3@3.0.15-1~deb12u1?arch=amd64&distro=debian-12&upstream=openssl",
+      "components": [
+        {
+          "type": "library",
+          "name": "zlib1g",
+          "version": "1:1.2.13.dfsg-1",
+          "purl": "pkg:deb/debian/zlib1g@1%3A1.2.13.dfsg-1?arch=amd64&distro=debian-12&upstream=zlib"
+        }
+      ]
+    },
+    { "type": "file", "name": "/etc/os-release" },
+    {
+      "type": "library",
+      "name": "openssl",
+      "version": "3.0.15-1~deb12u1",
+      "purl": "pkg:deb/debian/openssl@3.0.15-1~deb12u1?arch=amd64&distro=debian-12"
+    }
+  ]
+}

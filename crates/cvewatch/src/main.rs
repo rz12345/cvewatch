@@ -52,7 +52,7 @@ fn dispatch(app: &app::App, command: Command, config_created: bool) -> Result<Ex
         Command::Init => commands::init::run(app, config_created),
         Command::Sync => Err(CoreError::NotImplemented("sync")),
         Command::Tui => Err(CoreError::NotImplemented("tui")),
-        Command::Asset => Err(CoreError::NotImplemented("asset")),
+        Command::Asset { action } => commands::asset::run(app, action),
         Command::Config { action } => match action {
             ConfigAction::SetSecret { key } => commands::config::set_secret(app, &key),
             ConfigAction::Check => commands::config::check(app),

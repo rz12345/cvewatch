@@ -1,0 +1,4 @@
+openssl	3.0.15-1~deb12u1
+libfoo	1.0-1
+curl	7.88.1-10+deb12u8
+old-removed	

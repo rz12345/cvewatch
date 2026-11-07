@@ -83,6 +83,14 @@ pub enum CoreError {
     #[error(transparent)]
     Http(#[from] HttpError),
 
+    #[error("匯入中止，共 {} 個錯誤，資料庫未變更：
+  {}", .0.len(), .0.join("
+  "))]
+    ImportRejected(Vec<String>),
+
+    #[error("產品目錄錯誤：{0}")]
+    Catalog(String),
+
     #[error("{0}")]
     Invalid(String),
 
@@ -100,7 +108,7 @@ impl CoreError {
 
     pub fn exit_code(&self) -> ExitCode {
         match self {
-            CoreError::Config(_) => ExitCode::ConfigError,
+            CoreError::Config(_) | CoreError::Catalog(_) => ExitCode::ConfigError,
             CoreError::SyncLocked { .. } => ExitCode::SyncLocked,
             CoreError::DbKeyMissing | CoreError::DbKeyInvalid | CoreError::BackupKeyInvalid => {
                 ExitCode::DbKeyError

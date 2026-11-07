@@ -13,6 +13,10 @@
 - **WHEN** 使用者執行 `cvewatch asset import-packages WEB-01 web01.cdx.json`
 - **THEN** 檔案中每個帶 purl 的元件成為 `WEB-01` 的套件元件
 
+#### Scenario: Telling rpm output from dpkg output
+- **WHEN** 未指定格式，匯入的文字檔每行第二欄都是 `(none):` 或 `數字:` 開頭
+- **THEN** 系統視為 `rpm -qa` 輸出；否則視為 `dpkg-query -W` 輸出
+
 #### Scenario: Unknown format
 - **WHEN** 檔案內容不屬於任何支援格式
 - **THEN** 匯入失敗並列出支援的格式
@@ -23,6 +27,10 @@
 #### Scenario: dpkg list without distro
 - **WHEN** 匯入 dpkg 輸出但未提供 `--distro`
 - **THEN** 匯入失敗並提示需要 `--distro`，例如 `debian-12`
+
+#### Scenario: rpm list with epoch
+- **WHEN** 匯入含 `openssl\t1:3.0.7-27.el9` 的 rpm 輸出，`--distro rhel-9`
+- **THEN** 產生元件 purl `pkg:rpm/redhat/openssl@3.0.7-27.el9?distro=rhel-9&epoch=1`，元件版本記錄為 `1:3.0.7-27.el9`
 
 #### Scenario: dpkg list with distro
 - **WHEN** 匯入含 `openssl\t3.0.15-1~deb12u1` 的 dpkg 輸出，`--distro debian-12`

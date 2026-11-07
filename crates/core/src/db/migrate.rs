@@ -12,11 +12,18 @@ pub struct Migration {
 }
 
 /// 程式內建的 migration，版本號必須遞增。
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "0001_init",
-    sql: include_str!("migrations/0001_init.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "0001_init",
+        sql: include_str!("migrations/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "0002_assets",
+        sql: include_str!("migrations/0002_assets.sql"),
+    },
+];
 
 pub fn latest_version() -> u32 {
     MIGRATIONS.last().map_or(0, |m| m.version)

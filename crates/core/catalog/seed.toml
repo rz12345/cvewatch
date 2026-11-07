@@ -1,0 +1,152 @@
+# cvewatch 內建產品目錄（種子）
+#
+# 欄位：
+#   key              產品識別（小寫英數字與 -）
+#   display_name     顯示名稱（自動視為別名）
+#   vendor_display   廠商顯示名稱
+#   version_scheme   版本格式：dotted、panos、dsm、esxi、ubuntu
+#   advisory_source  原廠公告來源 id（對應 [[sources.csaf]]），選填
+#   aliases          清冊中可能出現的寫法；比較前會 NFKC、小寫並移除空白與 -_./
+#   cpe              NVD CPE 的 part / vendor / product
+#   cna              CVE 5.x 記錄 affected[] 的 vendor / product 寫法
+#   csaf             CSAF 公告 product_tree 的 vendor / product_name
+#
+# 使用者可在 <data_dir>\catalog.d\*.toml 以相同格式擴充：
+#   新 key → 新增產品；既有 key → 有寫的欄位覆寫、沒寫的沿用，aliases 合併。
+#   例：為 ESXi 增加別名
+#     [[product]]
+#     key = "vmware-esxi"
+#     aliases = ["r6515 esxi"]
+
+# ── 網路 / 資安 ─────────────────────────────────────────────
+
+[[product]]
+key = "paloalto-panos"
+display_name = "PAN-OS"
+vendor_display = "Palo Alto Networks"
+version_scheme = "panos"          # 11.1.4-h7
+advisory_source = "paloalto"
+aliases = ["panos", "palo alto", "palo alto networks", "palo alto pan-os", "pa-460",
+           "palo alto pa-460", "pa-series"]
+cpe = [{ part = "o", vendor = "paloaltonetworks", product = "pan-os" }]
+cna = [{ vendor = "Palo Alto Networks", product = "PAN-OS" }]
+csaf = [{ vendor = "Palo Alto Networks", product = "PAN-OS" }]
+
+# ── 虛擬化 / 伺服器 ─────────────────────────────────────────
+
+[[product]]
+key = "vmware-esxi"
+display_name = "ESXi"
+vendor_display = "VMware by Broadcom"
+version_scheme = "esxi"           # 8.0 U3c 或 build 24414501
+aliases = ["vmware esxi", "vsphere esxi", "esx"]
+cpe = [{ part = "o", vendor = "vmware", product = "esxi" }]
+cna = [
+  { vendor = "VMware", product = "ESXi" },
+  { vendor = "VMware", product = "VMware ESXi" },
+]
+
+[[product]]
+key = "vmware-vcenter"
+display_name = "vCenter Server"
+vendor_display = "VMware by Broadcom"
+version_scheme = "esxi"           # 8.0 U3b 或 build
+aliases = ["vcenter", "vmware vcenter", "vmware vcenter server", "vcsa"]
+cpe = [{ part = "a", vendor = "vmware", product = "vcenter_server" }]
+cna = [
+  { vendor = "VMware", product = "vCenter Server" },
+  { vendor = "VMware", product = "VMware vCenter Server" },
+]
+
+[[product]]
+key = "proxmox-ve"
+display_name = "Proxmox VE"
+vendor_display = "Proxmox Server Solutions"
+version_scheme = "dotted"         # 8.2.4
+aliases = ["proxmox", "pve", "proxmox virtual environment"]
+cpe = [{ part = "a", vendor = "proxmox", product = "virtual_environment" }]
+
+[[product]]
+key = "dell-idrac9"
+display_name = "iDRAC9"
+vendor_display = "Dell"
+version_scheme = "dotted"         # 7.10.30.00
+aliases = ["idrac", "dell idrac", "dell idrac9", "integrated dell remote access controller 9"]
+cpe = [{ part = "o", vendor = "dell", product = "idrac9_firmware" }]
+cna = [
+  { vendor = "Dell", product = "iDRAC9" },
+  { vendor = "Dell", product = "Integrated Dell Remote Access Controller 9" },
+]
+
+[[product]]
+key = "dell-poweredge-bios"
+display_name = "PowerEdge BIOS"
+vendor_display = "Dell"
+version_scheme = "dotted"         # 2.16.0
+# CPE 依機型而異（例如 poweredge_r6515_firmware），需要時在 catalog.d 補上
+aliases = ["dell bios", "poweredge bios", "dell poweredge bios", "poweredge r6515 bios",
+           "r6515 bios", "dell r6515 bios"]
+
+# ── 儲存 ────────────────────────────────────────────────────
+
+[[product]]
+key = "synology-dsm"
+display_name = "DiskStation Manager"
+vendor_display = "Synology"
+version_scheme = "dsm"            # 7.2.2-72806 Update 3
+aliases = ["dsm", "synology", "synology dsm", "synology diskstation manager", "rs3617rpxs"]
+cpe = [{ part = "o", vendor = "synology", product = "diskstation_manager" }]
+cna = [
+  { vendor = "Synology", product = "DiskStation Manager (DSM)" },
+  { vendor = "Synology", product = "DiskStation Manager" },
+]
+
+# ── 作業系統（OS 套件另以 asset import-packages 匯入）──────────
+
+[[product]]
+key = "debian"
+display_name = "Debian"
+vendor_display = "Debian"
+version_scheme = "dotted"         # 12.7
+aliases = ["debian linux", "debian gnu/linux"]
+cpe = [{ part = "o", vendor = "debian", product = "debian_linux" }]
+
+[[product]]
+key = "ubuntu"
+display_name = "Ubuntu"
+vendor_display = "Canonical"
+version_scheme = "ubuntu"         # 22.04.4 LTS
+aliases = ["ubuntu linux", "ubuntu server"]
+cpe = [{ part = "o", vendor = "canonical", product = "ubuntu_linux" }]
+
+[[product]]
+key = "rhel"
+display_name = "Red Hat Enterprise Linux"
+vendor_display = "Red Hat"
+version_scheme = "dotted"         # 9.4
+aliases = ["red hat", "redhat", "redhat enterprise linux"]
+cpe = [{ part = "o", vendor = "redhat", product = "enterprise_linux" }]
+cna = [
+  { vendor = "Red Hat", product = "Red Hat Enterprise Linux 8" },
+  { vendor = "Red Hat", product = "Red Hat Enterprise Linux 9" },
+]
+
+[[product]]
+key = "windows-server"
+display_name = "Windows Server"
+vendor_display = "Microsoft"
+version_scheme = "dotted"         # OS build：10.0.20348.2700
+aliases = ["windows", "win server", "windows server 2016", "windows server 2019",
+           "windows server 2022", "windows server 2025"]
+cpe = [
+  { part = "o", vendor = "microsoft", product = "windows_server_2016" },
+  { part = "o", vendor = "microsoft", product = "windows_server_2019" },
+  { part = "o", vendor = "microsoft", product = "windows_server_2022" },
+  { part = "o", vendor = "microsoft", product = "windows_server_2025" },
+]
+cna = [
+  { vendor = "Microsoft", product = "Windows Server 2016" },
+  { vendor = "Microsoft", product = "Windows Server 2019" },
+  { vendor = "Microsoft", product = "Windows Server 2022" },
+  { vendor = "Microsoft", product = "Windows Server 2025" },
+]

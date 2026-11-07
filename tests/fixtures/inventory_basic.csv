@@ -1,0 +1,3 @@
+﻿asset_tag,name,category,product,version,exposure,criticality
+FW-01,fw01,security,PAN-OS,11.1.4-h7,internet,3
+R6515-01,esx01,virtualization,ESXi,8.0 U3c,mgmt,3

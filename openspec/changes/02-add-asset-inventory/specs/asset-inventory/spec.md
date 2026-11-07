@@ -63,6 +63,10 @@
 - **WHEN** 某列曝露度填寫 `public`
 - **THEN** 匯入中止並指出該列曝露度不是允許的值
 
+#### Scenario: Invalid category value
+- **WHEN** 某列 category 填寫 `printer`（不屬於 network、security、virtualization、server、storage、host）
+- **THEN** 匯入中止並指出該列 category 不是允許的值
+
 ### Requirement: Blank template export
 系統 SHALL 提供 `cvewatch asset template <path.xlsx>`，產出含 `assets` 與 `components` 工作表、標準欄名與範例列的空白範本。
 

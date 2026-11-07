@@ -54,7 +54,12 @@ pub fn run(
     store: &dyn SecretStore,
     config_created: bool,
 ) -> Result<InitReport, CoreError> {
-    for dir in [&paths.data_dir, &paths.log_dir, &paths.cvelist_cache_dir] {
+    for dir in [
+        &paths.data_dir,
+        &paths.log_dir,
+        &paths.cvelist_cache_dir,
+        &paths.catalog_dir,
+    ] {
         std::fs::create_dir_all(dir).map_err(|e| CoreError::io(dir, e))?;
     }
     let cloud_sync_warning = paths.is_in_cloud_sync_folder();

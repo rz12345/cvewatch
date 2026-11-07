@@ -1,0 +1,2 @@
+openssl	3.0.15-1~deb12u2
+curl	7.88.1-10+deb12u8

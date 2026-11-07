@@ -3,6 +3,7 @@
 //! 秘密不在設定檔中（見 [`crate::secrets`]）。未知欄位只產生警告；型別或範圍錯誤
 //! 回傳 [`ConfigError::Invalid`]，對應結束碼 2。
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::de::Error as _;
@@ -47,6 +48,7 @@ pub struct Config {
     pub http: HttpConfig,
     pub sources: SourcesConfig,
     pub log: LogConfig,
+    pub import: ImportConfig,
     /// 由 change 04 定義；目前接受任意內容。
     pub scoring: toml::Table,
     /// 由 change 06 定義；目前接受任意內容。
@@ -60,6 +62,7 @@ impl Default for Config {
             http: HttpConfig::default(),
             sources: SourcesConfig::default(),
             log: LogConfig::default(),
+            import: ImportConfig::default(),
             scoring: toml::Table::new(),
             notify: toml::Table::new(),
         }
@@ -143,6 +146,28 @@ impl Default for LogConfig {
             level: LogLevel::default(),
         }
     }
+}
+
+/// 清冊匯入設定。
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(default)]
+pub struct ImportConfig {
+    /// 自訂欄名 → 標準欄位，例如 `財產編號 = "asset_tag"`
+    #[serde(deserialize_with = "column_targets")]
+    pub columns: BTreeMap<String, String>,
+}
+
+fn column_targets<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, String>, D::Error> {
+    use crate::assets::columns::StandardField;
+    let map = BTreeMap::<String, String>::deserialize(d)?;
+    if let Some((header, target)) = map.iter().find(|(_, t)| StandardField::parse(t).is_none()) {
+        let allowed: Vec<&str> = StandardField::ALL.iter().map(|f| f.as_str()).collect();
+        return Err(D::Error::custom(format!(
+            "「{header}」對應的 `{target}` 不是標準欄位；可用：{}",
+            allowed.join("、")
+        )));
+    }
+    Ok(map)
 }
 
 /// 載入結果：設定、未知欄位警告、是否使用內建預設值。
@@ -275,6 +300,12 @@ paloalto_enabled = true
 retention_days = {DEFAULT_LOG_RETENTION_DAYS}
 level = "info"
 
+[import.columns]
+# 現有清冊使用自訂欄名時，在此對應到標準欄位
+# （asset_tag、name、category、product、version、exposure、criticality、location、owner、notes）
+# "財產編號" = "asset_tag"
+# "設備名稱" = "name"
+
 [scoring]   # 風險排序參數（後續版本使用）
 
 [notify]    # Email / Redmine 通知（後續版本使用）
@@ -368,6 +399,23 @@ mod tests {
         assert_eq!(
             cfg.scoring.get("weight").and_then(|v| v.as_integer()),
             Some(3)
+        );
+    }
+
+    #[test]
+    fn import_columns_are_validated() {
+        let src = "[import.columns]
+\"財產編號\" = \"asset_tag\"
+";
+        let (cfg, _) = parse(src, p()).unwrap();
+        assert_eq!(cfg.import.columns["財產編號"], "asset_tag");
+        let bad = "[import.columns]
+\"序號\" = \"serial\"
+";
+        let msg = parse(bad, p()).unwrap_err().to_string();
+        assert!(
+            msg.contains("import.columns") && msg.contains("serial"),
+            "{msg}"
         );
     }
 

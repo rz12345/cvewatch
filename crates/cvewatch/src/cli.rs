@@ -2,7 +2,7 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -30,8 +30,11 @@ pub enum Command {
     Sync,
     /// 開啟文字介面（尚未實作）
     Tui,
-    /// 管理資產清冊（尚未實作）
-    Asset,
+    /// 資產清冊：匯入 Excel/CSV 與套件清單、檢視資產與產品目錄
+    Asset {
+        #[command(subcommand)]
+        action: AssetAction,
+    },
     /// 設定與秘密
     Config {
         #[command(subcommand)]
@@ -50,7 +53,7 @@ impl Command {
             Command::Init => "init",
             Command::Sync => "sync",
             Command::Tui => "tui",
-            Command::Asset => "asset",
+            Command::Asset { .. } => "asset",
             Command::Config { .. } => "config",
             Command::Db { .. } => "db",
         }
@@ -99,4 +102,91 @@ pub enum DbAction {
         #[arg(long)]
         recovery_key: bool,
     },
+}
+
+const CATEGORIES: [&str; 6] = [
+    "network",
+    "security",
+    "virtualization",
+    "server",
+    "storage",
+    "host",
+];
+
+#[derive(Debug, Subcommand)]
+pub enum AssetAction {
+    /// 匯入 Excel（assets / components 工作表）或 CSV 清冊；以 asset_tag 新增或更新
+    Import {
+        /// 清冊檔（.xlsx 或 .csv）
+        file: PathBuf,
+        /// CSV 匯入時的元件檔（欄位 asset_tag、product、version）
+        #[arg(long, value_name = "CSV")]
+        components: Option<PathBuf>,
+        /// 只顯示差異，不寫入資料庫
+        #[arg(long)]
+        dry_run: bool,
+        /// 將清冊中消失的資產標為退役
+        #[arg(long)]
+        prune: bool,
+    },
+    /// 匯入主機套件清單（CycloneDX / SPDX JSON、dpkg-query -W、rpm -qa），整批取代該資產的套件
+    ImportPackages {
+        /// 資產編號（須已存在且為 active）
+        asset_tag: String,
+        /// 套件清單檔
+        file: PathBuf,
+        /// 檔案格式
+        #[arg(long, value_enum, default_value_t = PackageFormatArg::Auto)]
+        format: PackageFormatArg,
+        /// 發行版（dpkg / rpm 必填），例如 debian-12、ubuntu-22.04、rhel-9
+        #[arg(long)]
+        distro: Option<String>,
+    },
+    /// 列出資產
+    List {
+        /// 只列出指定類別
+        #[arg(long, value_parser = CATEGORIES)]
+        category: Option<String>,
+        /// 只列出含未辨識產品的資產
+        #[arg(long)]
+        unresolved: bool,
+    },
+    /// 顯示單一資產的元件與版本歷史
+    Show {
+        /// 資產編號
+        asset_tag: String,
+    },
+    /// 匯出空白 Excel 範本（assets、components 工作表）
+    Template {
+        /// 輸出路徑（.xlsx，不可已存在）
+        path: PathBuf,
+    },
+    /// 產品目錄（內建種子 + <data_dir>\catalog.d\*.toml）
+    Catalog {
+        /// 列出清冊中無法辨識的產品寫法與出現的資產
+        #[arg(long)]
+        unresolved: bool,
+        #[command(subcommand)]
+        action: Option<CatalogAction>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CatalogAction {
+    /// 列出所有產品
+    List,
+    /// 顯示產品的別名、CPE、CNA、CSAF 識別
+    Show {
+        /// 產品 key，例如 paloalto-panos
+        key: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum PackageFormatArg {
+    Auto,
+    Cyclonedx,
+    Spdx,
+    Dpkg,
+    Rpm,
 }

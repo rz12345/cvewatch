@@ -12,6 +12,7 @@ pub const DB_FILE_NAME: &str = "cvewatch.db";
 pub const LOG_DIR_NAME: &str = "logs";
 pub const CACHE_DIR_NAME: &str = "cache";
 pub const CVELIST_CACHE_DIR_NAME: &str = "cvelist";
+pub const CATALOG_DIR_NAME: &str = "catalog.d";
 
 /// 設定檔路徑的來源。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -77,6 +78,8 @@ pub struct DataPaths {
     pub db_path: PathBuf,
     pub log_dir: PathBuf,
     pub cvelist_cache_dir: PathBuf,
+    /// 使用者產品目錄擴充檔（`*.toml`）
+    pub catalog_dir: PathBuf,
 }
 
 impl DataPaths {
@@ -86,6 +89,7 @@ impl DataPaths {
             db_path: data_dir.join(DB_FILE_NAME),
             log_dir: data_dir.join(LOG_DIR_NAME),
             cvelist_cache_dir: data_dir.join(CACHE_DIR_NAME).join(CVELIST_CACHE_DIR_NAME),
+            catalog_dir: data_dir.join(CATALOG_DIR_NAME),
             data_dir,
         }
     }

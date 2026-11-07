@@ -5,23 +5,30 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+calamine = "0.38.0"
 chrono = "0.4.45"
+csv = "1.4.0"
 data-encoding = "2.11.1"
 directories = "6.0.0"
 keyring = "4.2.0"
+packageurl = "0.7.1"
 rand = "0.10.3"
 regex = "1.13.1"
 reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy", "http2", "charset"] }
 rusqlite = { version = "0.41.1", features = ["bundled-sqlcipher-vendored-openssl"] }
+rust_xlsxwriter = "0.102.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_ignored = "0.1.14"
+serde_json = "1.0.154"
 serde_path_to_error = "0.1.20"
+strsim = "0.11.1"
 thiserror = "2.0.21"
 tokio = { version = "1.54.1", features = ["time"] }
 toml = "1.2.1"
 tracing = "0.1.44"
 tracing-appender = "0.2.5"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+unicode-normalization = "0.1.26"
 url = "2.5.8"
 zeroize = "1.9.1"
 

@@ -1,0 +1,242 @@
+//! 匯入差異計算（純函式）：新增、更新、版本變更、未辨識、清冊中消失。
+
+use std::collections::{BTreeMap, HashMap, HashSet};
+
+use super::model::{AssetRecord, AssetStatus};
+use super::validate::{IncomingAsset, Inventory, RowRef};
+use crate::catalog::Catalog;
+use crate::error::CoreError;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResolvedComponent {
+    pub row: RowRef,
+    pub product_key: String,
+    pub version_raw: String,
+    pub version_norm: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnresolvedItem {
+    pub row: RowRef,
+    pub asset_tag: String,
+    pub product_raw: String,
+    pub version_raw: String,
+    pub suggestions: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionWarning {
+    pub row: RowRef,
+    pub asset_tag: String,
+    pub product_key: String,
+    pub version_raw: String,
+    pub scheme: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionChange {
+    pub product_key: String,
+    pub from: String,
+    pub to: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct AssetUpdate {
+    pub asset_tag: String,
+    pub changed_fields: Vec<&'static str>,
+    pub version_changes: Vec<VersionChange>,
+    pub components_added: Vec<String>,
+    pub components_removed: Vec<String>,
+    pub reactivated: bool,
+}
+
+/// 要寫入的一筆資產（含已辨識元件與未辨識寫法）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PlannedAsset {
+    pub record: AssetRecord,
+    pub components: Vec<ResolvedComponent>,
+    pub unresolved: Vec<(String, String)>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct ImportPlan {
+    pub assets: Vec<PlannedAsset>,
+    pub added: Vec<String>,
+    pub updated: Vec<AssetUpdate>,
+    pub unchanged: usize,
+    pub unresolved: Vec<UnresolvedItem>,
+    pub disappeared: Vec<String>,
+    pub warnings: Vec<VersionWarning>,
+}
+
+impl ImportPlan {
+    pub fn version_change_count(&self) -> usize {
+        self.updated.iter().map(|u| u.version_changes.len()).sum()
+    }
+}
+
+/// 資料庫中的現況（以 asset_tag 為鍵）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CurrentAsset {
+    pub id: i64,
+    pub record: AssetRecord,
+    pub status: AssetStatus,
+    /// Excel 來源的產品元件：product_key → version_raw
+    pub components: BTreeMap<String, String>,
+}
+
+pub type Snapshot = HashMap<String, CurrentAsset>;
+
+pub fn plan_import(
+    inventory: &Inventory,
+    catalog: &Catalog,
+    current: &Snapshot,
+) -> Result<ImportPlan, CoreError> {
+    let mut errors = Vec::new();
+    let mut plan = ImportPlan::default();
+    for incoming in &inventory.assets {
+        let planned = resolve_asset(incoming, catalog, &mut plan, &mut errors);
+        let tag = &planned.record.asset_tag;
+        match current.get(tag) {
+            None => plan.added.push(tag.clone()),
+            Some(existing) => match diff_asset(existing, &planned) {
+                Some(update) => plan.updated.push(update),
+                None => plan.unchanged += 1,
+            },
+        }
+        plan.assets.push(planned);
+    }
+    if !errors.is_empty() {
+        return Err(CoreError::ImportRejected(errors));
+    }
+    let incoming_tags: HashSet<&str> = plan
+        .assets
+        .iter()
+        .map(|a| a.record.asset_tag.as_str())
+        .collect();
+    let mut disappeared: Vec<String> = current
+        .values()
+        .filter(|a| a.status == AssetStatus::Active)
+        .map(|a| a.record.asset_tag.clone())
+        .filter(|tag| !incoming_tags.contains(tag.as_str()))
+        .collect();
+    disappeared.sort();
+    plan.disappeared = disappeared;
+    Ok(plan)
+}
+
+/// 以目錄辨識元件；未辨識者記錄建議，重複的產品視為列錯誤。
+fn resolve_asset(
+    incoming: &IncomingAsset,
+    catalog: &Catalog,
+    plan: &mut ImportPlan,
+    errors: &mut Vec<String>,
+) -> PlannedAsset {
+    let tag = &incoming.record.asset_tag;
+    let mut components: Vec<ResolvedComponent> = Vec::new();
+    let mut unresolved = Vec::new();
+    for c in &incoming.components {
+        let Some(product) = catalog.resolve(&c.product_raw) else {
+            plan.unresolved.push(UnresolvedItem {
+                row: c.row,
+                asset_tag: tag.clone(),
+                product_raw: c.product_raw.clone(),
+                version_raw: c.version_raw.clone(),
+                suggestions: catalog
+                    .suggest(&c.product_raw)
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+            });
+            unresolved.push((c.product_raw.clone(), c.version_raw.clone()));
+            continue;
+        };
+        if let Some(first) = components.iter().find(|r| r.product_key == product.key) {
+            errors.push(format!(
+                "{}：{} 的產品「{}」與{}重複（皆為 {}）",
+                c.row, tag, c.product_raw, first.row, product.key
+            ));
+            continue;
+        }
+        let parsed = product.scheme().parse(&c.version_raw);
+        if parsed.is_none() {
+            plan.warnings.push(VersionWarning {
+                row: c.row,
+                asset_tag: tag.clone(),
+                product_key: product.key.clone(),
+                version_raw: c.version_raw.clone(),
+                scheme: product.version_scheme.clone(),
+            });
+        }
+        components.push(ResolvedComponent {
+            row: c.row,
+            product_key: product.key.clone(),
+            version_raw: c.version_raw.clone(),
+            version_norm: parsed.map(|p| p.normalized),
+        });
+    }
+    PlannedAsset {
+        record: incoming.record.clone(),
+        components,
+        unresolved,
+    }
+}
+
+fn changed_fields(old: &AssetRecord, new: &AssetRecord) -> Vec<&'static str> {
+    let checks: [(&'static str, bool); 7] = [
+        ("name", old.name != new.name),
+        ("category", old.category != new.category),
+        ("location", old.location != new.location),
+        ("owner", old.owner != new.owner),
+        ("exposure", old.exposure != new.exposure),
+        ("criticality", old.criticality != new.criticality),
+        ("notes", old.notes != new.notes),
+    ];
+    checks
+        .into_iter()
+        .filter(|(_, changed)| *changed)
+        .map(|(name, _)| name)
+        .collect()
+}
+
+fn diff_asset(existing: &CurrentAsset, planned: &PlannedAsset) -> Option<AssetUpdate> {
+    let incoming: BTreeMap<&str, &str> = planned
+        .components
+        .iter()
+        .map(|c| (c.product_key.as_str(), c.version_raw.as_str()))
+        .collect();
+    let version_changes = incoming
+        .iter()
+        .filter_map(|(key, version)| {
+            let old = existing.components.get(*key)?;
+            (old != version).then(|| VersionChange {
+                product_key: key.to_string(),
+                from: old.clone(),
+                to: version.to_string(),
+            })
+        })
+        .collect();
+    let update = AssetUpdate {
+        asset_tag: planned.record.asset_tag.clone(),
+        changed_fields: changed_fields(&existing.record, &planned.record),
+        version_changes,
+        components_added: incoming
+            .keys()
+            .filter(|k| !existing.components.contains_key(**k))
+            .map(|k| k.to_string())
+            .collect(),
+        components_removed: existing
+            .components
+            .keys()
+            .filter(|k| !incoming.contains_key(k.as_str()))
+            .cloned()
+            .collect(),
+        reactivated: existing.status == AssetStatus::Retired,
+    };
+    let changed = !update.changed_fields.is_empty()
+        || !update.version_changes.is_empty()
+        || !update.components_added.is_empty()
+        || !update.components_removed.is_empty()
+        || update.reactivated;
+    changed.then_some(update)
+}

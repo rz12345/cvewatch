@@ -2,6 +2,8 @@
 //!
 //! 執行檔 `cvewatch` 只負責參數解析與互動提示，所有可測試的邏輯都放在這裡。
 
+pub mod assets;
+pub mod catalog;
 pub mod config;
 pub mod db;
 pub mod error;

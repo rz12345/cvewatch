@@ -74,7 +74,7 @@ fn backup_flags_conflict() {
 #[test]
 fn not_implemented_commands_exit_1() {
     let (_dir, cfg) = config_with("");
-    for sub in ["sync", "tui", "asset"] {
+    for sub in ["sync", "tui"] {
         cvewatch()
             .arg("--config")
             .arg(&cfg)
@@ -166,4 +166,130 @@ fn restore_key_flags_conflict() {
         .args(["db", "restore", "x.db", "--passphrase", "--recovery-key"])
         .assert()
         .code(1);
+}
+
+#[test]
+fn asset_subcommands_support_help() {
+    for sub in [
+        "import",
+        "import-packages",
+        "list",
+        "show",
+        "template",
+        "catalog",
+    ] {
+        cvewatch().args(["asset", sub, "--help"]).assert().success();
+    }
+    cvewatch()
+        .args(["asset", "catalog", "show", "--help"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn asset_without_subcommand_exits_1() {
+    cvewatch().arg("asset").assert().code(1);
+}
+
+#[test]
+fn invalid_package_format_is_rejected_by_parser() {
+    cvewatch()
+        .args([
+            "asset",
+            "import-packages",
+            "WEB-01",
+            "x.json",
+            "--format",
+            "bogus",
+        ])
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn template_writes_xlsx_and_refuses_overwrite() {
+    let (dir, cfg) = config_with("");
+    let out = dir.path().join("inv.xlsx");
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["asset", "template"])
+        .arg(&out)
+        .assert()
+        .success();
+    assert!(out.exists());
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["asset", "template"])
+        .arg(&out)
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn catalog_list_and_show_use_seed_and_user_files() {
+    let (dir, cfg) = config_with("");
+    let catalog_dir = dir.path().join("data").join("catalog.d");
+    std::fs::create_dir_all(&catalog_dir).unwrap();
+    std::fs::write(
+        catalog_dir.join("local.toml"),
+        "[[product]]
+key = \"vmware-esxi\"
+aliases = [\"r6515 esxi\"]
+",
+    )
+    .unwrap();
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["asset", "catalog", "list"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("paloalto-panos"));
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["asset", "catalog", "show", "vmware-esxi"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("r6515 esxi"));
+}
+
+#[test]
+fn conflicting_user_catalog_exits_2() {
+    let (dir, cfg) = config_with("");
+    let catalog_dir = dir.path().join("data").join("catalog.d");
+    std::fs::create_dir_all(&catalog_dir).unwrap();
+    std::fs::write(
+        catalog_dir.join("bad.toml"),
+        "[[product]]
+key = \"vmware-vcenter\"
+aliases = [\"esxi\"]
+",
+    )
+    .unwrap();
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["asset", "catalog", "list"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("vmware-esxi"));
+}
+
+#[test]
+fn invalid_import_column_target_exits_2() {
+    let (_dir, cfg) = config_with(
+        "[import.columns]
+\"序號\" = \"serial\"
+",
+    );
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["asset", "catalog", "list"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("import.columns"));
 }

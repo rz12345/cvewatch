@@ -7,7 +7,7 @@
 ## What Changes
 
 - 資產模型分兩層：**Asset**（一台實體/虛擬設備）→ **Component**（該設備上要追蹤版本的軟體/韌體，例如 R6515 上的 iDRAC、BIOS、ESXi）
-- **產品目錄（product catalog）**：每個產品定義正規名稱、別名、CPE `vendor:product`、CVE.org CNA 的 vendor/product 寫法、版本格式（version scheme）、原廠公告來源；內建種子資料涵蓋 PAN-OS、ESXi、vCenter、Proxmox VE、iDRAC、Synology DSM、Debian/Ubuntu/RHEL/Windows Server
+- **產品目錄（product catalog）**：每個產品定義正規名稱、別名、CPE `vendor:product`、CVE.org CNA 的 vendor/product 寫法、版本格式（version scheme）、原廠公告來源；內建種子資料涵蓋 PAN-OS、ESXi、vCenter、Proxmox VE、iDRAC、Dell PowerEdge BIOS、Synology DSM、Debian/Ubuntu/RHEL/Windows Server
 - Excel（.xlsx）與 CSV 匯入：欄位對應、`--dry-run` 差異預覽、以 `asset_tag` upsert、`--prune` 才會把清冊中消失的資產標為退役
 - SBOM / 套件清單匯入：CycloneDX JSON、SPDX JSON（syft 產出）、`dpkg-query -W` 與 `rpm -qa` 文字輸出，轉成帶 purl 的 package component
 - 資產屬性：曝露度（internet / dmz / internal / mgmt）與重要性（1–3），供 04 風險排序使用

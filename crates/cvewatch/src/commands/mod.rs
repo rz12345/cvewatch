@@ -1,3 +1,5 @@
+pub mod asset;
+mod asset_view;
 pub mod config;
 pub mod db;
 pub mod init;
