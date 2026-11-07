@@ -37,11 +37,15 @@
 - **THEN** 產生元件 purl `pkg:deb/debian/openssl@3.0.15-1~deb12u1?distro=debian-12`
 
 ### Requirement: Package list replaces previous snapshot
-同一資產的套件匯入 SHALL 整批取代先前的套件元件；版本變更 SHALL 寫入元件歷史。
+同一資產的套件匯入 SHALL 整批取代先前的套件元件；版本變更 SHALL 寫入元件歷史。新清單中已沒有的套件元件 SHALL 標記為已移除（不再參與比對，其命中與處理紀錄保留），同一套件再次出現時 SHALL 沿用原元件。
 
 #### Scenario: Package removed from host
 - **WHEN** 新清單中已沒有 `libfoo`
-- **THEN** `libfoo` 元件被刪除，其他套件依新版本更新
+- **THEN** `libfoo` 元件標記為已移除、不再參與比對，其他套件依新版本更新
+
+#### Scenario: Package reappears
+- **WHEN** 之後的清單又出現 `libfoo`
+- **THEN** 沿用原 `libfoo` 元件與其命中，不建立新元件
 
 ### Requirement: Package import targets an existing asset
 套件匯入 SHALL 只接受已存在且為 active 的 `asset_tag`。

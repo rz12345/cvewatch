@@ -1,0 +1,104 @@
+# vuln-matching Specification
+
+## Purpose
+
+判定每個資產元件是否受各 CVE 影響，結果必須可解釋（說明依據的來源與版本區間），並在來源矛盾時讓使用者看得到。
+
+## Requirements
+
+### Requirement: Vendor-specific version comparison
+系統 SHALL 依產品目錄宣告的版本格式比較版本，並 SHALL 支援 dotted、PAN-OS（含 `-hN` 熱修）、ESXi（Update 名稱與 build 編號）與 Synology DSM 格式。
+
+#### Scenario: PAN-OS hotfix ordering
+- **WHEN** 比較 `11.1.4-h7` 與 `11.1.4-h12`
+- **THEN** `11.1.4-h7` 小於 `11.1.4-h12`
+
+#### Scenario: PAN-OS hotfix versus next maintenance release
+- **WHEN** 比較 `11.1.4-h12` 與 `11.1.5`
+- **THEN** `11.1.4-h12` 小於 `11.1.5`
+
+#### Scenario: ESXi update naming
+- **WHEN** 比較 `8.0 U3c` 與 `8.0 Update 2`
+- **THEN** `8.0 U3c` 大於 `8.0 Update 2`
+
+#### Scenario: DSM version without build
+- **WHEN** CNA 記錄 `version: 7.2.1, status: affected`，元件版本為 `7.2.1-69057 Update 3`
+- **THEN** 判定為受影響（沒寫 build 的版本涵蓋整條 7.2.1 版本線）
+
+#### Scenario: Pre-release suffix in dotted versions
+- **WHEN** 比較 `3.0.0-rc2`、`3.0.0-rc10`、`3.0.0` 與 `3.0.0a`
+- **THEN** 順序為 `3.0.0-rc2` < `3.0.0-rc10` < `3.0.0` < `3.0.0a`
+
+#### Scenario: Unparseable version
+- **WHEN** 元件版本無法以其格式解析
+- **THEN** 該元件對任何版本區間的判定結果為未知，不判定為不受影響
+
+### Requirement: CNA affected range evaluation
+系統 SHALL 依 CVE 記錄格式 5.x 的 `versions`、`lessThan`、`lessThanOrEqual`、`changes` 與 `defaultStatus` 語意判定元件版本狀態。
+
+#### Scenario: Version inside lessThan range
+- **WHEN** CNA 記錄 `version: 11.1.0, lessThan: 11.1.6, status: affected`，元件版本為 `11.1.4-h7`
+- **THEN** 判定為受影響
+
+#### Scenario: Hotfix listed in changes
+- **WHEN** 同一區間含 `changes: [{at: 11.1.4-h4, status: unaffected}]`，元件版本為 `11.1.4-h7`
+- **THEN** 判定為不受影響
+
+#### Scenario: No matching entry and no default
+- **WHEN** 元件版本不在任何 versions 項目內，且未提供 `defaultStatus`
+- **THEN** 判定為未知
+
+#### Scenario: Affected without version
+- **WHEN** CNA 記錄 `versions: [{version: n/a, status: affected}]`、`defaultStatus: unaffected`
+- **THEN** 判定為未知，不採用 `defaultStatus`
+
+#### Scenario: Vendor product-level statement
+- **WHEN** 原廠公告對整個產品（沒有版本）標示 known_not_affected，且沒有任何版本列涵蓋元件版本，NVD 判定受影響
+- **THEN** 不建立命中，並記錄一筆來源矛盾
+
+### Requirement: NVD configuration evaluation
+系統 SHALL 以 NVD 標記為 vulnerable 的 CPE 條件與其版本區間判定元件；AND 設定中非 vulnerable 的平台條件 SHALL 被忽略並記錄於證據。
+
+#### Scenario: Any update in CPE
+- **WHEN** NVD 條件為 `cpe:2.3:o:paloaltonetworks:pan-os:11.1.4:*`，元件版本 `11.1.4-h7`
+- **THEN** 判定為受影響（update 為 `*` 涵蓋該版本的所有 hotfix）
+
+#### Scenario: Range with excluding end
+- **WHEN** NVD 條件為 `cpe:2.3:a:proxmox:virtual_environment:*`、`versionEndExcluding: 8.2.4`，元件版本 `8.2.2`
+- **THEN** 判定為受影響
+
+### Requirement: Evidence precedence
+系統 SHALL 以原廠公告、CNA、NVD、ADP 的優先序，取第一個有明確結論的來源作為最終判定，並 SHALL 保存所有來源的判定作為證據。套件元件 SHALL 以 OSV 結果判定。
+
+#### Scenario: Vendor advisory overrides NVD
+- **WHEN** 原廠公告判定版本 `11.1.6` 不受影響，NVD 判定受影響
+- **THEN** 不建立命中，並記錄一筆來源矛盾
+
+#### Scenario: Only NVD has an answer
+- **WHEN** 原廠公告與 CNA 皆為未知，NVD 判定受影響
+- **THEN** 建立信心等級為 confirmed 的命中，判定來源為 NVD
+
+### Requirement: Conflicts are visible
+最終判定為不受影響但有其他來源判定受影響時，系統 SHALL 保存該矛盾，並 SHALL 可由 `cvewatch finding conflicts` 列出。
+
+#### Scenario: Listing conflicts
+- **WHEN** 使用者執行 `cvewatch finding conflicts`
+- **THEN** 系統列出元件、CVE、最終判定來源與持相反結論的來源
+
+### Requirement: Confidence levels
+系統 SHALL 將版本落在受影響範圍的命中標為 confirmed；產品相符但所有來源都無法判定版本時 SHALL 建立 probable 命中。
+
+#### Scenario: Product matches but no version data
+- **WHEN** CNA affected 只列出產品名稱而無版本，NVD 尚未分析
+- **THEN** 建立 probable 命中
+
+### Requirement: Matching runs automatically
+系統 SHALL 在每次 sync 結束後與每次資產匯入後重新比對所有 active 元件，並 SHALL 提供 `cvewatch match` 手動重算。
+
+#### Scenario: Asset upgraded in spreadsheet
+- **WHEN** 使用者重匯 Excel，將 `FW-01` 升級到已修正版本
+- **THEN** 匯入結束後比對自動執行，該 CVE 對 `FW-01` 的判定更新為不受影響
+
+#### Scenario: Retired asset
+- **WHEN** 資產被標為退役
+- **THEN** 其元件不再參與比對，既有命中保留但不再更新

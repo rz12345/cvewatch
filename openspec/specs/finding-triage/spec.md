@@ -1,0 +1,93 @@
+# finding-triage Specification
+
+## Purpose
+
+記錄每筆命中的處理狀態（未處理、已處理、忽略）與完整時間軸，並在資料變化時自動調整狀態，讓重要變化不會因先前的決定被掩蓋。
+
+## Requirements
+
+### Requirement: Three triage states
+每筆命中 SHALL 處於未處理（open）、已處理（resolved）、忽略（ignored）三種狀態之一，新命中 SHALL 為未處理。
+
+#### Scenario: New finding
+- **WHEN** 比對產生一筆新命中
+- **THEN** 其狀態為 open
+
+### Requirement: Manual state change with note
+使用者 SHALL 能變更命中狀態並附備註；每次變更 SHALL 記錄時間、操作者、前後狀態與備註。
+
+#### Scenario: Ignoring with justification
+- **WHEN** 使用者執行 `cvewatch finding set 42 ignored --reason not_affected --justification requires_configuration --note "未啟用 GlobalProtect"`
+- **THEN** 命中 42 狀態為 ignored，原因與理由被保存，時間軸新增一筆使用者事件含該備註
+
+### Requirement: Ignore reason is required
+將命中設為忽略時 SHALL 指定原因（not_affected、risk_accepted、false_positive 之一）；原因為 not_affected 時 SHALL 另指定一個 CycloneDX VEX 定義的 justification 值。
+
+#### Scenario: Ignoring without a reason
+- **WHEN** 使用者執行 `cvewatch finding set 42 ignored --note "x"` 未帶 `--reason`
+- **THEN** 指令失敗並列出可用的原因
+
+#### Scenario: Not affected without justification
+- **WHEN** 使用者以 `--reason not_affected` 忽略但未帶 `--justification`
+- **THEN** 指令失敗並列出可用的 justification 值
+
+#### Scenario: Accepting risk
+- **WHEN** 使用者以 `--reason risk_accepted` 忽略
+- **THEN** 命中狀態為 ignored，原因為 risk_accepted，不需要 justification
+
+### Requirement: User decisions survive recomputation
+重新比對 SHALL 保留使用者設定的狀態與備註。
+
+#### Scenario: Re-running match
+- **WHEN** 使用者已將命中設為 ignored 後執行 `cvewatch match`
+- **THEN** 該命中仍為 ignored
+
+### Requirement: Automatic resolution after upgrade
+未處理的命中在重算後由受影響變為不受影響時，系統 SHALL 將其轉為已處理並記錄系統事件與原因；使用者手動重新開啟已不受影響的命中後，系統 SHALL NOT 再自動轉回已處理，直到它再次進入並離開受影響範圍。
+
+#### Scenario: Firmware upgraded
+- **WHEN** NAS-01 升版後重新比對，原命中已不在受影響範圍
+- **THEN** 命中轉為 resolved，事件備註為「版本已不在受影響範圍」
+
+#### Scenario: User reopens an out-of-range finding
+- **WHEN** 使用者將已自動處理的命中設回 open（備註「版本資料有誤，持續追蹤」）後重新比對，資料沒有變化
+- **THEN** 命中維持 open
+
+### Requirement: Automatic ignore on rejected CVE
+CVE 被撤銷時，其未處理命中 SHALL 轉為忽略並記錄系統事件。
+
+#### Scenario: CVE rejected
+- **WHEN** 某命中的 CVE 狀態變為 REJECTED
+- **THEN** 命中轉為 ignored，原因為 false_positive，事件備註為「CVE 已撤銷」
+
+### Requirement: Reopen ignored findings on KEV listing
+已忽略命中的 CVE 被列入 KEV 時，系統 SHALL 將命中重新開啟並記錄系統事件。
+
+#### Scenario: Ignored CVE becomes exploited
+- **WHEN** 已忽略命中的 CVE 新列入 KEV
+- **THEN** 命中轉為 open，事件備註為「已列入 KEV，重新開啟」
+
+#### Scenario: KEV listing while no longer affected
+- **WHEN** 已忽略命中的 CVE 新列入 KEV，但最近一次比對顯示元件已不受影響
+- **THEN** 命中維持忽略且原因保留
+
+### Requirement: Findings survive component removal
+元件從清冊或套件清單消失時，系統 SHALL 保留其命中、處理狀態、原因與時間軸且不再更新；同一元件再次出現時 SHALL 沿用原命中。
+
+#### Scenario: Package temporarily missing from SBOM
+- **WHEN** 已以 not_affected / code_not_present 忽略的 openssl 命中，其套件在一次匯入中缺席、下一次匯入又出現
+- **THEN** 命中仍為同一筆，狀態、原因、理由與時間軸皆保留
+
+### Requirement: Warning for resolved but still vulnerable
+已處理命中在重算後仍判定受影響時，系統 SHALL 維持其狀態並標示「仍在受影響範圍」。
+
+#### Scenario: Marked resolved without upgrading
+- **WHEN** 使用者將命中設為 resolved，但清冊版本未更新
+- **THEN** 命中維持 resolved，並帶有仍在受影響範圍的標示
+
+### Requirement: Finding listing
+系統 SHALL 提供 `cvewatch finding list`，可依狀態、等級、資產、信心等級篩選，並 SHALL 提供 `finding show <id>` 顯示證據與時間軸。
+
+#### Scenario: Listing open P1 and P2
+- **WHEN** 使用者執行 `cvewatch finding list --status open --priority P1,P2`
+- **THEN** 只列出未處理且等級為 P1 或 P2 的命中，依風險排序
