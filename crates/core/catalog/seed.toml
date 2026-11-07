@@ -19,6 +19,11 @@
 #     [[product]]
 #     key = "vmware-esxi"
 #     aliases = ["r6515 esxi"]
+#
+# [[esxi_build]]：ESXi build 編號 → 版本名稱，讓清冊只填 build 的元件也能與 CVE 的 Update 名稱比較。
+#   對照不到的 build 只能與其他 build 比較，判定結果為未知（不會誤判為不受影響）。
+#   需人工維護：新版本以 Broadcom KB 316595「Build numbers and versions of VMware ESXi」核對後
+#   在 catalog.d 補上（相同 build 以使用者檔為準）。
 
 # ── 網路 / 資安 ─────────────────────────────────────────────
 
@@ -159,3 +164,37 @@ cna = [
   { vendor = "Microsoft", product = "Windows Server 2022" },
   { vendor = "Microsoft", product = "Windows Server 2025" },
 ]
+
+# ── ESXi build 對照表 ───────────────────────────────────────
+
+[[esxi_build]]
+build = 15843807
+version = "7.0"
+
+[[esxi_build]]
+build = 18644231
+version = "7.0 U3"
+
+[[esxi_build]]
+build = 20513097
+version = "8.0"
+
+[[esxi_build]]
+build = 21495797
+version = "8.0 U1"
+
+[[esxi_build]]
+build = 22380479
+version = "8.0 U2"
+
+[[esxi_build]]
+build = 24022510
+version = "8.0 U3"
+
+[[esxi_build]]
+build = 24280767
+version = "8.0 U3b"
+
+[[esxi_build]]
+build = 24414501
+version = "8.0 U3c"

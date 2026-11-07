@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use super::cursor;
@@ -43,7 +43,8 @@ fn pending(
     let mut stmt = conn.prepare(
         "SELECT id FROM cve WHERE state = 'PUBLISHED'
          UNION
-         SELECT DISTINCT j.value FROM osv_hit h, json_each(h.cve_ids_json) j
+         SELECT DISTINCT j.value FROM osv_hit h JOIN active_component c ON c.id = h.component_id,
+              json_each(CASE WHEN json_valid(h.cve_ids_json) THEN h.cve_ids_json ELSE '[]' END) j
          EXCEPT
          SELECT cve_id FROM epss WHERE fetched_on = ?1
          ORDER BY 1",
@@ -74,6 +75,8 @@ pub async fn sync(ctx: &SyncCtx<'_>, conn: &mut Connection) -> Result<SyncStats,
         scores.extend(body.data);
     }
     let tx = conn.transaction()?;
+    // 只有分數變動才影響比對（風險等級）；同分重抓只更新抓取日期
+    let mut changed = false;
     let scored: HashSet<String> = scores.iter().map(|s| s.cve.clone()).collect();
     for s in &scores {
         let (Ok(score), Ok(percentile)) = (s.epss.parse::<f64>(), s.percentile.parse::<f64>())
@@ -81,11 +84,16 @@ pub async fn sync(ctx: &SyncCtx<'_>, conn: &mut Connection) -> Result<SyncStats,
             tracing::warn!(cve = %s.cve, "EPSS 分數格式錯誤，略過");
             continue;
         };
-        let existed: bool = tx.query_row(
-            "SELECT EXISTS (SELECT 1 FROM epss WHERE cve_id = ?1)",
-            params![s.cve],
-            |r| r.get(0),
-        )?;
+        // 風險等級只用分數；百分位數幾乎每天重算，不列入判斷
+        let previous: Option<f64> = tx
+            .query_row(
+                "SELECT score FROM epss WHERE cve_id = ?1",
+                params![s.cve],
+                |r| r.get(0),
+            )
+            .optional()?;
+        changed |= previous != Some(score);
+        let existed = previous.is_some();
         tx.execute(
             "INSERT INTO epss (cve_id, score, percentile, score_date, fetched_on)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -108,6 +116,6 @@ pub async fn sync(ctx: &SyncCtx<'_>, conn: &mut Connection) -> Result<SyncStats,
         unscored,
     };
     cursor::set(&tx, SOURCE, &next, &ctx.now_str())?;
-    tx.commit()?;
+    ctx.commit(tx, changed)?;
     Ok(stats)
 }

@@ -1,7 +1,6 @@
 //! `cvewatch sync [--source <name>...] [--rescan] [--since <date>] [--history]`
 
 use cvewatch_core::catalog::store::sync_catalog;
-use cvewatch_core::catalog::Catalog;
 use cvewatch_core::db::lock::{acquire_sync_lock, release_sync_lock, LockOutcome};
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::http::HttpClient;
@@ -70,7 +69,7 @@ fn run_locked(
     args: &SyncArgs,
     plans: &[SourcePlan],
 ) -> Result<ExitCode, CoreError> {
-    let catalog = Catalog::load(&app.paths.catalog_dir)?;
+    let catalog = app.load_catalog()?;
     let product_ids = {
         let tx = conn.transaction()?;
         let ids = sync_catalog(&tx, &catalog)?;
@@ -100,9 +99,19 @@ fn run_locked(
         nvd_api_key: key.as_deref().map(String::as_str),
         nvd_interval: None,
     };
-    let report = runtime()?.block_on(sync::run(&ctx, conn, plans))?;
+    let rt = runtime()?;
+    // 各來源在寫入交易內、資料有變動時記錄「比對待補」；結尾的全量比對成功時清除
+    let report = rt.block_on(sync::run(&ctx, conn, plans))?;
     print_report(&report);
-    Ok(report.exit_code())
+    // 部分來源失敗時仍以成功來源的資料重新比對；比對失敗不影響已寫入的同步結果
+    let matched = super::matching::rematch_if_needed(app, conn, &catalog).unwrap_or_else(|| {
+        println!("同步沒有影響比對的資料變更，略過比對。");
+        ExitCode::Success
+    });
+    Ok(match (report.exit_code(), matched) {
+        (ExitCode::Success, code) => code,
+        (code, _) => code,
+    })
 }
 
 fn print_report(report: &SyncReport) {

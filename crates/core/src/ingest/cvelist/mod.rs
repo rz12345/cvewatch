@@ -126,7 +126,7 @@ async fn baseline(
         catalog_hash: fingerprint.to_string(),
     };
     cursor::set(&tx, SOURCE, &cursor, &now)?;
-    tx.commit()?;
+    ctx.commit(tx, added + updated > 0)?;
     writer.finish()?;
     stats.added += added;
     stats.updated += updated;
@@ -204,7 +204,7 @@ async fn apply_if_new(
         ..cursor.clone()
     };
     cursor::set(&tx, SOURCE, &*cursor, &now)?;
-    tx.commit()?;
+    ctx.commit(tx, added + updated > 0)?;
     writer.finish()?;
     tracing::info!(asset = %asset.name, added, updated, "已套用 delta");
     stats.added += added;
@@ -255,21 +255,39 @@ async fn try_backfill(
             Ok(Some(bytes)) => bytes,
             // 尚未發布（404）或 ID 無效：排到最後，避免一直佔住前面的名額
             Ok(None) | Err(CoreError::Invalid(_)) => {
-                conn.execute(
-                    "UPDATE cve SET updated_at = ?2 WHERE id = ?1",
-                    rusqlite::params![id, now],
-                )?;
+                defer_backfill(conn, &id, &now)?;
                 continue;
             }
             // 網路錯誤：本次停止補齊（已補齊者保留），下次再試
             Err(e) => return Err(e),
         };
         let fallback = Relevance::parse(&reason).unwrap_or(Relevance::Csaf);
-        let mut p = Processor::new(conn, ctx.index, &now, None);
+        let tx = conn.transaction()?;
+        let mut p = Processor::new(&tx, ctx.index, &now, None);
         match p.handle_known(&bytes, fallback) {
-            Ok(()) => stats.updated += p.updated + p.added,
-            Err(e) => tracing::warn!(cve = %id, error = %e, "補齊的 CVE 紀錄無法解析"),
+            Ok(()) => {
+                let changed = p.updated + p.added;
+                ctx.commit(tx, changed > 0)?;
+                stats.updated += changed;
+            }
+            // 資料庫錯誤（例如被鎖定）不是紀錄的問題：中止並回報
+            Err(e @ CoreError::Sqlite(_)) => return Err(e),
+            // 紀錄無法解析：排到最後，避免每次都佔住前面的名額
+            Err(e) => {
+                drop(tx);
+                tracing::warn!(cve = %id, error = %e, "補齊的 CVE 紀錄無法解析，排到最後");
+                defer_backfill(conn, &id, &now)?;
+            }
         }
     }
+    Ok(())
+}
+
+/// 暫時無法補齊的 CVE 排到最後（`updated_at` 為補齊的排序依據）。
+fn defer_backfill(conn: &Connection, id: &str, now: &str) -> Result<(), CoreError> {
+    conn.execute(
+        "UPDATE cve SET updated_at = ?2 WHERE id = ?1",
+        rusqlite::params![id, now],
+    )?;
     Ok(())
 }

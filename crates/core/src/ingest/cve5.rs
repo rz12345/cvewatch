@@ -9,29 +9,13 @@ use serde_json::Value;
 
 use crate::error::CoreError;
 
-/// CVE 狀態。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CveState {
-    Published,
-    Rejected,
-}
-
-impl CveState {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            CveState::Published => "PUBLISHED",
-            CveState::Rejected => "REJECTED",
-        }
+string_enum!(
+    /// CVE 狀態。
+    CveState {
+        Published => "PUBLISHED",
+        Rejected => "REJECTED",
     }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        match s {
-            "PUBLISHED" => Some(CveState::Published),
-            "REJECTED" => Some(CveState::Rejected),
-            _ => None,
-        }
-    }
-}
+);
 
 /// 解析後的紀錄。
 #[derive(Debug, Clone, PartialEq)]

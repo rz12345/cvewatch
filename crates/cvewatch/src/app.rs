@@ -1,5 +1,6 @@
 //! 執行環境：設定位置、載入結果、資料目錄、憑證庫與日誌。
 
+use cvewatch_core::catalog::Catalog;
 use cvewatch_core::config::{self, LoadedConfig};
 use cvewatch_core::logging::{self, LogGuard};
 use cvewatch_core::paths::{
@@ -18,6 +19,11 @@ pub struct App {
 impl App {
     pub fn location(&self) -> &ConfigLocation {
         &self.loaded.location
+    }
+
+    /// 產品目錄：內建種子 + `<data_dir>\catalog.d\*.toml`。
+    pub fn load_catalog(&self) -> Result<Catalog, CoreError> {
+        Catalog::load(&self.paths.catalog_dir)
     }
 }
 

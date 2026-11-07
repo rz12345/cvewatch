@@ -9,6 +9,11 @@ use std::path::{Path, PathBuf};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
+use crate::matching::pending::DEFAULT_STALE_DAYS;
+use crate::matching::scoring::{
+    ScoringConfig, DEFAULT_CVSS_HIGH, DEFAULT_CVSS_MEDIUM, DEFAULT_EPSS_HIGH, DEFAULT_EPSS_MEDIUM,
+    DEFAULT_EXPOSURE_BUMP,
+};
 use crate::paths::ConfigLocation;
 
 pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
@@ -49,8 +54,10 @@ pub struct Config {
     pub sources: SourcesConfig,
     pub log: LogConfig,
     pub import: ImportConfig,
-    /// 由 change 04 定義；目前接受任意內容。
-    pub scoring: toml::Table,
+    /// 風險等級門檻
+    pub scoring: ScoringConfig,
+    /// 等待區
+    pub pending: PendingConfig,
     /// 由 change 06 定義；目前接受任意內容。
     pub notify: toml::Table,
 }
@@ -63,7 +70,8 @@ impl Default for Config {
             sources: SourcesConfig::default(),
             log: LogConfig::default(),
             import: ImportConfig::default(),
-            scoring: toml::Table::new(),
+            scoring: ScoringConfig::default(),
+            pending: PendingConfig::default(),
             notify: toml::Table::new(),
         }
     }
@@ -266,6 +274,23 @@ impl Default for LogConfig {
     }
 }
 
+/// 等待區設定。
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(default)]
+pub struct PendingConfig {
+    /// 在等待區超過此天數標為逾期
+    #[serde(deserialize_with = "bounded::<_, u32, 1, 3650>")]
+    pub stale_days: u32,
+}
+
+impl Default for PendingConfig {
+    fn default() -> Self {
+        PendingConfig {
+            stale_days: DEFAULT_STALE_DAYS,
+        }
+    }
+}
+
 /// 清冊匯入設定。
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
 #[serde(default)]
@@ -395,6 +420,14 @@ fn non_empty_string<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error>
 
 /// `cvewatch init` 寫出的範例設定檔。
 pub fn example_config() -> String {
+    let exposure_bump = format!(
+        "[{}]",
+        DEFAULT_EXPOSURE_BUMP
+            .iter()
+            .map(|e| format!("\"{e}\""))
+            .collect::<Vec<_>>()
+            .join(", ")
+    );
     format!(
         r#"# cvewatch 設定檔
 # 秘密（NVD API key、SMTP 密碼、Redmine API key）不放在這裡，
@@ -430,7 +463,17 @@ level = "info"
 # "財產編號" = "asset_tag"
 # "設備名稱" = "name"
 
-[scoring]   # 風險排序參數（後續版本使用）
+[scoring]
+# 風險等級：P1 KEV；P2 EPSS ≥ epss_high 或 CVSS ≥ cvss_high；P3 EPSS ≥ epss_medium 或 CVSS ≥ cvss_medium；
+# 其他為 P4。曝露度在 exposure_bump 內的資產上調一級。修改後下次比對（cvewatch match）重算全部等級。
+epss_high = {DEFAULT_EPSS_HIGH:.2}
+epss_medium = {DEFAULT_EPSS_MEDIUM:.2}
+cvss_high = {DEFAULT_CVSS_HIGH:.1}
+cvss_medium = {DEFAULT_CVSS_MEDIUM:.1}
+exposure_bump = {exposure_bump}
+
+[pending]
+stale_days = {DEFAULT_STALE_DAYS}    # 在等待區超過此天數標為逾期
 
 [notify]    # Email / Redmine 通知（後續版本使用）
 "#
@@ -516,14 +559,42 @@ mod tests {
     }
 
     #[test]
-    fn placeholder_sections_accept_anything() {
-        let src = "[scoring]\nweight = 3\n[notify]\nsmtp_host = \"mail\"\n";
+    fn notify_placeholder_accepts_anything() {
+        let src = "[notify]\nsmtp_host = \"mail\"\n";
         let (cfg, unknown) = parse(src, p()).unwrap();
         assert!(unknown.is_empty());
-        assert_eq!(
-            cfg.scoring.get("weight").and_then(|v| v.as_integer()),
-            Some(3)
-        );
+        assert!(cfg.notify.contains_key("smtp_host"));
+    }
+
+    #[test]
+    fn scoring_and_pending_are_parsed() {
+        let src = "[scoring]\nepss_high = 0.05\nexposure_bump = [\"internet\"]\n\
+                   [pending]\nstale_days = 30\n";
+        let (cfg, unknown) = parse(src, p()).unwrap();
+        assert!(unknown.is_empty(), "{unknown:?}");
+        assert_eq!(cfg.scoring.epss_high, 0.05);
+        assert_eq!(cfg.scoring.epss_medium, DEFAULT_EPSS_MEDIUM);
+        assert_eq!(cfg.scoring.exposure_bump.len(), 1);
+        assert_eq!(cfg.pending.stale_days, 30);
+        let (_, unknown) = parse("[scoring]\nweight = 3\n", p()).unwrap();
+        assert_eq!(unknown, vec!["scoring.weight".to_string()]);
+    }
+
+    #[test]
+    fn invalid_scoring_is_rejected() {
+        for src in [
+            "[scoring]\nepss_high = 1.5\n",
+            "[scoring]\nepss_high = 0.01\nepss_medium = 0.1\n",
+            "[scoring]\ncvss_medium = 9.5\n",
+            "[scoring]\nexposure_bump = [\"public\"]\n",
+            "[pending]\nstale_days = 0\n",
+        ] {
+            let msg = parse(src, p()).unwrap_err().to_string();
+            assert!(
+                msg.contains("scoring") || msg.contains("pending"),
+                "{src}：{msg}"
+            );
+        }
     }
 
     #[test]

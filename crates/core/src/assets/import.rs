@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap};
 
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection};
+use rusqlite::{params, Connection, OptionalExtension};
 
 use super::model::{AssetStatus, ComponentKind, ComponentSource};
 use super::plan::{plan_import, CurrentAsset, ImportPlan, PlannedAsset, Snapshot};
@@ -44,11 +44,16 @@ pub fn import_inventory(
             now,
         )?;
     }
+    let pruned = options.prune && !plan.disappeared.is_empty();
     if options.prune {
         let assets = AssetRepo::new(&tx);
         for tag in &plan.disappeared {
             assets.retire(snapshot[tag].id, now)?;
         }
+    }
+    // 與資料同一交易記錄「比對待補」：之後的比對失敗或程序中斷時，下次匯入會補跑比對
+    if plan.affects_matching() || pruned {
+        crate::matching::run::mark_match_stale(&tx, now)?;
     }
     tx.commit()?;
     tracing::info!(
@@ -109,6 +114,9 @@ fn apply_asset(
         Some(current) => {
             if current.record != planned.record || current.status == AssetStatus::Retired {
                 assets.update_record(current.id, &planned.record, now)?;
+                if current.status == AssetStatus::Retired {
+                    assets.mark_components_updated(current.id, now)?;
+                }
             } else {
                 assets.touch(current.id, now)?;
             }
@@ -126,28 +134,36 @@ fn apply_asset(
         )?;
     }
     if let Some(current) = existing {
-        remove_dropped_components(conn, asset_id, current, planned)?;
+        remove_dropped_components(conn, asset_id, current, planned, now)?;
     }
     assets.replace_unresolved(asset_id, &planned.unresolved, now)?;
     Ok(())
 }
 
-/// 清冊中已不再列出的 Excel 產品元件予以刪除（套件元件不受影響）。
+/// 清冊中已不再列出的 Excel 產品元件軟刪除（套件元件不受影響；命中與處理紀錄保留）。
 fn remove_dropped_components(
     conn: &Connection,
     asset_id: i64,
     current: &CurrentAsset,
     planned: &PlannedAsset,
+    now: DateTime<Utc>,
 ) -> Result<(), CoreError> {
     for key in current.components.keys() {
         if planned.components.iter().any(|c| &c.product_key == key) {
             continue;
         }
-        conn.execute(
-            "DELETE FROM component WHERE asset_id = ?1 AND source = 'excel'
-               AND product_id = (SELECT id FROM catalog_product WHERE key = ?2)",
-            params![asset_id, key],
-        )?;
+        let id: Option<i64> = conn
+            .query_row(
+                "SELECT id FROM component
+                 WHERE asset_id = ?1 AND source = 'excel' AND removed_at IS NULL
+                   AND product_id = (SELECT id FROM catalog_product WHERE key = ?2)",
+                params![asset_id, key],
+                |r| r.get(0),
+            )
+            .optional()?;
+        if let Some(id) = id {
+            ComponentRepo::new(conn).remove(id, now)?;
+        }
     }
     Ok(())
 }

@@ -10,6 +10,17 @@ use serde::Deserialize;
 pub struct CatalogFile {
     #[serde(default)]
     pub product: Vec<ProductDef>,
+    /// ESXi build 編號 → 版本名稱（`esxi` 版本格式比較 build 用）
+    #[serde(default)]
+    pub esxi_build: Vec<EsxiBuildDef>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EsxiBuildDef {
+    pub build: u64,
+    /// 名稱形式，例如 `8.0 U3c`
+    pub version: String,
 }
 
 #[derive(Debug, Clone, Default, Deserialize)]

@@ -159,6 +159,19 @@ impl<'c> AssetRepo<'c> {
         Ok(())
     }
 
+    /// 退役期間 OSV 不查詢其套件；重新啟用時把元件標為已更新，等下次 OSV 同步後再比對。
+    pub fn mark_components_updated(
+        &self,
+        asset_id: i64,
+        now: DateTime<Utc>,
+    ) -> Result<(), CoreError> {
+        self.conn.execute(
+            "UPDATE component SET updated_at = ?2 WHERE asset_id = ?1",
+            params![asset_id, ts(now)],
+        )?;
+        Ok(())
+    }
+
     pub fn touch(&self, id: i64, now: DateTime<Utc>) -> Result<(), CoreError> {
         self.conn.execute(
             "UPDATE asset SET last_seen = ?2 WHERE id = ?1",
@@ -233,21 +246,12 @@ impl<'c> ComponentRepo<'c> {
     }
 
     pub fn for_asset(&self, asset_id: i64) -> Result<Vec<Component>, CoreError> {
-        let sql =
-            format!("{COMPONENT_SELECT} WHERE c.asset_id = ?1 ORDER BY c.kind DESC, p.key, c.purl");
-        let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map(params![asset_id], component_from_row)?;
-        Ok(rows.collect::<Result<_, _>>()?)
-    }
-
-    /// 所有 active 資產的元件（retired 資產不參與比對）。
-    pub fn active_components(&self) -> Result<Vec<Component>, CoreError> {
         let sql = format!(
-            "{COMPONENT_SELECT} JOIN asset a ON a.id = c.asset_id
-             WHERE a.status = 'active' ORDER BY c.asset_id, c.id"
+            "{COMPONENT_SELECT} WHERE c.asset_id = ?1 AND c.removed_at IS NULL
+             ORDER BY c.kind DESC, p.key, c.purl"
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let rows = stmt.query_map([], component_from_row)?;
+        let rows = stmt.query_map(params![asset_id], component_from_row)?;
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
@@ -274,12 +278,13 @@ impl<'c> ComponentRepo<'c> {
         version_norm: Option<&str>,
         now: DateTime<Utc>,
     ) -> Result<UpsertOutcome, CoreError> {
-        let existing: Option<(i64, String)> = self
+        let existing: Option<(i64, String, bool)> = self
             .conn
             .query_row(
-                "SELECT id, version_raw FROM component WHERE asset_id = ?1 AND product_id = ?2",
+                "SELECT id, version_raw, removed_at IS NOT NULL FROM component
+                 WHERE asset_id = ?1 AND product_id = ?2",
                 params![asset_id, product_id],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()?;
         match existing {
@@ -292,8 +297,10 @@ impl<'c> ComponentRepo<'c> {
                 )?;
                 Ok(UpsertOutcome::Inserted)
             }
-            Some((id, previous)) => {
-                self.change_version(id, previous, version_raw, version_norm, now)
+            Some((id, previous, removed)) => {
+                self.restore(id, removed, now)?;
+                let outcome = self.change_version(id, previous, version_raw, version_norm, now)?;
+                Ok(restored_outcome(removed, outcome))
             }
         }
     }
@@ -305,12 +312,13 @@ impl<'c> ComponentRepo<'c> {
         package: &PackageUpsert<'_>,
         now: DateTime<Utc>,
     ) -> Result<UpsertOutcome, CoreError> {
-        let existing: Option<(i64, String)> = self
+        let existing: Option<(i64, String, bool)> = self
             .conn
             .query_row(
-                "SELECT id, version_raw FROM component WHERE asset_id = ?1 AND purl = ?2",
+                "SELECT id, version_raw, removed_at IS NOT NULL FROM component
+                 WHERE asset_id = ?1 AND purl = ?2",
                 params![asset_id, package.purl],
-                |r| Ok((r.get(0)?, r.get(1)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
             )
             .optional()?;
         match existing {
@@ -330,12 +338,14 @@ impl<'c> ComponentRepo<'c> {
                 )?;
                 Ok(UpsertOutcome::Inserted)
             }
-            Some((id, previous)) => {
+            Some((id, previous, removed)) => {
+                self.restore(id, removed, now)?;
                 self.conn.execute(
                     "UPDATE component SET purl_full = ?2, source = ?3 WHERE id = ?1",
                     params![id, package.purl_full, package.source.as_str()],
                 )?;
-                self.change_version(id, previous, package.version_raw, None, now)
+                let outcome = self.change_version(id, previous, package.version_raw, None, now)?;
+                Ok(restored_outcome(removed, outcome))
             }
         }
     }
@@ -363,10 +373,37 @@ impl<'c> ComponentRepo<'c> {
         Ok(UpsertOutcome::VersionChanged { previous })
     }
 
-    pub fn delete(&self, component_id: i64) -> Result<(), CoreError> {
-        self.conn
-            .execute("DELETE FROM component WHERE id = ?1", params![component_id])?;
+    /// 軟刪除：不再參與比對，命中與處理紀錄保留（見 0004_findings）。
+    pub fn remove(&self, component_id: i64, now: DateTime<Utc>) -> Result<(), CoreError> {
+        self.conn.execute(
+            "UPDATE component SET removed_at = ?2 WHERE id = ?1 AND removed_at IS NULL",
+            params![component_id, ts(now)],
+        )?;
         Ok(())
+    }
+
+    /// 已移除的元件再次出現：清除 removed_at，`updated_at` 更新為現在（OSV 結果需重查）。
+    fn restore(
+        &self,
+        component_id: i64,
+        removed: bool,
+        now: DateTime<Utc>,
+    ) -> Result<(), CoreError> {
+        if removed {
+            self.conn.execute(
+                "UPDATE component SET removed_at = NULL, updated_at = ?2 WHERE id = ?1",
+                params![component_id, ts(now)],
+            )?;
+        }
+        Ok(())
+    }
+}
+
+/// 恢復的元件版本未變時視為新增（對使用者而言它重新出現）。
+fn restored_outcome(removed: bool, outcome: UpsertOutcome) -> UpsertOutcome {
+    match (removed, outcome) {
+        (true, UpsertOutcome::Unchanged) => UpsertOutcome::Inserted,
+        (_, other) => other,
     }
 }
 

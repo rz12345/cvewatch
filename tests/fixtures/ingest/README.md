@@ -25,3 +25,17 @@
 | `csaf/provider/*` | **合成**（格式參考 Intevation ROLIE feed 與 Red Hat `changes.csv`） | provider_metadata 探索、雜湊、TLP、版本取代；`{{BASE}}` 由測試換成 wiremock 位址 |
 
 cvelist 的 zip（含巢狀 baseline）由測試以 `zip::ZipWriter::new_stream` 即時產生，外層 entry 帶 data descriptor，與實際 baseline 相同。
+
+## matching fixtures（04 任務 6.2）
+
+`tests/fixtures/matching/`：端對端比對測試（`crates/core/tests/matching_e2e.rs`）。
+
+| 路徑 | 來源 | 用途 |
+|---|---|---|
+| `inventory.csv`、`components.csv` | **合成** | FW-01（PA-460 / PAN-OS）、R6515-01（ESXi build + iDRAC9）、PVE-01（Proxmox VE）、NAS-01（Synology DSM） |
+| `inventory_upgraded.csv` | **合成** | NAS-01 升版到已修正版本（自動轉為已處理） |
+| `cves/CVE-2099-6000{1,4,5}.json` | **合成** CVE 5.1 | DSM 版本區間、CNA changes 與 NVD 矛盾、只列產品沒有版本 |
+| `nvd.json` | **合成** NVD API 2.0 | iDRAC（AND 平台條件）、Proxmox 區間、PAN-OS 未區分熱修 |
+| `expected.txt` | golden file | 預期命中、矛盾與等待區；`UPDATE_GOLDEN=1` 重新產生後須人工檢查差異 |
+
+另使用上方 ingest fixture 的實際紀錄（CVE-2024-3400、CVE-2025-0108、CVE-2026-0322 CSAF 等）。

@@ -286,9 +286,9 @@ fn fixes(conn: &Connection, id: &str) -> Result<Vec<FixRow>, CoreError> {
 /// 命中此 CVE 的 OSV 套件（`資產 套件 → OSV ID`）。
 fn osv(conn: &Connection, id: &str) -> Result<Vec<String>, CoreError> {
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT a.asset_tag || ' ' || c.purl || ' → ' || h.osv_id
-         FROM osv_hit h, json_each(h.cve_ids_json) j
-         JOIN component c ON c.id = h.component_id JOIN asset a ON a.id = c.asset_id
+        "SELECT DISTINCT c.asset_tag || ' ' || c.purl || ' → ' || h.osv_id
+         FROM osv_hit h JOIN active_component c ON c.id = h.component_id,
+              json_each(CASE WHEN json_valid(h.cve_ids_json) THEN h.cve_ids_json ELSE '[]' END) j
          WHERE j.value = ?1 ORDER BY 1",
     )?;
     let rows = stmt

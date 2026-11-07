@@ -12,7 +12,7 @@ use clap::{Args, Parser, Subcommand, ValueEnum};
     about = "資產 × CVE 比對工具",
     long_about = "資產 × CVE 比對工具：匯入資產清冊、同步 CVE、規則比對、風險排序與通知。\n\n\
                   結束碼：0 成功、1 一般錯誤、2 設定錯誤、3 另一個 sync 正在執行、\
-                  4 部分來源失敗、5 資料庫金鑰遺失或錯誤。"
+                  4 部分失敗（部分來源失敗，或資料已寫入但自動比對失敗）、5 資料庫金鑰遺失或錯誤。"
 )]
 pub struct Cli {
     /// 設定檔路徑（優先於環境變數 CVEWATCH_CONFIG）
@@ -33,6 +33,18 @@ pub enum Command {
     Cve {
         #[command(subcommand)]
         action: CveAction,
+    },
+    /// 重新比對所有使用中的資產元件與本機 CVE（sync 與資產匯入後會自動執行）
+    Match,
+    /// 比對命中：列出、檢視證據與時間軸、變更處理狀態、來源矛盾
+    Finding {
+        #[command(subcommand)]
+        action: FindingAction,
+    },
+    /// 等待區：資料不足以判定的 CVE
+    Pending {
+        #[command(subcommand)]
+        action: PendingAction,
     },
     /// 開啟文字介面（尚未實作）
     Tui,
@@ -59,6 +71,9 @@ impl Command {
             Command::Init => "init",
             Command::Sync(_) => "sync",
             Command::Cve { .. } => "cve",
+            Command::Match => "match",
+            Command::Finding { .. } => "finding",
+            Command::Pending { .. } => "pending",
             Command::Tui => "tui",
             Command::Asset { .. } => "asset",
             Command::Config { .. } => "config",
@@ -238,5 +253,87 @@ pub enum CveAction {
     Search {
         /// 關鍵字（比對 CVE ID、vendor / product 與描述，不分大小寫）
         keyword: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum FindingAction {
+    /// 列出命中（依風險排序；`?` 表示 probable、`!` 表示已處理但仍在受影響範圍）
+    List {
+        /// 狀態（可逗號分隔）：open、resolved、ignored
+        #[arg(long, value_delimiter = ',', value_parser = ["open", "resolved", "ignored"])]
+        status: Vec<String>,
+        /// 等級（可逗號分隔）：P1、P2、P3、P4
+        #[arg(long, value_delimiter = ',', value_parser = ["P1", "P2", "P3", "P4"], ignore_case = true)]
+        priority: Vec<String>,
+        /// 只列出指定資產
+        #[arg(long, value_name = "ASSET_TAG")]
+        asset: Option<String>,
+        /// 信心等級
+        #[arg(long, value_parser = ["confirmed", "probable"])]
+        confidence: Option<String>,
+    },
+    /// 顯示命中的證據、修正版本、來源矛盾與時間軸
+    Show {
+        /// 命中編號
+        id: i64,
+    },
+    /// 變更處理狀態（一律記錄事件）
+    #[command(long_about = concat!(
+        "變更處理狀態（一律記錄事件）。\n\n",
+        "設為 ignored 時必須以 --reason 指定原因：",
+        "not_affected（判定不受影響）、risk_accepted（接受風險）、false_positive（比對錯誤）。\n",
+        "原因為 not_affected 時另需 --justification（CycloneDX VEX）：",
+        "code_not_present、code_not_reachable、requires_configuration、requires_dependency、",
+        "requires_environment、protected_by_compiler、protected_at_runtime、",
+        "protected_at_perimeter、protected_by_mitigating_control。\n\n",
+        "例：cvewatch finding set 42 ignored --reason not_affected ",
+        "--justification requires_configuration --note \"未啟用 GlobalProtect\"",
+    ))]
+    Set {
+        /// 命中編號
+        id: i64,
+        /// 新狀態：open、resolved、ignored
+        status: String,
+        /// 忽略原因（ignored 必填）
+        #[arg(long)]
+        reason: Option<String>,
+        /// 不受影響的理由（--reason not_affected 必填）
+        #[arg(long)]
+        justification: Option<String>,
+        /// 備註（記錄於時間軸）
+        #[arg(long, default_value = "")]
+        note: String,
+    },
+    /// 列出來源矛盾：最終判定不受影響、但有其他來源判定受影響
+    Conflicts,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum PendingAction {
+    /// 列出等待區（列入 KEV 者置頂）
+    List {
+        /// 只列出逾期（超過 [pending] stale_days）的 CVE
+        #[arg(long)]
+        stale: bool,
+    },
+    /// 人工移出等待區：套用到資產（建立 manual 的 probable 命中）或標記為不相關
+    Resolve {
+        /// CVE ID
+        cve: String,
+        /// 套用到資產；資產有多個相關元件時可用 <ASSET_TAG>:<產品 key> 指定
+        #[arg(
+            long,
+            value_name = "ASSET_TAG",
+            conflicts_with = "dismiss",
+            required_unless_present = "dismiss"
+        )]
+        apply: Option<String>,
+        /// 標記為不相關（之後不再自動放回等待區）
+        #[arg(long)]
+        dismiss: bool,
+        /// 備註
+        #[arg(long, default_value = "")]
+        note: String,
     },
 }

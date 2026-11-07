@@ -214,13 +214,13 @@ fn prune_retires_disappeared_assets() {
         .unwrap();
     assert_eq!(nas02.status, AssetStatus::Retired);
     assert!(nas02.retired_at.is_some());
-    let active: Vec<i64> = ComponentRepo::new(&conn)
-        .active_components()
+    let active: Vec<String> = cvewatch_core::matching::load::MatchData::load(&conn)
         .unwrap()
-        .iter()
-        .map(|c| c.asset_id)
+        .components
+        .into_iter()
+        .map(|c| c.asset_tag)
         .collect();
-    assert!(!active.contains(&nas02.id));
+    assert!(!active.contains(&"NAS-02".to_string()));
 
     // 重新出現在清冊時恢復為 active
     let back = import(&mut conn, "inventory_basic.xlsx");
@@ -381,4 +381,34 @@ fn invalid_category_aborts_with_row_number() {
         msg.contains("第 2 列：category「printer」不是允許的值"),
         "{msg}"
     );
+}
+
+/// 04 code review 第十二輪 #5：只有影響比對的變更才需要重新比對。
+#[test]
+fn plan_reports_whether_matching_is_affected() {
+    use cvewatch_core::assets::plan::{AssetUpdate, ImportPlan};
+    let with = |update: AssetUpdate| ImportPlan {
+        updated: vec![update],
+        ..ImportPlan::default()
+    };
+    assert!(!ImportPlan::default().affects_matching());
+    let owner_only = AssetUpdate {
+        asset_tag: "FW-01".into(),
+        changed_fields: vec!["owner", "notes", "criticality"],
+        ..AssetUpdate::default()
+    };
+    assert!(!with(owner_only).affects_matching());
+    let exposure = AssetUpdate {
+        asset_tag: "FW-01".into(),
+        changed_fields: vec!["exposure"],
+        exposure_changed: true,
+        ..AssetUpdate::default()
+    };
+    assert!(with(exposure).affects_matching());
+    let reactivated = AssetUpdate {
+        asset_tag: "FW-01".into(),
+        reactivated: true,
+        ..AssetUpdate::default()
+    };
+    assert!(with(reactivated).affects_matching());
 }

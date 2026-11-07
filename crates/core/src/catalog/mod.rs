@@ -8,10 +8,10 @@ pub mod scheme;
 pub mod store;
 mod suggest;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
-use file::{CatalogFile, CpeDef, NameDef, ProductDef};
+use file::{CatalogFile, CpeDef, EsxiBuildDef, NameDef, ProductDef};
 pub use normalize::{normalize, normalize_vendor};
 use scheme::{scheme_by_name, VersionScheme};
 
@@ -69,6 +69,8 @@ pub struct Catalog {
     products: Vec<Product>,
     by_key: HashMap<String, usize>,
     by_alias: HashMap<String, usize>,
+    /// ESXi build → 版本名稱；後載入的來源覆寫相同 build
+    esxi_builds: BTreeMap<u64, String>,
 }
 
 fn catalog_error(source: &str, message: impl std::fmt::Display) -> CoreError {
@@ -90,18 +92,54 @@ impl Catalog {
 
     pub fn from_sources(sources: &[CatalogSource]) -> Result<Self, CoreError> {
         let mut merged: Vec<(ProductDef, String)> = Vec::new();
+        let mut esxi_builds = BTreeMap::new();
         for source in sources {
             let parsed: CatalogFile =
                 toml::from_str(&source.text).map_err(|e| catalog_error(&source.name, e))?;
             for def in parsed.product {
                 merge_into(&mut merged, def, &source.name);
             }
+            for def in parsed.esxi_build {
+                let (build, version) = esxi_build(def, &source.name)?;
+                esxi_builds.insert(build, version);
+            }
         }
         let products = merged
             .into_iter()
             .map(|(def, origin)| build_product(def, &origin))
             .collect::<Result<Vec<_>, _>>()?;
-        index(products)
+        let mut catalog = index(products)?;
+        catalog.esxi_builds = esxi_builds;
+        Ok(catalog)
+    }
+
+    /// 影響比對結果的目錄內容（產品識別、版本格式、ESXi build 對照表）的雜湊。
+    ///
+    /// 只含影響比對的欄位（key、版本格式、CPE、CNA、CSAF、關鍵字、ESXi build 對照表），
+    /// 以明確的 JSON 序列化計算；顯示名稱與別名的變更不影響。
+    pub fn fingerprint(&self) -> String {
+        let products: Vec<serde_json::Value> = self
+            .products
+            .iter()
+            .map(|p| {
+                serde_json::json!({
+                    "key": p.key,
+                    "scheme": p.version_scheme,
+                    "cpe": p.cpe.iter().map(|c| [&c.part, &c.vendor, &c.product]).collect::<Vec<_>>(),
+                    "cna": p.cna.iter().map(|n| [&n.vendor, &n.product]).collect::<Vec<_>>(),
+                    "csaf": p.csaf.iter().map(|n| [&n.vendor, &n.product]).collect::<Vec<_>>(),
+                    "keywords": p.keywords,
+                })
+            })
+            .collect();
+        let text = serde_json::json!({ "products": products, "esxi_builds": self.esxi_builds })
+            .to_string();
+        crate::hash::sha256_hex(&text)
+    }
+
+    /// ESXi build 對照表（build → 版本名稱）。
+    pub fn esxi_builds(&self) -> &BTreeMap<u64, String> {
+        &self.esxi_builds
     }
 
     pub fn products(&self) -> &[Product] {
@@ -127,6 +165,20 @@ impl Catalog {
             .map(|(alias, &i)| (alias.as_str(), self.products[i].key.as_str()));
         suggest::best_keys(&normalize(name), candidates)
     }
+}
+
+fn esxi_build(def: EsxiBuildDef, origin: &str) -> Result<(u64, String), CoreError> {
+    let version = def.version.trim().to_string();
+    if !crate::version_text::esxi::is_release_name(&version) {
+        return Err(catalog_error(
+            origin,
+            format!(
+                "ESXi build {} 的版本「{version}」須為寫明 Update 的名稱（例如 8.0 U3c；不接受 8.0.3）",
+                def.build
+            ),
+        ));
+    }
+    Ok((def.build, version))
 }
 
 fn seed_source() -> CatalogSource {
@@ -295,5 +347,6 @@ fn index(products: Vec<Product>) -> Result<Catalog, CoreError> {
         products,
         by_key,
         by_alias,
+        esxi_builds: BTreeMap::new(),
     })
 }

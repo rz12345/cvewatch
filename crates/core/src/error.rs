@@ -18,7 +18,7 @@ pub enum ExitCode {
     ConfigError = 2,
     /// 另一個 sync 正在執行
     SyncLocked = 3,
-    /// sync 完成但部分來源失敗
+    /// sync 完成但部分來源失敗，或資料已寫入（sync／資產匯入）但自動比對失敗
     PartialFailure = 4,
     /// 資料庫金鑰遺失或錯誤
     DbKeyError = 5,

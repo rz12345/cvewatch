@@ -2,53 +2,25 @@
 
 use std::collections::HashSet;
 
-use sha2::{Digest, Sha256};
-
 use super::cve5::{Affected, CveRecord};
 use crate::catalog::{normalize, normalize_vendor, Catalog};
 
-/// 保留原因（`cve.relevance_reason`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Relevance {
-    /// CNA 或 ADP affected 的 vendor/product 相符
-    Cna,
-    /// affected 或 NVD 的 CPE vendor:product 相符
-    Cpe,
-    /// affected 的 packageURL 與資產套件相符
-    Purl,
-    /// 只有描述關鍵字相符（04 放入等待區）
-    KeywordOnly,
-    /// 由 NVD CPE 查詢加入
-    Nvd,
-    /// 由原廠 CSAF 公告加入
-    Csaf,
-}
+string_enum!(
+    /// 保留原因（`cve.relevance_reason`）：
+    /// `cna` CNA／ADP affected 的 vendor/product 相符；`cpe` affected 或 NVD 的 CPE 相符；
+    /// `purl` affected 的 packageURL 與資產套件相符；`keyword_only` 只有描述關鍵字相符（放入等待區）；
+    /// `nvd` 由 NVD CPE 查詢加入；`csaf` 由原廠 CSAF 公告加入。
+    Relevance {
+        Cna => "cna",
+        Cpe => "cpe",
+        Purl => "purl",
+        KeywordOnly => "keyword_only",
+        Nvd => "nvd",
+        Csaf => "csaf",
+    }
+);
 
 impl Relevance {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Relevance::Cna => "cna",
-            Relevance::Cpe => "cpe",
-            Relevance::Purl => "purl",
-            Relevance::KeywordOnly => "keyword_only",
-            Relevance::Nvd => "nvd",
-            Relevance::Csaf => "csaf",
-        }
-    }
-
-    pub fn parse(s: &str) -> Option<Self> {
-        [
-            Relevance::Cna,
-            Relevance::Cpe,
-            Relevance::Purl,
-            Relevance::KeywordOnly,
-            Relevance::Nvd,
-            Relevance::Csaf,
-        ]
-        .into_iter()
-        .find(|r| r.as_str() == s)
-    }
-
     pub fn label(self) -> &'static str {
         match self {
             Relevance::Cna => "CNA 產品相符",
@@ -122,12 +94,7 @@ impl RelevanceIndex {
             index
                 .cpe
                 .extend(p.cpe.iter().map(|c| (c.vendor.clone(), c.product.clone())));
-            index.keywords.extend(
-                p.keywords
-                    .iter()
-                    .map(|k| k.trim().to_lowercase())
-                    .filter(|k| !k.is_empty()),
-            );
+            index.keywords.extend(normalize_keywords(&p.keywords));
         }
         index.keywords.sort();
         index.keywords.dedup();
@@ -189,8 +156,7 @@ impl RelevanceIndex {
 
     /// 描述是否含任一關鍵字（不分大小寫，前後須為非英數字）。
     pub fn keyword_match(&self, description: &str) -> bool {
-        let text = description.to_lowercase();
-        self.keywords.iter().any(|k| contains_word(&text, k))
+        mentions_any(description, &self.keywords)
     }
 
     /// 目錄識別與資產套件的雜湊；變更時提示 `sync --rescan`。
@@ -205,8 +171,7 @@ impl RelevanceIndex {
         );
         parts.extend(self.keywords.iter().map(|k| format!("kw:{k}")));
         parts.sort();
-        let digest = Sha256::digest(parts.join("\n").as_bytes());
-        data_encoding::HEXLOWER.encode(&digest)
+        crate::hash::sha256_hex(&parts.join("\n"))
     }
 }
 
@@ -215,8 +180,7 @@ pub fn package_keys(
     conn: &rusqlite::Connection,
 ) -> Result<Vec<PackageKey>, crate::error::CoreError> {
     let mut stmt = conn.prepare(
-        "SELECT DISTINCT c.purl FROM component c JOIN asset a ON a.id = c.asset_id
-         WHERE c.kind = 'package' AND a.status = 'active' AND c.purl IS NOT NULL",
+        "SELECT DISTINCT purl FROM active_component WHERE kind = 'package' AND purl IS NOT NULL",
     )?;
     let purls = stmt
         .query_map([], |r| r.get::<_, String>(0))?
@@ -227,18 +191,38 @@ pub fn package_keys(
         .collect())
 }
 
-/// `cpe:2.3:o:paloaltonetworks:pan-os:*:...` → (`paloaltonetworks`, `pan-os`)
+/// `cpe:2.3:o:paloaltonetworks:pan-os:*:...` → (`paloaltonetworks`, `pan-os`)。
+/// 依未跳脫的 `:` 切開；跳脫字元保留（與目錄、NVD 查詢使用的形式一致）。
 pub fn cpe_vendor_product(cpe: &str) -> Option<(String, String)> {
-    let mut parts = cpe.split(':');
-    if parts.next()? != "cpe" || parts.next()? != "2.3" {
+    let parts = crate::cpe::raw_fields(cpe);
+    if parts.first()? != "cpe" || parts.get(1)? != "2.3" {
         return None;
     }
-    let _part = parts.next()?;
-    let vendor = parts.next()?.to_lowercase();
-    let product = parts.next()?.to_lowercase();
+    let vendor = parts.get(3)?.to_lowercase();
+    let product = parts.get(4)?.to_lowercase();
     (!vendor.is_empty() && !product.is_empty()).then_some((vendor, product))
 }
 
+/// 目錄關鍵字的比對形式：修剪、小寫、去除空字串（關聯性篩選與等待區共用）。
+pub fn normalize_keywords(keywords: &[String]) -> Vec<String> {
+    keywords
+        .iter()
+        .map(|k| k.trim().to_lowercase())
+        .filter(|k| !k.is_empty())
+        .collect()
+}
+
+/// 描述是否含任一關鍵字（不分大小寫、需為完整字詞）。`keywords` 須已經 [`normalize_keywords`]。
+pub fn mentions_any(description: &str, keywords: &[String]) -> bool {
+    mentions_any_lower(&description.to_lowercase(), keywords)
+}
+
+/// 同 [`mentions_any`]，`text` 須已轉小寫（同一描述比對多組關鍵字時只轉一次）。
+pub fn mentions_any_lower(text: &str, keywords: &[String]) -> bool {
+    keywords.iter().any(|k| contains_word(text, k))
+}
+
+/// `text` 是否含完整字詞 `word`（前後須為非英數字）；兩者都應已轉小寫。
 fn contains_word(text: &str, word: &str) -> bool {
     let is_word_char = |c: char| c.is_alphanumeric();
     text.match_indices(word).any(|(start, _)| {

@@ -44,6 +44,8 @@ pub struct VersionChange {
 pub struct AssetUpdate {
     pub asset_tag: String,
     pub changed_fields: Vec<&'static str>,
+    /// 曝露度改變（影響風險等級，需要重新比對）
+    pub exposure_changed: bool,
     pub version_changes: Vec<VersionChange>,
     pub components_added: Vec<String>,
     pub components_removed: Vec<String>,
@@ -70,6 +72,19 @@ pub struct ImportPlan {
 }
 
 impl ImportPlan {
+    /// 是否有影響比對的變更：新增資產、版本或元件增減、重新啟用、曝露度（影響風險等級）。
+    /// 名稱、負責人、位置、備註、類別與重要性（只影響排序，查詢時讀取）不需要重新比對。
+    pub fn affects_matching(&self) -> bool {
+        !self.added.is_empty()
+            || self.updated.iter().any(|u| {
+                u.reactivated
+                    || !u.version_changes.is_empty()
+                    || !u.components_added.is_empty()
+                    || !u.components_removed.is_empty()
+                    || u.exposure_changed
+            })
+    }
+
     pub fn version_change_count(&self) -> usize {
         self.updated.iter().map(|u| u.version_changes.len()).sum()
     }
@@ -219,6 +234,7 @@ fn diff_asset(existing: &CurrentAsset, planned: &PlannedAsset) -> Option<AssetUp
     let update = AssetUpdate {
         asset_tag: planned.record.asset_tag.clone(),
         changed_fields: changed_fields(&existing.record, &planned.record),
+        exposure_changed: existing.record.exposure != planned.record.exposure,
         version_changes,
         components_added: incoming
             .keys()

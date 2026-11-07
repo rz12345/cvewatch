@@ -176,3 +176,40 @@ async fn history_lists_latest_runs_first() {
     assert_eq!(runs.len(), 20);
     assert!(runs.windows(2).all(|w| w[0].id > w[1].id));
 }
+
+/// 04 code review 第十六輪：來源在寫入交易內、資料有變動時才記錄「比對待補」；
+/// 失敗的來源交易已回復不記錄，資料沒變的同步也不記錄。
+#[tokio::test]
+async fn sync_marks_match_stale_only_when_source_data_changes() {
+    use cvewatch_core::db::meta;
+    use cvewatch_core::matching::run::{match_is_stale, MATCH_STALE_KEY};
+
+    let mut conn = common::memory_db();
+    let h = harness(&conn, None, vec![]).await;
+    Mock::given(method("GET"))
+        .and(path("/kev.json"))
+        // 404 不重試，只讓第一次同步失敗
+        .respond_with(ResponseTemplate::new(404))
+        .up_to_n_times(1)
+        .with_priority(1)
+        .mount(&h.server)
+        .await;
+    get(&h, "/kev.json", 200, common::read_ingest("kev/kev.json")).await;
+    let plans = sync::plan(&sources(&h), &["kev".to_string()]).unwrap();
+    let options = SyncOptions::default();
+    let ctx = h.ctx(&options, at(NOW));
+
+    let failed = sync::run(&ctx, &mut conn, &plans).await.unwrap();
+    assert_eq!(failed.exit_code(), ExitCode::PartialFailure);
+    assert!(
+        !match_is_stale(&conn).unwrap(),
+        "失敗的來源沒有寫入，不記錄"
+    );
+
+    sync::run(&ctx, &mut conn, &plans).await.unwrap();
+    assert!(match_is_stale(&conn).unwrap(), "KEV 有新資料時記錄");
+
+    meta::delete(&conn, MATCH_STALE_KEY).unwrap();
+    sync::run(&ctx, &mut conn, &plans).await.unwrap();
+    assert!(!match_is_stale(&conn).unwrap(), "KEV 內容沒有變動時不記錄");
+}

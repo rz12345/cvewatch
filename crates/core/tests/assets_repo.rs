@@ -1,4 +1,4 @@
-//! 1.3：upsert 冪等、版本變更寫 history、retired 資產不出現在 active_components()。
+//! 1.3：upsert 冪等、版本變更寫 history、retired 資產不參與比對。
 
 mod common;
 
@@ -137,13 +137,13 @@ fn retired_assets_are_excluded_from_active_components() {
 
     assets.retire(b, Utc::now()).unwrap();
 
-    let active: Vec<i64> = components
-        .active_components()
+    let active: Vec<String> = cvewatch_core::matching::load::MatchData::load(&conn)
         .unwrap()
-        .iter()
-        .map(|c| c.asset_id)
+        .components
+        .into_iter()
+        .map(|c| c.asset_tag)
         .collect();
-    assert_eq!(active, vec![a]);
+    assert_eq!(active, vec!["NAS-01".to_string()]);
     let retired = assets.find_by_tag("NAS-02").unwrap().unwrap();
     assert_eq!(retired.status, AssetStatus::Retired);
     assert!(retired.retired_at.is_some());

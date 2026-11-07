@@ -91,6 +91,10 @@ fn insert_identifiers(
     Ok(())
 }
 
+/// 刪除目錄中已移除、且沒有任何元件參照的產品。
+///
+/// 軟刪除的元件（`removed_at`）仍算參照：它可能在下次匯入時恢復並沿用原命中，
+/// 外鍵也不允許刪除被參照的產品，因此這些產品列刻意保留（不再有別名，不會被辨識）。
 fn remove_stale_products(
     conn: &Connection,
     current: &HashMap<String, i64>,

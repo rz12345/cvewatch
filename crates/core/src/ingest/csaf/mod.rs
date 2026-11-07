@@ -88,29 +88,34 @@ async fn run(
             "共 {total} 份公告，本次處理最早的 {keep} 份，其餘下次繼續"
         ));
     }
-    let now = ctx.now_str();
-    let tx = conn.transaction()?;
-    let fingerprint = catalog_fingerprint(ctx.catalog);
-    let mut new_cves = 0;
-    if previous.catalog_hash.as_deref() != Some(fingerprint.as_str()) {
-        let (remapped, added) = remap_stored(&tx, ctx, &cfg.id, &now, &mut stats)?;
-        new_cves += added;
-        if remapped > 0 {
-            stats.note(format!("目錄已變更，已重新對應 {remapped} 份既有公告"));
-        }
-    }
     let mut last = previous.last_updated;
+    let mut docs = Vec::new();
     for c in &candidates {
         match fetch::fetch(ctx, c).await? {
             Fetched::Skipped(reason) => {
                 tracing::warn!(provider = %cfg.id, reason = %reason, "略過 CSAF 文件");
                 stats.note(reason);
             }
-            Fetched::Accepted(doc) => {
-                new_cves += apply(&tx, ctx, &cfg.id, &doc, &now, &mut stats)?;
-            }
+            Fetched::Accepted(doc) => docs.push(doc),
         }
         last = last.max(Some(c.updated));
+    }
+    // 全部下載完才開啟寫入交易：網路等待期間不持有資料庫寫入鎖
+    let now = ctx.now_str();
+    let tx = conn.transaction()?;
+    let fingerprint = catalog_fingerprint(ctx.catalog);
+    let mut new_cves = 0;
+    let mut remapped_any = false;
+    if previous.catalog_hash.as_deref() != Some(fingerprint.as_str()) {
+        let (remapped, added) = remap_stored(&tx, ctx, &cfg.id, &now, &mut stats)?;
+        new_cves += added;
+        remapped_any = remapped > 0;
+        if remapped > 0 {
+            stats.note(format!("目錄已變更，已重新對應 {remapped} 份既有公告"));
+        }
+    }
+    for doc in &docs {
+        new_cves += apply(&tx, ctx, &cfg.id, doc, &now, &mut stats)?;
     }
     if new_cves > 0 {
         stats.note(format!("由公告新增 {new_cves} 個 CVE"));
@@ -120,7 +125,7 @@ async fn run(
         catalog_hash: Some(fingerprint),
     };
     cursor::set(&tx, &source, &next, &now)?;
-    tx.commit()?;
+    ctx.commit(tx, remapped_any || stats.changes() > 0)?;
     Ok(stats)
 }
 
@@ -231,7 +236,6 @@ pub fn cap(candidates: &mut Vec<discovery::Candidate>, max: usize) -> Option<usi
 
 /// CSAF 對應所用的目錄識別（產品 key、CSAF 名稱、CPE）的雜湊；變更時重新對應既有公告。
 pub fn catalog_fingerprint(catalog: &crate::catalog::Catalog) -> String {
-    use sha2::{Digest, Sha256};
     let mut parts: Vec<String> = Vec::new();
     for p in catalog.products() {
         parts.extend(
@@ -246,7 +250,7 @@ pub fn catalog_fingerprint(catalog: &crate::catalog::Catalog) -> String {
         );
     }
     parts.sort();
-    data_encoding::HEXLOWER.encode(&Sha256::digest(parts.join("\n").as_bytes()))
+    crate::hash::sha256_hex(&parts.join("\n"))
 }
 
 #[cfg(test)]

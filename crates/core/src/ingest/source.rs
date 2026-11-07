@@ -30,6 +30,11 @@ pub struct SyncStats {
 }
 
 impl SyncStats {
+    /// 新增與更新的筆數合計（判斷這次同步是否寫入了影響比對的資料）。
+    pub fn changes(&self) -> u64 {
+        self.added + self.updated
+    }
+
     pub fn note(&mut self, message: impl Into<String>) {
         self.notes.push(message.into());
     }
@@ -71,6 +76,20 @@ pub struct SyncCtx<'a> {
 impl SyncCtx<'_> {
     pub fn now_str(&self) -> String {
         self.now.to_rfc3339()
+    }
+
+    /// 提交來源的寫入交易；`data_changed` 為真時在同一交易中記錄「比對待補」。
+    /// 所有來源都經由此處提交，新增來源或寫入路徑時必須明確說明是否影響比對。
+    pub fn commit(
+        &self,
+        tx: rusqlite::Transaction<'_>,
+        data_changed: bool,
+    ) -> Result<(), crate::error::CoreError> {
+        if data_changed {
+            crate::matching::run::mark_match_stale(&tx, self.now)?;
+        }
+        tx.commit()?;
+        Ok(())
     }
 
     /// 以 UTC 計算的今天（cvelistV5 release 以 UTC 命名）。

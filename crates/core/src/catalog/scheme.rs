@@ -16,10 +16,11 @@ pub trait VersionScheme: Send + Sync {
     fn parse(&self, raw: &str) -> Option<ParsedVersion>;
 }
 
-/// 以一組正規表示式判斷的格式。
+/// 以一組正規表示式判斷的格式；`reject` 排除比較器無法判讀的寫法（與比較器共用判斷）。
 struct PatternScheme {
     name: &'static str,
     patterns: &'static LazyLock<Vec<Regex>>,
+    reject: Option<fn(&str) -> bool>,
 }
 
 impl VersionScheme for PatternScheme {
@@ -29,9 +30,8 @@ impl VersionScheme for PatternScheme {
 
     fn parse(&self, raw: &str) -> Option<ParsedVersion> {
         let normalized = canonical(raw);
-        self.patterns
-            .iter()
-            .any(|re| re.is_match(&normalized))
+        let rejected = self.reject.is_some_and(|f| f(&normalized));
+        (!rejected && self.patterns.iter().any(|re| re.is_match(&normalized)))
             .then_some(ParsedVersion { normalized })
     }
 }
@@ -63,7 +63,7 @@ static DSM: LazyLock<Vec<Regex>> =
 /// `8.0 u3c`、`8.0 update 3c`、`8.0.3`、`8.0u3 p01`、build `24414501`、`8.0.3 build-24414501`
 static ESXI: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     compile(&[
-        r"^\d+\.\d+(\.\d+)?( ?(u|update) ?\d+[a-z]?)?( ?(p|patch) ?\d+)?( ?(ep|express patch) ?\d+)?$",
+        r"^\d+\.\d+(\.\d+)?[a-z]?( ?(u|update) ?\d+[a-z]?)?( ?(p|patch) ?\d+)?( ?(ep|express patch) ?\d+)?$",
         r"^(build[- ]?)?\d{6,9}$",
         r"^\d+\.\d+(\.\d+)?[ ,]*\(?build[- ]?\d{6,9}\)?$",
     ])
@@ -77,22 +77,27 @@ static SCHEMES: [PatternScheme; 5] = [
     PatternScheme {
         name: "dotted",
         patterns: &DOTTED,
+        reject: None,
     },
     PatternScheme {
         name: "panos",
         patterns: &PANOS,
+        reject: None,
     },
     PatternScheme {
         name: "dsm",
         patterns: &DSM,
+        reject: None,
     },
     PatternScheme {
         name: "esxi",
         patterns: &ESXI,
+        reject: Some(crate::version_text::esxi::is_ambiguous),
     },
     PatternScheme {
         name: "ubuntu",
         patterns: &UBUNTU,
+        reject: None,
     },
 ];
 

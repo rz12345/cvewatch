@@ -8,7 +8,6 @@ use cvewatch_core::catalog::Product;
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::{CoreError, ExitCode};
 
-use super::asset::load_catalog;
 use crate::app::App;
 
 pub fn print_plan_details(plan: &ImportPlan) {
@@ -170,7 +169,7 @@ pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
 }
 
 pub fn catalog_list(app: &App) -> Result<ExitCode, CoreError> {
-    let catalog = load_catalog(app)?;
+    let catalog = app.load_catalog()?;
     println!(
         "{:<18} {:<26} {:<20} {:<7} {:>4} {:>4} {:>4} {:>5}",
         "key", "display_name", "vendor", "scheme", "別名", "CPE", "CNA", "CSAF"
@@ -197,7 +196,7 @@ pub fn catalog_list(app: &App) -> Result<ExitCode, CoreError> {
 }
 
 pub fn catalog_show(app: &App, key: &str) -> Result<ExitCode, CoreError> {
-    let catalog = load_catalog(app)?;
+    let catalog = app.load_catalog()?;
     let p = catalog.get(key).ok_or_else(|| {
         CoreError::Invalid(format!(
             "目錄中沒有產品 `{key}`；可用 `asset catalog list` 查看"
@@ -250,7 +249,7 @@ fn print_product(p: &Product) {
 }
 
 pub fn catalog_unresolved(app: &App) -> Result<ExitCode, CoreError> {
-    let catalog = load_catalog(app)?;
+    let catalog = app.load_catalog()?;
     let conn = open_working_db(&app.paths, &app.store)?;
     let entries = AssetRepo::new(&conn).unresolved()?;
     if entries.is_empty() {

@@ -2,7 +2,7 @@
 
 pub mod ecosystem;
 
-use std::collections::{BTreeSet, HashSet};
+use std::collections::{BTreeSet, HashMap};
 
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
@@ -94,8 +94,7 @@ struct Range {
 
 fn targets(conn: &Connection, stats: &mut SyncStats) -> Result<Vec<Target>, CoreError> {
     let mut stmt = conn.prepare(
-        "SELECT c.id, c.purl, c.version_raw FROM component c JOIN asset a ON a.id = c.asset_id
-         WHERE c.kind = 'package' AND a.status = 'active' ORDER BY c.id",
+        "SELECT id, purl, version_raw FROM active_component WHERE kind = 'package' ORDER BY id",
     )?;
     let rows = stmt
         .query_map([], |r| {
@@ -132,6 +131,8 @@ fn targets(conn: &Connection, stats: &mut SyncStats) -> Result<Vec<Target>, Core
 pub async fn sync(ctx: &SyncCtx<'_>, conn: &mut Connection) -> Result<SyncStats, CoreError> {
     let mut stats = SyncStats::default();
     let targets = targets(conn, &mut stats)?;
+    // 有套件在上次成功同步後才變更：這次成功後即可比對
+    let awaiting = any_awaiting(conn)?;
     // 與 targets 同順序
     let mut hits: Vec<Vec<VulnRef>> = Vec::with_capacity(targets.len());
     for chunk in targets.chunks(BATCH_SIZE) {
@@ -157,10 +158,11 @@ pub async fn sync(ctx: &SyncCtx<'_>, conn: &mut Connection) -> Result<SyncStats,
             params![id, modified, compress::compress(raw)?, now],
         )?;
     }
+    let mut changed = awaiting;
     for (target, vulns) in targets.iter().zip(&hits) {
-        replace_hits(&tx, target, vulns, &now, &mut stats)?;
+        changed |= replace_hits(&tx, target, vulns, &now, &mut stats)?;
     }
-    tx.commit()?;
+    ctx.commit(tx, changed)?;
     Ok(stats)
 }
 
@@ -280,18 +282,37 @@ fn fixed_versions(v: &Vuln, package: &OsvPackage) -> Vec<String> {
     fixed.into_iter().collect()
 }
 
+/// 是否有使用中的套件在最近一次成功的 OSV 同步之後才變更（版本變更、恢復、資產重新啟用）。
+fn any_awaiting(conn: &Connection) -> Result<bool, CoreError> {
+    let last = super::runlog::last_success(conn, SOURCE)?;
+    let mut stmt =
+        conn.prepare("SELECT updated_at FROM active_component WHERE kind = 'package'")?;
+    let updated = stmt
+        .query_map([], |r| r.get::<_, String>(0))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(updated
+        .iter()
+        .any(|u| !crate::matching::evidence::osv::osv_is_current(u, last.as_deref())))
+}
+
+/// 以這次查詢結果取代元件的命中；回傳命中內容是否有變動（新增、移除或 CVE／修正版本改變）。
 fn replace_hits(
     conn: &Connection,
     target: &Target,
     vulns: &[VulnRef],
     now: &str,
     stats: &mut SyncStats,
-) -> Result<(), CoreError> {
-    let before: HashSet<String> = {
-        let mut stmt = conn.prepare("SELECT osv_id FROM osv_hit WHERE component_id = ?1")?;
-        let rows = stmt.query_map(params![target.component_id], |r| r.get(0))?;
+) -> Result<bool, CoreError> {
+    let before: HashMap<String, (String, String)> = {
+        let mut stmt = conn.prepare(
+            "SELECT osv_id, cve_ids_json, fixed_versions_json FROM osv_hit WHERE component_id = ?1",
+        )?;
+        let rows = stmt.query_map(params![target.component_id], |r| {
+            Ok((r.get(0)?, (r.get(1)?, r.get(2)?)))
+        })?;
         rows.collect::<Result<_, _>>()?
     };
+    let mut changed = before.len() != vulns.len();
     conn.execute(
         "DELETE FROM osv_hit WHERE component_id = ?1",
         params![target.component_id],
@@ -302,24 +323,23 @@ fn replace_hits(
             .as_ref()
             .map(|v| (cve_ids(v), fixed_versions(v, &target.package)))
             .unwrap_or_default();
+        let row = (json_array(&cves)?, json_array(&fixed)?);
+        changed |= before.get(&r.id) != Some(&row);
         conn.execute(
             "INSERT OR REPLACE INTO osv_hit (component_id, osv_id, modified, cve_ids_json,
                                              fixed_versions_json, queried_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![
-                target.component_id,
-                r.id,
-                r.modified,
-                serde_json::to_string(&cves).unwrap_or_else(|_| "[]".into()),
-                serde_json::to_string(&fixed).unwrap_or_else(|_| "[]".into()),
-                now
-            ],
+            params![target.component_id, r.id, r.modified, row.0, row.1, now],
         )?;
-        if before.contains(&r.id) {
+        if before.contains_key(&r.id) {
             stats.updated += 1;
         } else {
             stats.added += 1;
         }
     }
-    Ok(())
+    Ok(changed)
+}
+
+fn json_array(items: &[String]) -> Result<String, CoreError> {
+    serde_json::to_string(items).map_err(|e| CoreError::Invalid(format!("OSV 命中序列化失敗：{e}")))
 }

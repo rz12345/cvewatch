@@ -431,3 +431,40 @@ async fn unpublished_stubs_rotate_instead_of_blocking_backfill() {
     assert_eq!(rotated, at(NOW).to_rfc3339(), "404 的 stub 排到最後");
     assert_eq!(reason(&conn, "CVE-2024-3400").as_deref(), Some("cna"));
 }
+
+/// 04 code review 第十九輪 #2：紀錄無法解析的 stub 也排到最後，不會一直佔住補齊名額。
+#[tokio::test]
+async fn unparseable_backfill_records_rotate() {
+    let mut conn = common::memory_db();
+    let h = harness(&conn, None, vec![]).await;
+    mount_releases(&h, releases_json()).await;
+    mount_bytes(&h, BASELINE, baseline_zip(&[]), 1).await;
+    mount_bytes(&h, DELTA_0300, delta_zip(&[]), 1).await;
+    cvewatch_core::ingest::store::ensure_stub(
+        &conn,
+        "CVE-2024-3400",
+        cvewatch_core::ingest::relevance::Relevance::Csaf,
+        None,
+        "2026-01-01T00:00:00Z",
+    )
+    .unwrap();
+    mount_bytes(
+        &h,
+        "/raw/cves/2024/3xxx/CVE-2024-3400.json",
+        b"{not json".to_vec(),
+        1,
+    )
+    .await;
+    let options = SyncOptions::default();
+    cvelist::sync(&h.ctx(&options, at(NOW)), &mut conn)
+        .await
+        .unwrap();
+    let rotated: String = conn
+        .query_row(
+            "SELECT updated_at FROM cve WHERE id = 'CVE-2024-3400'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(rotated, at(NOW).to_rfc3339());
+}

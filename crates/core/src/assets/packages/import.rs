@@ -1,4 +1,5 @@
 //! 套件清單寫入：整批取代該資產的套件元件，版本變更寫入歷史。
+//! 清單中已沒有的套件軟刪除（命中與處理紀錄保留），再次出現時沿用原元件。
 
 use std::collections::HashSet;
 
@@ -60,7 +61,7 @@ pub fn import_packages(
     for c in components.for_asset(asset.id)? {
         if let ComponentKind::Package { purl, .. } = &c.kind {
             if !incoming.contains(purl.as_str()) {
-                components.delete(c.id)?;
+                components.remove(c.id, now)?;
                 report.removed.push(purl.clone());
             }
         }

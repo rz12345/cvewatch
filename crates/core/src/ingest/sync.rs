@@ -139,6 +139,7 @@ pub async fn run(
 ) -> Result<SyncReport, CoreError> {
     let mut report = SyncReport::default();
     for p in plans {
+        // 比對待補標記由各來源在自己的寫入交易內記錄（只在資料有變動時）
         let run_id = runlog::start(conn, &p.name, &ctx.now_str())?;
         tracing::info!(source = %p.name, "開始同步來源");
         let result = run_one(ctx, conn, &p.kind).await;

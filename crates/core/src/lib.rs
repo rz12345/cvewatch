@@ -2,17 +2,24 @@
 //!
 //! 執行檔 `cvewatch` 只負責參數解析與互動提示，所有可測試的邏輯都放在這裡。
 
+#[macro_use]
+mod string_enum;
+
 pub mod assets;
 pub mod catalog;
 pub mod config;
+pub mod cpe;
 pub mod db;
 pub mod error;
+mod hash;
 pub mod http;
 pub mod ingest;
 pub mod init;
 pub mod logging;
+pub mod matching;
 pub mod paths;
 pub mod redact;
 pub mod secrets;
+pub mod version_text;
 
 pub use error::{CoreError, ExitCode};

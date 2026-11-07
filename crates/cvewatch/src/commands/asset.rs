@@ -4,13 +4,12 @@ use std::path::Path;
 
 use cvewatch_core::assets::columns::ColumnMap;
 use cvewatch_core::assets::import::{import_inventory, ImportOptions};
-use cvewatch_core::assets::packages::import::import_packages;
+use cvewatch_core::assets::packages::import::{import_packages, PackageImportReport};
 use cvewatch_core::assets::packages::{parse_packages, Distro, PackageFormat, ParsedPackages};
 use cvewatch_core::assets::plan::ImportPlan;
 use cvewatch_core::assets::sheet::read_inventory;
 use cvewatch_core::assets::template::write_template;
 use cvewatch_core::assets::validate::parse_inventory;
-use cvewatch_core::catalog::Catalog;
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::{CoreError, ExitCode};
 
@@ -51,10 +50,6 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
     }
 }
 
-pub fn load_catalog(app: &App) -> Result<Catalog, CoreError> {
-    Catalog::load(&app.paths.catalog_dir)
-}
-
 fn import(
     app: &App,
     file: &Path,
@@ -64,11 +59,20 @@ fn import(
     let columns = ColumnMap::from_config(&app.loaded.config.import.columns)?;
     let book = read_inventory(file, components)?;
     let inventory = parse_inventory(&book, &columns)?;
-    let catalog = load_catalog(app)?;
+    let catalog = app.load_catalog()?;
     let mut conn = open_working_db(&app.paths, &app.store)?;
     let plan = import_inventory(&mut conn, &catalog, &inventory, options, chrono::Utc::now())?;
     print_plan(&plan, options);
-    Ok(ExitCode::Success)
+    if options.dry_run {
+        return Ok(ExitCode::Success);
+    }
+    // 影響比對的變更已在匯入交易中記錄為比對待補；另含先前未完成的比對與目錄／評分設定變更
+    Ok(
+        super::matching::rematch_if_needed(app, &mut conn, &catalog).unwrap_or_else(|| {
+            println!("清冊沒有影響比對的變更，略過比對。");
+            ExitCode::Success
+        }),
+    )
 }
 
 fn print_plan(plan: &ImportPlan, options: ImportOptions) {
@@ -117,9 +121,30 @@ fn packages(
         PackageFormatArg::Rpm => Some(PackageFormat::Rpm),
     };
     let parsed = parse_packages(&text, format, distro.as_ref())?;
+    // 目錄先載入：catalog.d 有錯時在寫入前就失敗，而不是寫入後才回報錯誤
+    let catalog = app.load_catalog()?;
     let mut conn = open_working_db(&app.paths, &app.store)?;
     let report = import_packages(&mut conn, asset_tag, &parsed, chrono::Utc::now())?;
-    print_skipped(&parsed);
+    print_package_report(asset_tag, &parsed, &report);
+    if let Some(code) = super::matching::rematch_if_needed(app, &mut conn, &catalog) {
+        return Ok(code);
+    }
+    // 新增或變更的套件要等下次 sync 以 OSV 查詢後才能判定；移除的套件命中維持原狀
+    let unchanged =
+        report.added == 0 && report.version_changes.is_empty() && report.removed.is_empty();
+    let message = if unchanged {
+        "套件清單沒有變更，略過比對。"
+    } else if app.loaded.config.sources.osv_enabled {
+        "套件已更新；新版本將於下次 `cvewatch sync` 以 OSV 查詢後比對。"
+    } else {
+        "套件已更新；但 OSV 來源已停用（sources.osv_enabled = false），套件不會比對。"
+    };
+    println!("{message}");
+    Ok(ExitCode::Success)
+}
+
+fn print_package_report(asset_tag: &str, parsed: &ParsedPackages, report: &PackageImportReport) {
+    print_skipped(parsed);
     println!(
         "{asset_tag} 套件匯入完成（{}）：新增 {}、版本變更 {}、移除 {}、未變 {}",
         parsed.format.as_str(),
@@ -134,7 +159,6 @@ fn packages(
     for purl in &report.removed {
         println!("  移除 {purl}");
     }
-    Ok(ExitCode::Success)
 }
 
 fn print_skipped(parsed: &ParsedPackages) {

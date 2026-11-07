@@ -101,14 +101,14 @@ pub async fn sync(ctx: &SyncCtx<'_>, conn: &mut Connection) -> Result<SyncStats,
     let catalog: Catalog = serde_json::from_slice(&ctx.http.bytes(resp).await?)
         .map_err(|e| CoreError::Invalid(format!("KEV 格式錯誤：{e}")))?;
     let tx = conn.transaction()?;
-    replace(&tx, &catalog.vulnerabilities, &mut stats)?;
+    let affects_matching = replace(&tx, &catalog.vulnerabilities, &mut stats)?;
     let next = KevCursor {
         last_modified,
         etag,
         catalog_version: catalog.catalog_version,
     };
     cursor::set(&tx, SOURCE, &next, &ctx.now_str())?;
-    tx.commit()?;
+    ctx.commit(tx, affects_matching)?;
     Ok(stats)
 }
 
@@ -134,24 +134,39 @@ fn existing(conn: &Connection) -> Result<HashMap<String, Row>, CoreError> {
     Ok(rows.collect::<Result<_, _>>()?)
 }
 
-fn replace(conn: &Connection, entries: &[Entry], stats: &mut SyncStats) -> Result<(), CoreError> {
+/// 以新目錄取代整張表；回傳是否影響比對：列入、移出或列入日期改變
+/// （比對只用 CVE 與列入日期；期限、建議措施等欄位的修改不需要重新比對）。
+fn replace(conn: &Connection, entries: &[Entry], stats: &mut SyncStats) -> Result<bool, CoreError> {
     let before = existing(conn)?;
+    let kept = entries
+        .iter()
+        .filter(|e| before.contains_key(&e.cve_id))
+        .map(|e| e.cve_id.as_str())
+        .collect::<std::collections::HashSet<_>>()
+        .len();
     conn.execute("DELETE FROM kev", [])?;
     let mut stmt = conn.prepare(
         "INSERT OR REPLACE INTO kev (cve_id, vendor, product, vulnerability_name, date_added,
                                      due_date, known_ransomware, required_action)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
     )?;
+    let mut affects_matching = before.len() != kept;
     for e in entries {
         let row = e.row();
         match before.get(&e.cve_id) {
-            None => stats.added += 1,
-            Some(old) if *old != row => stats.updated += 1,
+            None => {
+                stats.added += 1;
+                affects_matching = true;
+            }
+            Some(old) if *old != row => {
+                stats.updated += 1;
+                affects_matching |= old.3 != row.3;
+            }
             Some(_) => {}
         }
         stmt.execute(params![
             e.cve_id, row.0, row.1, row.2, row.3, row.4, row.5, row.6
         ])?;
     }
-    Ok(())
+    Ok(affects_matching)
 }

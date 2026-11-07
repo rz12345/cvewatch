@@ -4,7 +4,11 @@ pub mod config;
 pub mod cve;
 mod cve_view;
 pub mod db;
+pub mod finding;
+mod finding_view;
 pub mod init;
+pub mod matching;
+pub mod pending;
 pub mod sync;
 
 /// 提醒使用者匯出復原金鑰的共用訊息。

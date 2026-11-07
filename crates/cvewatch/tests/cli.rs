@@ -3,7 +3,9 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-const SUBCOMMANDS: [&str; 7] = ["init", "sync", "tui", "asset", "config", "db", "cve"];
+const SUBCOMMANDS: [&str; 10] = [
+    "init", "sync", "tui", "asset", "config", "db", "cve", "match", "finding", "pending",
+];
 
 fn cvewatch() -> Command {
     let mut cmd = Command::cargo_bin("cvewatch").unwrap();
@@ -40,6 +42,18 @@ fn every_subcommand_supports_help() {
     for sub in ["set-secret", "check"] {
         cvewatch()
             .args(["config", sub, "--help"])
+            .assert()
+            .success();
+    }
+    for sub in ["list", "show", "set", "conflicts"] {
+        cvewatch()
+            .args(["finding", sub, "--help"])
+            .assert()
+            .success();
+    }
+    for sub in ["list", "resolve"] {
+        cvewatch()
+            .args(["pending", sub, "--help"])
             .assert()
             .success();
     }
@@ -374,4 +388,91 @@ url = \"https://v.example/rss.xml\"
         .assert()
         .code(2)
         .stderr(predicate::str::contains("csaf_url_template"));
+}
+
+/// finding-triage「Ignoring without a reason」：參數驗證在開啟資料庫之前，不需憑證庫。
+#[test]
+fn ignoring_without_reason_fails_and_lists_reasons() {
+    let (_dir, cfg) = config_with("");
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["finding", "set", "42", "ignored", "--note", "x"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("--reason"))
+        .stderr(predicate::str::contains("not_affected"))
+        .stderr(predicate::str::contains("risk_accepted"))
+        .stderr(predicate::str::contains("false_positive"));
+}
+
+#[test]
+fn not_affected_without_justification_lists_values() {
+    let (_dir, cfg) = config_with("");
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args([
+            "finding",
+            "set",
+            "42",
+            "ignored",
+            "--reason",
+            "not_affected",
+        ])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("requires_configuration"))
+        .stderr(predicate::str::contains("protected_at_perimeter"));
+}
+
+#[test]
+fn pending_resolve_requires_apply_or_dismiss() {
+    cvewatch()
+        .args(["pending", "resolve", "CVE-2024-3400"])
+        .assert()
+        .code(1);
+    cvewatch()
+        .args([
+            "pending",
+            "resolve",
+            "CVE-2024-3400",
+            "--apply",
+            "FW-01",
+            "--dismiss",
+        ])
+        .assert()
+        .code(1);
+}
+
+#[test]
+fn invalid_scoring_config_exits_2() {
+    let (_dir, cfg) = config_with(
+        "[scoring]
+epss_high = 2
+",
+    );
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .arg("match")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("scoring"));
+}
+
+/// code review #7：說明文字不應在句中出現續行留下的連續空白。
+#[test]
+fn finding_set_help_has_no_stray_indentation() {
+    let assert = cvewatch()
+        .args(["finding", "set", "--help"])
+        .assert()
+        .success();
+    let out = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(out.contains("protected_by_mitigating_control"), "{out}");
+    let description: String = out
+        .lines()
+        .take_while(|l| !l.starts_with("Usage"))
+        .collect();
+    assert!(!description.contains("    "), "說明含連續空白：\n{out}");
 }

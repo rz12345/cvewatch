@@ -53,6 +53,9 @@ fn dispatch(app: &app::App, command: Command, config_created: bool) -> Result<Ex
         Command::Init => commands::init::run(app, config_created),
         Command::Sync(args) => commands::sync::run(app, args),
         Command::Cve { action } => commands::cve::run(app, action),
+        Command::Match => commands::matching::run(app),
+        Command::Finding { action } => commands::finding::run(app, action),
+        Command::Pending { action } => commands::pending::run(app, action),
         Command::Tui => Err(CoreError::NotImplemented("tui")),
         Command::Asset { action } => commands::asset::run(app, action),
         Command::Config { action } => match action {

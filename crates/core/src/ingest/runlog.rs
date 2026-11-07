@@ -20,6 +20,15 @@ pub struct RunRow {
     pub error: Option<String>,
 }
 
+/// 來源最近一次成功同步的開始時間（OSV 結果是否為最新：同步端與比對端共用）。
+pub fn last_success(conn: &Connection, source: &str) -> Result<Option<String>, CoreError> {
+    Ok(conn.query_row(
+        "SELECT max(started_at) FROM sync_run WHERE source = ?1 AND status = 'success'",
+        params![source],
+        |r| r.get(0),
+    )?)
+}
+
 pub fn start(conn: &Connection, source: &str, now: &str) -> Result<i64, CoreError> {
     conn.execute(
         "INSERT INTO sync_run (started_at, source, status) VALUES (?1, ?2, 'running')",

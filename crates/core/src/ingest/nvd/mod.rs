@@ -112,7 +112,7 @@ pub async fn sync(ctx: &SyncCtx<'_>, conn: &mut Connection) -> Result<SyncStats,
     };
     let now = ctx.now;
     let now_str = ctx.now_str();
-    let tx = conn.transaction()?;
+    let mut fetched: Vec<Value> = Vec::new();
     let mut next = previous.clone();
     for cpe in catalog_cpes(ctx) {
         let start = ctx.options.since.map_or_else(
@@ -125,19 +125,24 @@ pub async fn sync(ctx: &SyncCtx<'_>, conn: &mut Connection) -> Result<SyncStats,
             loop {
                 let page = req.page(&match_string, window, start_index).await?;
                 let count = page.vulnerabilities.len() as u64;
-                for item in &page.vulnerabilities {
-                    apply_cve(&tx, &item.cve, &now_str, &mut stats)?;
-                }
+                let total = page.total_results;
+                fetched.extend(page.vulnerabilities.into_iter().map(|item| item.cve));
                 start_index += count;
-                if count == 0 || start_index >= page.total_results {
+                if count == 0 || start_index >= total {
                     break;
                 }
             }
         }
         next.cpes.insert(cpe, now);
     }
+    // 全部抓完才開啟寫入交易：抓取期間（含速率限制的等待）不持有資料庫寫入鎖，
+    // 其他命令（finding set、pending resolve、match）不會因此逾時；失敗時游標不變
+    let tx = conn.transaction()?;
+    for raw in &fetched {
+        apply_cve(&tx, raw, &now_str, &mut stats)?;
+    }
     cursor::set(&tx, SOURCE, &next, &now_str)?;
-    tx.commit()?;
+    ctx.commit(tx, stats.changes() > 0)?;
     Ok(stats)
 }
 

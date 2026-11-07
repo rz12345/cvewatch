@@ -1,0 +1,118 @@
+{
+  "resultsPerPage": 3,
+  "startIndex": 0,
+  "totalResults": 3,
+  "format": "NVD_CVE",
+  "version": "2.0",
+  "vulnerabilities": [
+    {
+      "cve": {
+        "id": "CVE-2099-60002",
+        "vulnStatus": "Analyzed",
+        "lastModified": "2026-10-25T00:00:00.000",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Dell iDRAC9 versions prior to 7.10.30.00 contain an improper input validation vulnerability."
+          }
+        ],
+        "metrics": {},
+        "configurations": [
+          {
+            "operator": "AND",
+            "nodes": [
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": true,
+                    "criteria": "cpe:2.3:o:dell:idrac9_firmware:*:*:*:*:*:*:*:*",
+                    "matchCriteriaId": "00000000-0000-0000-0000-000000000000",
+                    "versionEndExcluding": "7.10.30.00"
+                  }
+                ]
+              },
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": false,
+                    "criteria": "cpe:2.3:h:dell:poweredge_r6515:-:*:*:*:*:*:*:*",
+                    "matchCriteriaId": "00000000-0000-0000-0000-000000000000"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2099-60003",
+        "vulnStatus": "Analyzed",
+        "lastModified": "2026-10-25T00:00:00.000",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Proxmox Virtual Environment before 8.2.4 allows privilege escalation."
+          }
+        ],
+        "metrics": {},
+        "configurations": [
+          {
+            "nodes": [
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": true,
+                    "criteria": "cpe:2.3:a:proxmox:virtual_environment:*:*:*:*:*:*:*:*",
+                    "matchCriteriaId": "00000000-0000-0000-0000-000000000000",
+                    "versionEndExcluding": "8.2.4"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "cve": {
+        "id": "CVE-2099-60004",
+        "vulnStatus": "Analyzed",
+        "lastModified": "2026-10-25T00:00:00.000",
+        "descriptions": [
+          {
+            "lang": "en",
+            "value": "Palo Alto Networks PAN-OS management interface issue."
+          }
+        ],
+        "metrics": {},
+        "configurations": [
+          {
+            "nodes": [
+              {
+                "operator": "OR",
+                "negate": false,
+                "cpeMatch": [
+                  {
+                    "vulnerable": true,
+                    "criteria": "cpe:2.3:o:paloaltonetworks:pan-os:*:*:*:*:*:*:*:*",
+                    "matchCriteriaId": "00000000-0000-0000-0000-000000000000",
+                    "versionStartIncluding": "11.1.0",
+                    "versionEndExcluding": "11.1.5"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
