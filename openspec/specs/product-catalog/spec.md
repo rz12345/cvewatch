@@ -25,11 +25,15 @@
 - **THEN** 系統列出所有目前未辨識的產品名稱及出現的資產
 
 ### Requirement: Product identifiers for matching
-每個目錄產品 SHALL 可定義零到多組 CPE（part、vendor、product）、零到多組 CNA vendor/product 寫法，以及零到多組 CSAF 公告中的 vendor/product 名稱。
+每個目錄產品 SHALL 可定義零到多組 CPE（part、vendor、product）、零到多組 CNA vendor/product 寫法、零到多組 CSAF 公告中的 vendor/product 名稱，以及零到多個描述關鍵字（`keywords`）。關鍵字用於 CVE 沒有可辨識的 affected 或 CPE 時，以英文描述判斷是否可能相關。
 
 #### Scenario: Product with CNA identifiers only
 - **WHEN** 某產品沒有 CPE 但有 CNA vendor/product
 - **THEN** 目錄載入成功，`asset catalog show` 顯示其 CPE 為空、CNA 識別一筆
+
+#### Scenario: Product keywords
+- **WHEN** 使用者在 `catalog.d` 為 `proxmox-ve` 設定 `keywords = ["Proxmox Virtual Environment"]`
+- **THEN** `asset catalog show proxmox-ve` 列出該關鍵字，且未寫 `keywords` 的使用者條目沿用種子目錄的關鍵字
 
 ### Requirement: Version scheme declaration
 每個目錄產品 SHALL 宣告版本格式；匯入時版本字串無法以該格式解析者 SHALL 產生警告但仍保存原始字串。
