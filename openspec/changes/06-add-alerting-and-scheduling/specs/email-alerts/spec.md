@@ -49,6 +49,10 @@ Email 送出失敗時，系統 SHALL 保留於送出佇列並以遞增間隔重�
 - **WHEN** 寄送緊急信時 SMTP 連線失敗
 - **THEN** 信件留在佇列，下次 sync 或摘要執行時重送，成功後才記錄為已通知
 
+#### Scenario: Password not stored yet
+- **WHEN** Email 已啟用並設定帳號，但 Credential Manager 中還沒有 SMTP 密碼
+- **THEN** 緊急信留在佇列且不計入重送次數，每次執行說明缺少密碼；存入密碼後下次執行即寄出
+
 ### Requirement: Encrypted SMTP transport
 SMTP 連線 SHALL 使用 STARTTLS（伺服器不支援時失敗，不得降級）或 SMTPS，且 SHALL 驗證伺服器憑證；系統 MUST NOT 提供略過憑證驗證的選項，內部 CA SHALL 以設定的 CA 檔加入信任。
 

@@ -57,6 +57,8 @@ pub struct Dashboard {
     pub pending_stale: i64,
     /// 來源矛盾（使用中元件）
     pub conflicts: i64,
+    /// 無法送出（dead）的通知
+    pub dead_notifications: i64,
     /// 各來源最近一次同步，依同步順序（cvelist → nvd → csaf:* → kev → epss → osv → 其他）
     pub sources: Vec<SourceStatus>,
 }
@@ -92,6 +94,11 @@ pub fn load(
         pending_stale,
         conflicts: conn.query_row(
             "SELECT count(*) FROM match_conflict m JOIN active_component c ON c.id = m.component_id",
+            [],
+            |r| r.get(0),
+        )?,
+        dead_notifications: conn.query_row(
+            "SELECT count(*) FROM outbox WHERE dead_at IS NOT NULL",
             [],
             |r| r.get(0),
         )?,
@@ -223,6 +230,30 @@ mod tests {
         );
         assert!(d.sources.is_empty());
         assert!(d.last_finished().is_none());
+    }
+
+    #[test]
+    fn dead_notifications_are_counted() {
+        let conn = db();
+        let now = Utc::now();
+        let dead = crate::notify::outbox::enqueue(
+            &conn,
+            crate::notify::outbox::Channel::Email,
+            "urgent",
+            "{}",
+            now,
+        )
+        .unwrap();
+        crate::notify::outbox::fail(&conn, dead, "x", true, now).unwrap();
+        crate::notify::outbox::enqueue(
+            &conn,
+            crate::notify::outbox::Channel::Email,
+            "digest",
+            "{}",
+            now,
+        )
+        .unwrap();
+        assert_eq!(load(&conn, 14, now).unwrap().dead_notifications, 1);
     }
 
     #[test]

@@ -17,6 +17,8 @@ pub struct FindingFilter {
     pub priorities: Vec<Priority>,
     pub asset_tag: Option<String>,
     pub confidence: Option<Confidence>,
+    /// 只列出此時間（RFC 3339 UTC）之後建立的命中
+    pub first_seen_from: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -144,6 +146,10 @@ pub fn list(conn: &Connection, filter: &FindingFilter) -> Result<Vec<FindingRow>
     if let Some(c) = filter.confidence {
         clauses.push("f.confidence = ?".into());
         args.push(c.as_str().to_string());
+    }
+    if let Some(from) = &filter.first_seen_from {
+        clauses.push("f.first_seen >= ?".into());
+        args.push(from.clone());
     }
     let sql = if clauses.is_empty() {
         ROW_SELECT.to_string()

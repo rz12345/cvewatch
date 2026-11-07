@@ -3,8 +3,9 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-const SUBCOMMANDS: [&str; 10] = [
-    "init", "sync", "tui", "asset", "config", "db", "cve", "match", "finding", "pending",
+const SUBCOMMANDS: [&str; 12] = [
+    "init", "sync", "tui", "asset", "config", "db", "cve", "match", "finding", "pending", "notify",
+    "schedule",
 ];
 
 fn cvewatch() -> Command {
@@ -57,6 +58,34 @@ fn every_subcommand_supports_help() {
             .assert()
             .success();
     }
+    for sub in ["urgent", "digest", "test-email", "test-redmine", "outbox"] {
+        cvewatch()
+            .args(["notify", sub, "--help"])
+            .assert()
+            .success();
+    }
+    for sub in ["install", "status", "uninstall"] {
+        cvewatch()
+            .args(["schedule", sub, "--help"])
+            .assert()
+            .success();
+    }
+}
+
+#[test]
+fn insecure_smtp_without_exception_is_a_config_error() {
+    let (_dir, path) = config_with(
+        "[notify.email]
+security = \"none\"
+",
+    );
+    cvewatch()
+        .arg("--config")
+        .arg(&path)
+        .args(["notify", "outbox"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("allow_insecure_transport"));
 }
 
 #[test]

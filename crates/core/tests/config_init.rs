@@ -143,3 +143,25 @@ fn collect(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
         }
     }
 }
+
+#[test]
+fn relative_ca_file_is_resolved_against_config_directory() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("cvewatch.toml");
+    std::fs::write(
+        &path,
+        "[notify]
+ca_file = 'certs/ca.pem'
+",
+    )
+    .unwrap();
+    let location = cvewatch_core::paths::ConfigLocation {
+        path: path.clone(),
+        source: cvewatch_core::paths::ConfigSource::CommandLine,
+    };
+    let loaded = cvewatch_core::config::load(&location).unwrap();
+    assert_eq!(
+        loaded.config.notify.ca_file(),
+        Some(dir.path().join("certs").join("ca.pem").as_path())
+    );
+}

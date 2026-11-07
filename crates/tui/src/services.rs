@@ -2,9 +2,13 @@
 
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
+use std::sync::Arc;
 
 use chrono::{DateTime, FixedOffset, Local, Utc};
+use cvewatch_core::secrets::SecretStore;
 use cvewatch_core::ExitCode;
+
+use crate::settings::{NotifyBackend, Spawner};
 
 pub trait Opener {
     fn open(&self, url: &str) -> Result<(), String>;
@@ -31,6 +35,12 @@ pub struct Services {
     pub clock: Box<dyn Fn() -> DateTime<Utc>>,
     /// 顯示時間用的時區
     pub tz: DisplayTz,
+    /// SMTP 密碼與 Redmine API key（設定畫面讀寫）
+    pub secrets: Box<dyn SecretStore>,
+    /// 測試寄信、測試 Redmine、載入清單、重新安裝排程
+    pub backend: Arc<dyn NotifyBackend>,
+    /// 背景工作（連線不阻塞畫面）
+    pub spawner: Box<dyn Spawner>,
 }
 
 /// 顯示時區：本機時區逐筆換算（含日光節約時間），或固定位移（測試用）。
@@ -81,10 +91,6 @@ pub struct ProcessLauncher {
     pub config: Option<PathBuf>,
 }
 
-/// Windows `CREATE_NO_WINDOW`：子程序不開主控台視窗。
-#[cfg(windows)]
-const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-
 impl SyncLauncher for ProcessLauncher {
     fn launch(&self) -> Result<Box<dyn RunningSync>, String> {
         let mut cmd = Command::new(&self.exe);
@@ -95,11 +101,7 @@ impl SyncLauncher for ProcessLauncher {
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
+        cvewatch_core::process::hide_window(&mut cmd);
         let child = cmd.spawn().map_err(|e| e.to_string())?;
         tracing::info!(pid = child.id(), "TUI 啟動背景 sync");
         Ok(Box::new(ChildSync(child)))

@@ -26,5 +26,5 @@ expression: render(&app)
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
-"└ [1]Dash [2]Findings [3]Assets [4]Pending [5]Sync  ?help q quit ────────────────────────────────────────────┘"
+"└ [1]Dash [2]Findings [3]Assets [4]Pending [5]Sync [6]Settings  ?help q quit ────────────────────────────────┘"
 "Enter 詳情  Space 多選  / 搜尋  f 篩選  s 排序  r/i/u 變更狀態  o 連結                                        " Hidden by multi-width symbols: [(7, " "), (9, " "), (19, " "), (21, " "), (27, " "), (29, " "), (35, " "), (37, " "), (43, " "), (45, " "), (55, " "), (57, " "), (59, " "), (61, " "), (67, " "), (69, " ")]

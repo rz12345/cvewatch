@@ -17,8 +17,11 @@ pub mod ingest;
 pub mod init;
 pub mod logging;
 pub mod matching;
+pub mod notify;
 pub mod paths;
+pub mod process;
 pub mod redact;
+pub mod schedule;
 pub mod secrets;
 pub mod version_text;
 

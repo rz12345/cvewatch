@@ -118,6 +118,44 @@ pub fn resolve(
     note: &str,
     now: DateTime<Utc>,
 ) -> Result<Resolution, CoreError> {
+    let request = ResolveRequest {
+        catalog,
+        scoring,
+        raw_cve,
+        action,
+        note,
+        now,
+    };
+    resolve_with(conn, &request, &|_, _| Ok(()))
+}
+
+/// 人工移出等待區的參數。
+pub struct ResolveRequest<'a> {
+    pub catalog: &'a Catalog,
+    pub scoring: &'a ScoringConfig,
+    pub raw_cve: &'a str,
+    pub action: &'a Action,
+    pub note: &'a str,
+    pub now: DateTime<Utc>,
+}
+
+/// 提交前呼叫（例如排入 Redmine 註記）；失敗時整筆回復。
+pub type AfterResolve<'a> = dyn Fn(&Connection, &Resolution) -> Result<(), CoreError> + 'a;
+
+/// 同 [`resolve`]，並在同一交易中呼叫 `after`。
+pub fn resolve_with(
+    conn: &mut Connection,
+    req: &ResolveRequest<'_>,
+    after: &AfterResolve<'_>,
+) -> Result<Resolution, CoreError> {
+    let (catalog, scoring, raw_cve, action, note, now) = (
+        req.catalog,
+        req.scoring,
+        req.raw_cve,
+        req.action,
+        req.note,
+        req.now,
+    );
     let cve_id = normalize_id(raw_cve)?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let reason = active_reason(&tx, &cve_id)?
@@ -139,6 +177,7 @@ pub fn resolve(
             resolve_apply(&tx, &cve_id, &request, &now_str)?
         }
     };
+    after(&tx, &resolution)?;
     tx.commit()?;
     Ok(resolution)
 }

@@ -8,7 +8,9 @@ pub mod finding;
 mod finding_view;
 pub mod init;
 pub mod matching;
+pub mod notify;
 pub mod pending;
+pub mod schedule;
 pub mod sync;
 pub mod tui;
 

@@ -69,6 +69,9 @@ fn run_locked(
     args: &SyncArgs,
     plans: &[SourcePlan],
 ) -> Result<ExitCode, CoreError> {
+    // 先送出上次留在佇列中的通知（失敗只警告）
+    let notifier = super::notify::notifier(app);
+    super::notify::flush_before_sync(&notifier, conn);
     let catalog = app.load_catalog()?;
     let product_ids = {
         let tx = conn.transaction()?;
@@ -108,6 +111,8 @@ fn run_locked(
         println!("同步沒有影響比對的資料變更，略過比對。");
         ExitCode::Success
     });
+    // 依目前資料判定緊急事件（含先前 match／匯入產生、尚未通知者），寄信與開案；失敗不影響同步結果
+    super::notify::notify_after_sync(&notifier, conn);
     Ok(match (report.exit_code(), matched) {
         (ExitCode::Success, code) => code,
         (code, _) => code,

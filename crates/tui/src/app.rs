@@ -2,7 +2,10 @@
 
 use std::cell::Cell;
 use std::collections::{BTreeSet, HashSet};
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
+
+use cvewatch_core::config::Config;
 
 use cvewatch_core::matching::triage::Status;
 use cvewatch_core::CoreError;
@@ -15,6 +18,7 @@ use crate::dialog::{self, moved, Dialog, NotePurpose, Outcome};
 use crate::filter::{self, Filter, SortKey};
 use crate::glyphs::Glyphs;
 use crate::services::{RunningSync, Services};
+use crate::settings::{Form, Leave, SettingsPage};
 
 /// 檢查是否有新同步資料的間隔。
 pub const NEW_DATA_POLL: Duration = Duration::from_secs(5);
@@ -26,15 +30,17 @@ pub enum Screen {
     Assets,
     Pending,
     SyncLog,
+    Settings,
 }
 
 impl Screen {
-    pub const ALL: [Screen; 5] = [
+    pub const ALL: [Screen; 6] = [
         Screen::Dashboard,
         Screen::Findings,
         Screen::Assets,
         Screen::Pending,
         Screen::SyncLog,
+        Screen::Settings,
     ];
 
     pub fn title(self) -> &'static str {
@@ -44,6 +50,7 @@ impl Screen {
             Screen::Assets => "Assets",
             Screen::Pending => "Pending",
             Screen::SyncLog => "Sync log",
+            Screen::Settings => "Settings",
         }
     }
 
@@ -55,6 +62,7 @@ impl Screen {
             Screen::Assets => "Assets",
             Screen::Pending => "Pending",
             Screen::SyncLog => "Sync",
+            Screen::Settings => "Settings",
         }
     }
 }
@@ -95,6 +103,10 @@ pub struct ScrollOffsets {
 pub struct Context {
     pub conn: Connection,
     pub settings: Settings,
+    /// 目前的設定檔內容（設定畫面由此載入，儲存後更新）
+    pub config: Config,
+    /// 設定畫面寫回的設定檔
+    pub config_path: PathBuf,
     pub services: Services,
     pub glyphs: Glyphs,
 }
@@ -102,6 +114,10 @@ pub struct Context {
 pub struct App {
     pub conn: Connection,
     pub settings: Settings,
+    pub config: Config,
+    pub config_path: PathBuf,
+    /// 設定畫面
+    pub page: SettingsPage,
     pub services: Services,
     pub glyphs: Glyphs,
     pub data: Snapshot,
@@ -126,9 +142,13 @@ impl App {
     pub fn new(ctx: Context) -> Result<App, CoreError> {
         let now = ctx.services.now();
         let data = Snapshot::load(&ctx.conn, ctx.settings.stale_days, now)?;
+        let page = SettingsPage::new(&ctx.config);
         let mut app = App {
             conn: ctx.conn,
             settings: ctx.settings,
+            config: ctx.config,
+            config_path: ctx.config_path,
+            page,
             services: ctx.services,
             glyphs: ctx.glyphs,
             data,
@@ -214,13 +234,34 @@ impl App {
             self.on_search_key(key);
             return;
         }
+        let ctrl_s =
+            key.modifiers.contains(KeyModifiers::CONTROL) && key.code == KeyCode::Char('s');
+        if self.on_settings_screen() && (self.page.captures_keys() || ctrl_s) {
+            self.on_settings_key(key);
+            return;
+        }
         if !self.on_global_key(key.code) {
             self.on_view_key(key.code);
         }
     }
 
-    /// 有未送出的備註時先確認；確認框開啟時再按一次即離開。
+    /// 目前在設定畫面（沒有開啟詳情）。
+    pub fn on_settings_screen(&self) -> bool {
+        self.screen == Screen::Settings && self.stack.is_empty()
+    }
+
+    /// 有未送出的備註時先確認；確認框開啟時再按一次即離開。設定畫面有未儲存的變更時
+    /// 先詢問儲存／放棄／取消（確認框開啟時再按一次即離開，不儲存）。
     fn request_quit(&mut self) {
+        if self.on_settings_screen() {
+            if self.page.confirm.is_some_and(|c| c.then == Leave::Quit) {
+                self.quit = true;
+                return;
+            }
+            if !self.leave_settings(Leave::Quit) {
+                return;
+            }
+        }
         match self.dialog.take() {
             Some(Dialog::ConfirmQuit { .. }) => self.quit = true,
             Some(d) if d.has_unsaved_note() => {
@@ -258,10 +299,17 @@ impl App {
     /// 全域鍵位；已處理時回傳 true。
     fn on_global_key(&mut self, code: KeyCode) -> bool {
         match code {
-            KeyCode::Char(c @ '1'..='5') => {
-                let idx = c as usize - '1' as usize;
-                self.screen = Screen::ALL[idx];
-                self.stack.clear();
+            KeyCode::Char(c @ '1'..='6') => {
+                let target = Screen::ALL[c as usize - '1' as usize];
+                if target == Screen::Settings && self.screen != Screen::Settings {
+                    self.enter_settings();
+                }
+                if self.screen == Screen::Settings && target != Screen::Settings {
+                    self.leave_settings(Leave::Screen(target));
+                } else {
+                    self.screen = target;
+                    self.stack.clear();
+                }
             }
             KeyCode::Char('?') => self.help = true,
             KeyCode::Char('q') => self.request_quit(),
@@ -287,6 +335,7 @@ impl App {
                 Screen::SyncLog => {
                     self.sync_cursor = moved(self.sync_cursor, self.data.sync_runs.len(), code)
                 }
+                Screen::Settings => self.on_settings_key(KeyEvent::from(code)),
             },
         }
     }
@@ -533,6 +582,7 @@ impl App {
     /// 背景 sync 結束檢查與新資料偵測（每 5 秒）。畫面需要重繪時回傳 true。
     pub fn on_tick(&mut self, now: Instant) -> bool {
         let before = (self.sync.is_some(), self.new_data, self.message.clone());
+        let jobs_done = self.poll_settings_jobs();
         self.poll_sync();
         let due = self
             .last_poll
@@ -541,6 +591,19 @@ impl App {
             self.last_poll = Some(now);
             self.check_new_data();
         }
-        before != (self.sync.is_some(), self.new_data, self.message.clone())
+        jobs_done || before != (self.sync.is_some(), self.new_data, self.message.clone())
+    }
+
+    /// 進入設定畫面：沒有未儲存的變更時重新讀取欄位與秘密狀態（Redmine 清單保留）。
+    fn enter_settings(&mut self) {
+        if !self.page.dirty() {
+            let (form, error) = Form::load_checked(&self.config, self.services.secrets.as_ref());
+            self.page.original = form.clone();
+            self.page.form = form;
+            if let Some(e) = error {
+                tracing::warn!(error = %e, "設定畫面無法讀取憑證庫");
+                self.message = Some(e);
+            }
+        }
     }
 }

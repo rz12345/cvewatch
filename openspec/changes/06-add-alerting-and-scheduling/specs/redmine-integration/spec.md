@@ -32,7 +32,7 @@
 - **THEN** 議題新增註記「FW-01：resolved（已升至 11.1.6）」，議題狀態不變
 
 ### Requirement: Redmine failures are retried
-Redmine 暫時性錯誤 SHALL 進入送出佇列重送；驗證類錯誤（HTTP 422、401、403）SHALL 不重試並標為無法送出。
+Redmine 暫時性錯誤 SHALL 進入送出佇列重送；驗證類錯誤（HTTP 422、401、403）與找不到資源（HTTP 404）SHALL 不重試並標為無法送出。加註記時議題已不存在，系統 SHALL 清除該 CVE 的議題對應，之後的緊急事件重新建立議題。
 
 #### Scenario: Redmine down during sync
 - **WHEN** 建立議題時 Redmine 回應 502
@@ -42,8 +42,12 @@ Redmine 暫時性錯誤 SHALL 進入送出佇列重送；驗證類錯誤（HTTP 
 - **WHEN** Redmine 回應 422 指出 tracker 無效
 - **THEN** 請求標為無法送出，`notify outbox` 顯示 Redmine 的錯誤訊息
 
+#### Scenario: Issue deleted in Redmine
+- **WHEN** 對既有議題加註記時 Redmine 回應 404
+- **THEN** 註記標為無法送出，該 CVE 的議題對應被清除，之後再有緊急事件時建立新議題
+
 ### Requirement: HTTPS-only Redmine
-Redmine 網址 SHALL 為 https 並驗證伺服器憑證（可透過設定的 CA 檔信任內部 CA）；設定檔未手動啟用 `allow_insecure_transport` 時，http 網址 SHALL 被拒絕。即使啟用例外，系統 MUST NOT 經 http 傳送 API key。
+Redmine 網址 SHALL 為 https 並驗證伺服器憑證（可透過設定的 CA 檔信任內部 CA）；設定檔未手動啟用 `allow_insecure_transport` 時，http 網址 SHALL 被拒絕。即使啟用例外，系統 MUST NOT 經 http 傳送 API key，且 MUST NOT 跟隨轉址（避免 API key 送往其他主機）。
 
 #### Scenario: http URL without exception
 - **WHEN** Redmine 網址設為 `http://redmine.local`
@@ -52,6 +56,10 @@ Redmine 網址 SHALL 為 https 並驗證伺服器憑證（可透過設定的 CA 
 #### Scenario: http URL with exception enabled
 - **WHEN** 例外開關已啟用且網址為 http
 - **THEN** 系統拒絕送出任何帶 API key 的請求，並說明原因
+
+#### Scenario: Redirect response
+- **WHEN** Redmine 網址回應 302 轉址到其他主機
+- **THEN** 系統不跟隨轉址，請求標為無法送出並說明需確認網址
 
 ### Requirement: Redmine configuration test
 系統 SHALL 提供 `cvewatch notify test-redmine`，驗證 API key、專案與 tracker 可用，且不建立議題。

@@ -4,10 +4,11 @@ mod detail;
 mod findings;
 mod overlay;
 mod screens;
+mod settings;
 
 use chrono::DateTime;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use std::cell::Cell as StdCell;
 use std::ops::Range;
@@ -25,9 +26,29 @@ const COLUMN_SPACING: u16 = 1;
 /// 彈性欄位的最小寬度。
 const MIN_FLEX_WIDTH: u16 = 4;
 
+/// 明文傳輸例外啟用時，所有畫面頂端常駐的警示。
+pub const INSECURE_BANNER: &str =
+    " 明文傳輸已啟用（設定檔 allow_insecure_transport = true）：SMTP／Redmine 可能未加密 ";
+
 pub fn draw(frame: &mut Frame<'_>, app: &App) {
-    let [body, status] =
-        Layout::vertical([Constraint::Fill(1), Constraint::Length(1)]).areas(frame.area());
+    let insecure = app.config.notify.allow_insecure_transport;
+    let [banner, body, status] = Layout::vertical([
+        Constraint::Length(u16::from(insecure)),
+        Constraint::Fill(1),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
+    if insecure {
+        frame.render_widget(
+            Paragraph::new(cut(app, INSECURE_BANNER, usize::from(banner.width))).style(
+                Style::new()
+                    .fg(Color::White)
+                    .bg(Color::Red)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            banner,
+        );
+    }
     let block = Block::bordered()
         .border_set(app.glyphs.border)
         .title(title(app))
@@ -48,6 +69,7 @@ pub fn draw(frame: &mut Frame<'_>, app: &App) {
             Screen::Assets => screens::assets(frame, inner, app),
             Screen::Pending => screens::pending(frame, inner, app),
             Screen::SyncLog => screens::sync_log(frame, inner, app),
+            Screen::Settings => settings::draw(frame, inner, app),
         },
     }
     status_line(frame, status, app);
@@ -136,13 +158,16 @@ fn hint(app: &App) -> String {
         }
         Some(View::AssetDetail { .. }) => "j/k 移動  Enter 命中詳情  Esc 返回",
         None => match app.screen {
-            Screen::Dashboard => "1-5 切換畫面  R 重新載入  S 背景 sync  ? 說明",
+            Screen::Dashboard => "1-6 切換畫面  R 重新載入  S 背景 sync  ? 說明",
             Screen::Findings => {
                 "Enter 詳情  Space 多選  / 搜尋  f 篩選  s 排序  r/i/u 變更狀態  o 連結"
             }
             Screen::Assets => "Enter 資產詳情（元件、命中、未辨識產品）",
             Screen::Pending => "a 套用到資產  d 標為不相關  o 開啟連結  y 複製",
             Screen::SyncLog => "",
+            Screen::Settings => {
+                "Tab 切換分頁  j/k 移動  Enter 編輯／切換  Del 清除  Ctrl+S 儲存  Esc 離開"
+            }
         },
     };
     text.to_string()

@@ -12,11 +12,12 @@ data-encoding = "2.11.1"
 directories = "6.0.0"
 flate2 = "1.1.11"
 keyring = "4.2.0"
+lettre = { version = "0.11.23", default-features = false, features = ["smtp-transport", "builder", "hostname", "rustls", "aws-lc-rs", "rustls-platform-verifier"] }
 packageurl = "0.7.1"
 quick-xml = "0.42.0"
 rand = "0.10.3"
 regex = "1.13.1"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "system-proxy", "http2", "charset"] }
+reqwest = { version = "0.13.5", default-features = false, features = ["blocking", "json", "rustls", "system-proxy", "http2", "charset"] }
 rusqlite = { version = "0.41.1", features = ["bundled-sqlcipher-vendored-openssl"] }
 rust_xlsxwriter = "0.102.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -39,6 +40,8 @@ zstd = "0.14.3"
 
 [dev-dependencies]
 proptest = "1.12.0"
+rcgen = "0.14.10"
+rustls = "0.23.46"
 tempfile = "3.27.0"
 tokio = { version = "1.54.1", features = ["macros", "rt-multi-thread", "time"] }
 wiremock = "0.6.5"

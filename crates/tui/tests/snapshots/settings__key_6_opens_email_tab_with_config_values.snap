@@ -1,0 +1,30 @@
+---
+source: crates/tui/tests/settings.rs
+expression: render(&app)
+---
+"┌ cvewatch ─ Settings ───────────────────────────────────────────────────────────────────────────── 尚未同步 ┐" Hidden by multi-width symbols: [(101, " "), (103, " "), (105, " "), (107, " ")]
+"│  Email   Redmine   排程與門檻                                                                              │" Hidden by multi-width symbols: [(22, " "), (24, " "), (26, " "), (28, " "), (30, " ")]
+"│                                                                                                            │"
+"│ 啟用                 [x]                                                                                   │" Hidden by multi-width symbols: [(3, " "), (5, " ")]
+"│ SMTP 主機            smtp.example.edu.tw                                                                   │" Hidden by multi-width symbols: [(8, " "), (10, " ")]
+"│ 連接埠               587                                                                                   │" Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"│ 加密                 (•) STARTTLS  ( ) TLS                                                                 │" Hidden by multi-width symbols: [(3, " "), (5, " ")]
+"│ 帳號                 rz12345                                                                               │" Hidden by multi-width symbols: [(3, " "), (5, " ")]
+"│ 密碼                 未設定  [Enter 變更] [Del 清除]                                                       │" Hidden by multi-width symbols: [(3, " "), (5, " "), (24, " "), (26, " "), (28, " "), (39, " "), (41, " "), (50, " "), (52, " ")]
+"│ 寄件者               cvewatch <rz12345@example.edu.tw>                                                     │" Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"│ 收件者               rz12345@example.edu.tw                                                                │" Hidden by multi-width symbols: [(3, " "), (5, " "), (7, " ")]
+"│                      [+ 新增]                                                                              │" Hidden by multi-width symbols: [(27, " "), (29, " ")]
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│ [t] 測試寄信  [Ctrl+S] 儲存  [Esc] 離開  Tab 切換分頁                                                      │" Hidden by multi-width symbols: [(7, " "), (9, " "), (11, " "), (13, " "), (26, " "), (28, " "), (38, " "), (40, " "), (48, " "), (50, " "), (52, " "), (54, " ")]
+"│                                                                                                            │"
+"│                                                                                                            │"
+"│                                                                                                            │"
+"└ [1]Dash [2]Findings [3]Assets [4]Pending [5]Sync [6]Settings  ?help q quit ────────────────────────────────┘"
+"Tab 切換分頁  j/k 移動  Enter 編輯／切換  Del 清除  Ctrl+S 儲存  Esc 離開                                     " Hidden by multi-width symbols: [(5, " "), (7, " "), (9, " "), (11, " "), (19, " "), (21, " "), (31, " "), (33, " "), (35, " "), (37, " "), (39, " "), (47, " "), (49, " "), (60, " "), (62, " "), (70, " "), (72, " ")]

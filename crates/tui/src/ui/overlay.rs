@@ -175,10 +175,14 @@ fn confirm_quit(frame: &mut Frame<'_>, app: &App) {
 
 fn help_entries(app: &App) -> Vec<(String, &'static str)> {
     let move_keys = format!("{} / j k", app.glyphs.up_down);
-    let rows: [(&str, &'static str); 19] = [
+    let rows: [(&str, &'static str); 20] = [
         (
-            "1-5",
-            "切換畫面：Dashboard / Findings / Assets / Pending / Sync log",
+            "1-6",
+            "切換畫面：Dash / Findings / Assets / Pending / Sync / Settings",
+        ),
+        (
+            "6",
+            "設定畫面：Tab 分頁、Ctrl+S 儲存、t 測試、l 清單、i 排程",
         ),
         ("MOVE", "移動（PgUp/PgDn、g/G 到頭尾）"),
         ("Enter", "進入詳情"),

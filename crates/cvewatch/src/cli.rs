@@ -63,6 +63,16 @@ pub enum Command {
         #[command(subcommand)]
         action: DbAction,
     },
+    /// 通知：緊急信、每日摘要、Redmine 開案、連線測試與送出佇列
+    Notify {
+        #[command(subcommand)]
+        action: NotifyAction,
+    },
+    /// Windows 工作排程：定期 sync 與每日摘要
+    Schedule {
+        #[command(subcommand)]
+        action: ScheduleAction,
+    },
 }
 
 impl Command {
@@ -78,6 +88,8 @@ impl Command {
             Command::Asset { .. } => "asset",
             Command::Config { .. } => "config",
             Command::Db { .. } => "db",
+            Command::Notify { .. } => "notify",
+            Command::Schedule { .. } => "schedule",
         }
     }
 }
@@ -92,6 +104,30 @@ pub enum ConfigAction {
     },
     /// 檢查設定、秘密是否已設定、資料庫與復原金鑰狀態
     Check,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum NotifyAction {
+    /// 偵測尚未通知的緊急命中，寄出緊急信並在 Redmine 開案（sync 結束時會自動執行）
+    Urgent,
+    /// 寄送每日摘要（涵蓋上次成功寄出的摘要至今；排程每天執行）
+    Digest,
+    /// 以目前設定寄送測試信，顯示 SMTP 錯誤細節
+    TestEmail,
+    /// 驗證 Redmine API key、專案與 tracker（不建立議題）
+    TestRedmine,
+    /// 列出送出佇列（等待重送與無法送出的通知）
+    Outbox,
+}
+
+#[derive(Debug, Subcommand)]
+pub enum ScheduleAction {
+    /// 建立（或以新設定取代）`cvewatch\sync` 與 `cvewatch\digest` 兩個排程工作
+    Install,
+    /// 顯示兩個工作的上次執行時間、結果碼與下次執行時間
+    Status,
+    /// 移除兩個排程工作
+    Uninstall,
 }
 
 #[derive(Debug, Subcommand)]

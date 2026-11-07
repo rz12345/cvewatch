@@ -26,5 +26,5 @@ expression: render(&app)
 "│                                                                                                            │"
 "│                                                                                                            │"
 "│                                                                                                            │"
-"└ [1]Dash [2]Findings [3]Assets [4]Pending [5]Sync  ?help q quit ────────────────────────────────────────────┘"
+"└ [1]Dash [2]Findings [3]Assets [4]Pending [5]Sync [6]Settings  ?help q quit ────────────────────────────────┘"
 "j/k 移動  Enter 命中詳情  Esc 返回                                                                            " Hidden by multi-width symbols: [(5, " "), (7, " "), (17, " "), (19, " "), (21, " "), (23, " "), (31, " "), (33, " ")]

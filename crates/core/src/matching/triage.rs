@@ -215,15 +215,38 @@ pub fn set_status_many(
     now: DateTime<Utc>,
     skip_unchanged: bool,
 ) -> Result<BatchOutcome, CoreError> {
+    set_status_many_with(conn, ids, change, now, skip_unchanged, &|_, _| Ok(()))
+}
+
+/// 提交前對狀態、原因或理由實際改變的命中呼叫（例如排入 Redmine 註記）；失敗時整批回復。
+pub type AfterChange<'a> = dyn Fn(&Connection, &[i64]) -> Result<(), CoreError> + 'a;
+
+/// 同 [`set_status_many`]，並在同一交易中對實際變更的命中呼叫 `after`。
+pub fn set_status_many_with(
+    conn: &mut Connection,
+    ids: &[i64],
+    change: &Change,
+    now: DateTime<Utc>,
+    skip_unchanged: bool,
+    after: &AfterChange<'_>,
+) -> Result<BatchOutcome, CoreError> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let mut outcome = BatchOutcome::default();
+    let mut altered = Vec::new();
     for id in ids {
-        if skip_unchanged && is_unchanged(&tx, *id, change)? {
+        let same = is_unchanged(&tx, *id, change)?;
+        if skip_unchanged && same {
             outcome.unchanged.push(*id);
         } else {
             set_status(&tx, *id, change, now)?;
             outcome.changed.push(*id);
+            if !same {
+                altered.push(*id);
+            }
         }
+    }
+    if !altered.is_empty() {
+        after(&tx, &altered)?;
     }
     tx.commit()?;
     Ok(outcome)

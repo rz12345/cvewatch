@@ -9,6 +9,7 @@ pub mod filter;
 pub mod glyphs;
 pub mod links;
 pub mod services;
+pub mod settings;
 mod terminal;
 pub mod ui;
 pub mod width;

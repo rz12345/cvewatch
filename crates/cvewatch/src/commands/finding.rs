@@ -5,6 +5,7 @@ use cvewatch_core::matching::engine::Confidence;
 use cvewatch_core::matching::query::{self, FindingFilter};
 use cvewatch_core::matching::scoring::Priority;
 use cvewatch_core::matching::triage::{self, ChangeRequest, Status};
+use cvewatch_core::notify::triage_notes;
 use cvewatch_core::{CoreError, ExitCode};
 
 use super::finding_view;
@@ -63,6 +64,7 @@ fn filter(
         confidence: confidence
             .map(|c| Confidence::parse(c).ok_or_else(|| invalid("信心等級", c)))
             .transpose()?,
+        first_seen_from: None,
     })
 }
 
@@ -86,8 +88,9 @@ fn set(app: &App, id: i64, request: &ChangeRequest) -> Result<ExitCode, CoreErro
     // 先驗證，參數錯誤時不開啟資料庫
     let change = triage::validate(request)?;
     let mut conn = open_working_db(&app.paths, &app.store)?;
-    // CLI 一律記錄事件（即使狀態相同，也保留備註）
-    triage::set_status_many(&mut conn, &[id], &change, chrono::Utc::now(), false)?;
+    // CLI 一律記錄事件（即使狀態相同，也保留備註）；已有 Redmine 議題時同一交易排入註記
+    let notify = &app.loaded.config.notify;
+    triage_notes::set_status_many(&mut conn, notify, &[id], &change, chrono::Utc::now(), false)?;
     let detail = match (change.reason, change.justification) {
         (Some(r), Some(j)) => format!("（{}，{j}）", r.as_str()),
         (Some(r), None) => format!("（{}）", r.as_str()),

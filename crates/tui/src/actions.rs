@@ -4,6 +4,7 @@
 use cvewatch_core::matching::dashboard;
 use cvewatch_core::matching::pending_ops::{self, Action, Resolution};
 use cvewatch_core::matching::triage::{self, BatchOutcome, ChangeRequest};
+use cvewatch_core::notify::triage_notes;
 use cvewatch_core::CoreError;
 
 use crate::app::{App, View};
@@ -57,7 +58,7 @@ impl App {
     }
 
     /// 與 `cvewatch finding set` 共用 core 的驗證與批次寫入（單一交易，全部成功才寫入）；
-    /// 略過已是該狀態的命中，不寫入沒有變化的事件。
+    /// 略過已是該狀態的命中，不寫入沒有變化的事件。已有 Redmine 議題時同一交易排入註記。
     fn write_triage(
         &mut self,
         targets: &[i64],
@@ -65,20 +66,21 @@ impl App {
     ) -> Result<BatchOutcome, CoreError> {
         let change = triage::validate(request)?;
         let now = self.services.now();
-        triage::set_status_many(&mut self.conn, targets, &change, now, true)
+        let notify = &self.config.notify;
+        triage_notes::set_status_many(&mut self.conn, notify, targets, &change, now, true)
     }
 
     fn resolve_pending(&mut self, cve: &str, action: &Action, note: &str) {
-        let now = self.services.now();
-        let result = pending_ops::resolve(
-            &mut self.conn,
-            &self.settings.catalog,
-            &self.settings.scoring,
-            cve,
+        let request = pending_ops::ResolveRequest {
+            catalog: &self.settings.catalog,
+            scoring: &self.settings.scoring,
+            raw_cve: cve,
             action,
             note,
-            now,
-        );
+            now: self.services.now(),
+        };
+        // 與 CLI 相同：一併忽略的命中已有 Redmine 議題時，同一交易排入註記
+        let result = triage_notes::resolve_pending(&mut self.conn, &self.config.notify, &request);
         match result {
             Ok(resolution) => self.report_after_write(pending_message(&resolution, action)),
             Err(e) => self.fail("等待區處理失敗", &e),

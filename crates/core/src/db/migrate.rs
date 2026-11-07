@@ -33,6 +33,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0004_findings",
         sql: include_str!("migrations/0004_findings.sql"),
     },
+    Migration {
+        version: 5,
+        name: "0005_notify",
+        sql: include_str!("migrations/0005_notify.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {

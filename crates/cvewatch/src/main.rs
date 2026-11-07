@@ -5,6 +5,7 @@ mod cli;
 mod commands;
 mod progress;
 mod prompt;
+mod schedule;
 
 use clap::Parser;
 use cvewatch_core::init::ensure_config_file;
@@ -63,6 +64,8 @@ fn dispatch(app: &app::App, command: Command, config_created: bool) -> Result<Ex
             ConfigAction::Check => commands::config::check(app),
         },
         Command::Db { action } => run_db(app, action),
+        Command::Notify { action } => commands::notify::run(app, action),
+        Command::Schedule { action } => commands::schedule::run(app, action),
     }
 }
 

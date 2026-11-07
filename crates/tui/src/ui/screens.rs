@@ -35,9 +35,17 @@ pub fn dashboard(frame: &mut Frame<'_>, area: Rect, app: &App) {
             "KEV 命中（未處理） {}   等待區 {}（逾期 {}）   來源矛盾 {}",
             d.kev_open, d.pending, d.pending_stale, d.conflicts
         )),
-        Line::raw(""),
-        bold("各來源最後同步".into()),
     ];
+    if d.dead_notifications > 0 {
+        lines.push(Line::styled(
+            format!(
+                "無法送出的通知 {}（以 `cvewatch notify outbox` 檢視）",
+                d.dead_notifications
+            ),
+            Style::new().add_modifier(Modifier::BOLD),
+        ));
+    }
+    lines.extend([Line::raw(""), bold("各來源最後同步".into())]);
     if d.sources.is_empty() {
         lines.push(Line::raw(
             "  尚無同步紀錄。執行 `cvewatch sync` 或按 S 在背景同步。",

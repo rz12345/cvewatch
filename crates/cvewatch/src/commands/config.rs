@@ -24,6 +24,8 @@ pub fn check(app: &App) -> Result<ExitCode, CoreError> {
     println!();
     print_secrets(app);
     println!();
+    print_notify(app);
+    println!();
     print_database(app);
     println!();
     println!(
@@ -61,6 +63,38 @@ fn print_secrets(app: &App) {
             Err(e) => format!("無法讀取（{e}）"),
         };
         println!("  {key}：{status}");
+    }
+}
+
+/// 通知設定是否可用；明文傳輸例外列為警告。
+fn print_notify(app: &App) {
+    let n = &app.loaded.config.notify;
+    println!("通知：");
+    let state = |enabled: bool, ready: Result<(), String>| match (enabled, ready) {
+        (false, _) => "未啟用".to_string(),
+        (true, Ok(())) => "已啟用".to_string(),
+        (true, Err(e)) => format!("已啟用，但{e}"),
+    };
+    println!("  Email：{}", state(n.email.enabled, n.email.ready()));
+    println!("  Redmine：{}", state(n.redmine.enabled, n.redmine.ready()));
+    println!("  緊急門檻：KEV 或 CVSS ≥ {:.1}", n.urgent_cvss);
+    let notifier =
+        cvewatch_core::notify::dispatch::Notifier::from_config(&app.loaded.config, &app.store);
+    for (channel, problem) in notifier.problems() {
+        eprintln!("警告：{channel} 已啟用但無法送出：{problem}");
+    }
+    if let Some(ca) = n.ca_file() {
+        let note = if ca.exists() {
+            ""
+        } else {
+            "（檔案不存在）"
+        };
+        println!("  自訂 CA：{}{note}", ca.display());
+    }
+    if n.allow_insecure_transport {
+        eprintln!(
+            "警告：已啟用明文傳輸例外（allow_insecure_transport = true）；SMTP 密碼與 Redmine API key 仍不會以明文送出"
+        );
     }
 }
 

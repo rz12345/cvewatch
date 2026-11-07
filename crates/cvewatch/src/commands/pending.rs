@@ -2,6 +2,7 @@
 
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::matching::pending_ops::{self, Action};
+use cvewatch_core::notify::triage_notes;
 use cvewatch_core::{CoreError, ExitCode};
 
 use super::finding_view;
@@ -33,15 +34,16 @@ pub fn run(app: &App, action: PendingAction) -> Result<ExitCode, CoreError> {
 fn resolve(app: &App, cve: &str, action: &Action, note: &str) -> Result<ExitCode, CoreError> {
     let catalog = app.load_catalog()?;
     let mut conn = open_working_db(&app.paths, &app.store)?;
-    let resolution = pending_ops::resolve(
-        &mut conn,
-        &catalog,
-        &app.loaded.config.scoring,
-        cve,
+    // 一併忽略的命中已有 Redmine 議題時，同一交易排入註記
+    let request = pending_ops::ResolveRequest {
+        catalog: &catalog,
+        scoring: &app.loaded.config.scoring,
+        raw_cve: cve,
         action,
         note,
-        chrono::Utc::now(),
-    )?;
+        now: chrono::Utc::now(),
+    };
+    let resolution = triage_notes::resolve_pending(&mut conn, &app.loaded.config.notify, &request)?;
     match action {
         Action::Dismiss => {
             println!("{} 已移出等待區（人工判定不相關）。", resolution.cve_id);

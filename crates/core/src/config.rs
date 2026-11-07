@@ -14,7 +14,9 @@ use crate::matching::scoring::{
     ScoringConfig, DEFAULT_CVSS_HIGH, DEFAULT_CVSS_MEDIUM, DEFAULT_EPSS_HIGH, DEFAULT_EPSS_MEDIUM,
     DEFAULT_EXPOSURE_BUMP,
 };
+use crate::notify::settings::{NotifyConfig, DEFAULT_SMTP_PORT, DEFAULT_URGENT_CVSS};
 use crate::paths::ConfigLocation;
+use crate::schedule::{ScheduleConfig, DEFAULT_DIGEST_AT, DEFAULT_SYNC_EVERY_HOURS};
 
 pub const DEFAULT_TIMEOUT_SECS: u64 = 30;
 pub const DEFAULT_MAX_RETRIES: u32 = 3;
@@ -46,7 +48,7 @@ pub enum ConfigError {
     NoHomeDir,
 }
 
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Default, Deserialize)]
 #[serde(default)]
 pub struct Config {
     pub data_dir: Option<PathBuf>,
@@ -58,23 +60,10 @@ pub struct Config {
     pub scoring: ScoringConfig,
     /// 等待區
     pub pending: PendingConfig,
-    /// 由 change 06 定義；目前接受任意內容。
-    pub notify: toml::Table,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Config {
-            data_dir: None,
-            http: HttpConfig::default(),
-            sources: SourcesConfig::default(),
-            log: LogConfig::default(),
-            import: ImportConfig::default(),
-            scoring: ScoringConfig::default(),
-            pending: PendingConfig::default(),
-            notify: toml::Table::new(),
-        }
-    }
+    /// 通知（Email、Redmine、緊急門檻）
+    pub notify: NotifyConfig,
+    /// Windows 工作排程
+    pub schedule: ScheduleConfig,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -339,7 +328,13 @@ pub fn load(location: &ConfigLocation) -> Result<LoadedConfig, ConfigError> {
         path: location.path.clone(),
         source,
     })?;
-    let (config, unknown_keys) = parse(&src, &location.path)?;
+    let (mut config, unknown_keys) = parse(&src, &location.path)?;
+    // 相對路徑以設定檔所在目錄為準（排程執行時的工作目錄與互動時不同）
+    if let (Some(ca), Some(dir)) = (config.notify.ca_file.as_ref(), location.path.parent()) {
+        if ca.is_relative() {
+            config.notify.ca_file = Some(dir.join(ca));
+        }
+    }
     Ok(LoadedConfig {
         config,
         unknown_keys,
@@ -475,7 +470,40 @@ exposure_bump = {exposure_bump}
 [pending]
 stale_days = {DEFAULT_STALE_DAYS}    # 在等待區超過此天數標為逾期
 
-[notify]    # Email / Redmine 通知（後續版本使用）
+[notify]
+# 緊急：未處理命中的 CVE 列入 KEV，或 CVSS ≥ urgent_cvss。sync 後立即寄信並在 Redmine 開案。
+urgent_cvss = {DEFAULT_URGENT_CVSS:.1}
+# 內部 SMTP / Redmine 使用機構自簽 CA 時，指定該 CA 的 PEM 檔（與系統根憑證並用）
+ca_file = ""
+# 明文傳輸例外（無加密 SMTP、http Redmine）只能在此手動開啟；
+# 啟用後仍不會以明文送出 SMTP 密碼或 Redmine API key。
+allow_insecure_transport = false
+
+# 以下可在 `cvewatch tui` 的設定畫面（按 6）編輯並測試；
+# SMTP 密碼與 Redmine API key 存入 Windows Credential Manager，不寫在這裡。
+[notify.email]
+enabled = false
+smtp_host = ""
+smtp_port = {DEFAULT_SMTP_PORT}
+security = "starttls"        # starttls | tls（allow_insecure_transport = true 時才可用 none）
+username = ""                # 空字串表示不驗證
+from = ""                    # 例："cvewatch <you@example.edu.tw>"
+to = []
+send_empty = true            # 每日摘要沒有新事項時仍寄出「無新事項」
+
+[notify.redmine]
+enabled = false
+base_url = ""                # 必須為 https
+project_id = ""              # 數字 ID 或識別碼
+tracker_id = 0
+priority_map = {{}}            # 例：{{ P1 = 5, P2 = 4 }}（Redmine priority id；未對應者用預設優先權）
+assigned_to_id = 0           # 0 = 不指派
+add_note_on_triage = true    # cvewatch 中變更狀態時在議題加註記（不變更議題狀態）
+
+[schedule]
+# 修改後執行 `cvewatch schedule install` 套用到 Windows 工作排程器
+sync_every_hours = {DEFAULT_SYNC_EVERY_HOURS}
+digest_at = "{DEFAULT_DIGEST_AT}"
 "#
     )
 }
@@ -559,11 +587,56 @@ mod tests {
     }
 
     #[test]
-    fn notify_placeholder_accepts_anything() {
-        let src = "[notify]\nsmtp_host = \"mail\"\n";
+    fn notify_and_schedule_are_parsed() {
+        let src = "[notify]\nurgent_cvss = 8.5\nca_file = 'C:/ca.pem'\n\
+                   [notify.email]\nenabled = true\nsmtp_host = \"mail\"\nsecurity = \"tls\"\n\
+                   to = [\"a@example.edu.tw\"]\n\
+                   [notify.redmine]\nbase_url = \"https://rm.example\"\nproject_id = 12\n\
+                   priority_map = { p1 = 5 }\n\
+                   [schedule]\nsync_every_hours = 2\ndigest_at = \"07:45\"\n";
         let (cfg, unknown) = parse(src, p()).unwrap();
-        assert!(unknown.is_empty());
-        assert!(cfg.notify.contains_key("smtp_host"));
+        assert!(unknown.is_empty(), "{unknown:?}");
+        assert_eq!(cfg.notify.urgent_cvss, 8.5);
+        assert_eq!(cfg.notify.ca_file(), Some(Path::new("C:/ca.pem")));
+        assert_eq!(cfg.notify.email.smtp_port, DEFAULT_SMTP_PORT);
+        assert_eq!(
+            cfg.notify.email.security,
+            crate::notify::settings::SmtpSecurity::Tls
+        );
+        assert_eq!(cfg.notify.redmine.project_id, "12");
+        assert_eq!(cfg.notify.redmine.priority_map["P1"], 5);
+        assert_eq!(cfg.schedule.sync_every_hours, 2);
+        assert_eq!(cfg.schedule.digest_time(), (7, 45));
+        let (_, unknown) = parse("[notify.email]\nsmtp = 1\n", p()).unwrap();
+        assert_eq!(unknown, vec!["notify.email.smtp".to_string()]);
+    }
+
+    #[test]
+    fn invalid_notify_and_schedule_are_rejected() {
+        for (src, needle) in [
+            ("[notify.email]\nsmtp_port = 70000\n", "1–65535"),
+            (
+                "[notify.email]\nsecurity = \"none\"\n",
+                "allow_insecure_transport",
+            ),
+            ("[notify.email]\nsecurity = \"ssl\"\n", "starttls"),
+            ("[notify.email]\nto = [\"oops\"]\n", "Email"),
+            (
+                "[notify.redmine]\nbase_url = \"http://redmine.local\"\n",
+                "https",
+            ),
+            ("[notify.redmine]\npriority_map = { P9 = 1 }\n", "P9"),
+            ("[notify]\nurgent_cvss = 11\n", "0–10"),
+            ("[schedule]\ndigest_at = \"8:30\"\n", "HH:MM"),
+            ("[schedule]\nsync_every_hours = 0\n", "1–24"),
+        ] {
+            let msg = parse(src, p()).unwrap_err().to_string();
+            assert!(msg.contains(needle), "{src}：{msg}");
+        }
+        let ok = "[notify]\nallow_insecure_transport = true\n\
+                  [notify.email]\nsecurity = \"none\"\n\
+                  [notify.redmine]\nbase_url = \"http://redmine.local\"\n";
+        assert!(parse(ok, p()).is_ok());
     }
 
     #[test]
