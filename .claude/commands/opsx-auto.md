@@ -51,3 +51,11 @@ tags: ["workflow", "apply", "review", "archive"]
 - 三輪 review 各修了什麼
 - 依建議自行決定的事項（含理由），以及留下未處理的項目
 - 不 push
+
+## 5. 清除對話（/clear）
+
+`/clear` 是 Claude Code 內建指令，無法由流程自行執行。兩個 commit 都完成且回報結束後，回報的最後一行固定為：
+
+> 本 change 已完成並封存。請執行 `/clear` 清除對話，再以 `/opsx-auto` 開始下一個 change。
+
+流程中途停止（見「停止條件」）時不提示 `/clear`，保留對話脈絡以便處理問題。
