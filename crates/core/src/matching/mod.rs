@@ -3,6 +3,7 @@
 //! 流程（[`run::run_match`]）：載入 → 各來源證據（[`evidence`]）→ 彙整（[`engine`]）
 //! → 寫入命中與自動狀態轉換（[`findings`]）→ 等待區重評估（[`pending`]）。
 
+pub mod dashboard;
 pub mod engine;
 pub mod evaluate;
 pub mod evidence;

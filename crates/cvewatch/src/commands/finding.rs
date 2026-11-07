@@ -86,9 +86,8 @@ fn set(app: &App, id: i64, request: &ChangeRequest) -> Result<ExitCode, CoreErro
     // 先驗證，參數錯誤時不開啟資料庫
     let change = triage::validate(request)?;
     let mut conn = open_working_db(&app.paths, &app.store)?;
-    let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-    triage::set_status(&tx, id, &change, chrono::Utc::now())?;
-    tx.commit()?;
+    // CLI 一律記錄事件（即使狀態相同，也保留備註）
+    triage::set_status_many(&mut conn, &[id], &change, chrono::Utc::now(), false)?;
     let detail = match (change.reason, change.justification) {
         (Some(r), Some(j)) => format!("（{}，{j}）", r.as_str()),
         (Some(r), None) => format!("（{}）", r.as_str()),

@@ -10,6 +10,7 @@ pub mod init;
 pub mod matching;
 pub mod pending;
 pub mod sync;
+pub mod tui;
 
 /// 提醒使用者匯出復原金鑰的共用訊息。
 pub const EXPORT_REMINDER: &str =

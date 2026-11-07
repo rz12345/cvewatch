@@ -140,7 +140,10 @@ pub async fn run(
     let mut report = SyncReport::default();
     for p in plans {
         // 比對待補標記由各來源在自己的寫入交易內記錄（只在資料有變動時）
-        let run_id = runlog::start(conn, &p.name, &ctx.now_str())?;
+        // 各來源記錄自己實際開始的時間（不是整次 sync 的開始時間）：Dashboard 依此判斷執行中／中斷，
+        // OSV 結果是否為最新也以 OSV 實際開始查詢的時間為準
+        let started = chrono::Utc::now().to_rfc3339();
+        let run_id = runlog::start(conn, &p.name, &started)?;
         tracing::info!(source = %p.name, "開始同步來源");
         let result = run_one(ctx, conn, &p.kind).await;
         let finished = chrono::Utc::now().to_rfc3339();

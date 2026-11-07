@@ -40,13 +40,18 @@ pub struct FindingRow {
     pub component_removed: bool,
     /// 使用者人工判定套用
     pub manual: bool,
+    /// 資產名稱（TUI 搜尋用）
+    pub asset_name: String,
+    /// CVE 英文描述全文（TUI 搜尋用）
+    pub description: Option<String>,
+    pub first_seen: String,
 }
 
 const ROW_SELECT: &str =
     "SELECT f.id, a.asset_tag, a.status, coalesce(p.key, c.purl), c.version_raw, f.cve_id,
             coalesce(cv.title, substr(cv.description_en, 1, 80)), f.priority, f.confidence,
             f.decided_by, f.status, (f.status = 'resolved' AND f.in_range), k.date_added, e.score, a.criticality,
-            c.removed_at IS NOT NULL, f.manual
+            c.removed_at IS NOT NULL, f.manual, a.name, cv.description_en, f.first_seen
      FROM finding f
      JOIN component c ON c.id = f.component_id
      JOIN asset a ON a.id = c.asset_id
@@ -87,6 +92,9 @@ fn row_from(r: &rusqlite::Row<'_>) -> rusqlite::Result<FindingRow> {
         criticality: r.get(14)?,
         component_removed: r.get(15)?,
         manual: r.get(16)?,
+        asset_name: r.get(17)?,
+        description: r.get(18)?,
+        first_seen: r.get(19)?,
     })
 }
 

@@ -27,7 +27,7 @@ pub struct LogGuard {
 /// 第三方套件固定在 warn，避免 debug 層級帶出請求或回應內容。
 pub fn default_filter(level: LogLevel) -> String {
     let lvl = level.as_str();
-    format!("warn,cvewatch={lvl},cvewatch_core={lvl}")
+    format!("warn,cvewatch={lvl},cvewatch_core={lvl},cvewatch_tui={lvl}")
 }
 
 pub fn init(log_dir: &Path, level: LogLevel) -> Result<LogGuard, CoreError> {
@@ -107,7 +107,7 @@ mod tests {
     fn default_filter_pins_dependencies_to_warn() {
         assert_eq!(
             default_filter(LogLevel::Debug),
-            "warn,cvewatch=debug,cvewatch_core=debug"
+            "warn,cvewatch=debug,cvewatch_core=debug,cvewatch_tui=debug"
         );
     }
 }

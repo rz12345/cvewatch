@@ -3,7 +3,7 @@
 //! 忽略必須帶原因；原因為 not_affected 時必須帶 CycloneDX VEX justification（07 無損轉成 VEX）。
 
 use chrono::{DateTime, Utc};
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 
 use crate::error::CoreError;
 
@@ -57,6 +57,23 @@ string_enum!(
         ProtectedByMitigatingControl => "protected_by_mitigating_control",
     }
 );
+
+impl Justification {
+    /// 中文說明（TUI 選單、輸出用）。
+    pub fn label(self) -> &'static str {
+        match self {
+            Justification::CodeNotPresent => "不含受影響的程式碼",
+            Justification::CodeNotReachable => "受影響的程式碼不會被執行",
+            Justification::RequiresConfiguration => "需特定設定",
+            Justification::RequiresDependency => "需特定相依元件",
+            Justification::RequiresEnvironment => "需特定執行環境",
+            Justification::ProtectedByCompiler => "受編譯器保護",
+            Justification::ProtectedAtRuntime => "受執行階段保護",
+            Justification::ProtectedAtPerimeter => "受邊界防護（如防火牆）",
+            Justification::ProtectedByMitigatingControl => "已有緩解措施",
+        }
+    }
+}
 
 /// 使用者要求的狀態變更（未驗證）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -178,6 +195,54 @@ pub fn set_status(
     now: DateTime<Utc>,
 ) -> Result<(), CoreError> {
     apply_user_change(conn, finding_id, change, false, &now.to_rfc3339())
+}
+
+/// 多筆變更的結果。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct BatchOutcome {
+    pub changed: Vec<i64>,
+    /// 狀態、原因與理由都與要求相同而略過（`skip_unchanged` 時）
+    pub unchanged: Vec<i64>,
+}
+
+/// 在單一 IMMEDIATE 交易內對多筆命中套用同一個變更（`cvewatch finding set` 與 TUI 共用），
+/// 任一筆失敗整批回復。`skip_unchanged` 為真時略過已是該狀態（含原因、理由）的命中，
+/// 不寫入「未處理 → 未處理」這類沒有變化的事件。
+pub fn set_status_many(
+    conn: &mut Connection,
+    ids: &[i64],
+    change: &Change,
+    now: DateTime<Utc>,
+    skip_unchanged: bool,
+) -> Result<BatchOutcome, CoreError> {
+    let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let mut outcome = BatchOutcome::default();
+    for id in ids {
+        if skip_unchanged && is_unchanged(&tx, *id, change)? {
+            outcome.unchanged.push(*id);
+        } else {
+            set_status(&tx, *id, change, now)?;
+            outcome.changed.push(*id);
+        }
+    }
+    tx.commit()?;
+    Ok(outcome)
+}
+
+/// 命中目前的狀態、原因與理由都與變更相同。找不到命中時為 false（交給 `set_status` 回報錯誤）。
+fn is_unchanged(conn: &Connection, id: i64, change: &Change) -> Result<bool, CoreError> {
+    let current: Option<(String, Option<String>, Option<String>)> = conn
+        .query_row(
+            "SELECT status, ignore_reason, justification FROM finding WHERE id = ?1",
+            params![id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )
+        .optional()?;
+    Ok(current.is_some_and(|(status, reason, justification)| {
+        status == change.status.as_str()
+            && reason.as_deref() == change.reason.map(IgnoreReason::as_str)
+            && justification.as_deref() == change.justification.map(Justification::as_str)
+    }))
 }
 
 /// 使用者的狀態變更（`finding set`、等待區 `--dismiss` 共用）：同步 KEV 狀態並記錄事件。

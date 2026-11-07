@@ -629,3 +629,35 @@ fn justification_is_case_insensitive() {
     .unwrap();
     assert_eq!(change.justification, Some(Justification::CodeNotPresent));
 }
+
+#[test]
+fn set_status_many_skips_unchanged_only_when_asked() {
+    let (mut w, c, id) = affected_world();
+    let events = |w: &World| w.events(id).len();
+    let open = triage::validate(&request("open", None, None, "")).unwrap();
+    let skipped = triage::set_status_many(&mut w.conn, &[id], &open, at(LATER), true).unwrap();
+    assert_eq!((skipped.changed.len(), skipped.unchanged), (0, vec![id]));
+    let before = events(&w);
+    // CLI：不略過，同狀態也記錄事件（保留備註）
+    let recorded = triage::set_status_many(&mut w.conn, &[id], &open, at(LATER), false).unwrap();
+    assert_eq!(recorded.changed, [id]);
+    assert_eq!(events(&w), before + 1);
+    let accept = triage::validate(&request("ignored", Some("risk_accepted"), None, "")).unwrap();
+    assert_eq!(
+        triage::set_status_many(&mut w.conn, &[id], &accept, at(LATER), true)
+            .unwrap()
+            .changed,
+        [id]
+    );
+    // 同為忽略但原因不同 → 視為變更
+    let fp = triage::validate(&request("ignored", Some("false_positive"), None, "")).unwrap();
+    assert_eq!(
+        triage::set_status_many(&mut w.conn, &[id], &fp, at(LATER), true)
+            .unwrap()
+            .changed,
+        [id]
+    );
+    // 找不到的命中：整批回復
+    assert!(triage::set_status_many(&mut w.conn, &[id, 999_999], &open, at(LATER), true).is_err());
+    assert_eq!(w.finding(c, CVE).unwrap().status, "ignored");
+}

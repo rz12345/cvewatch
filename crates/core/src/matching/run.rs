@@ -21,6 +21,9 @@ use crate::error::CoreError;
 /// 寫入資料的同一個交易中、且只在資料有變動時記錄；全量比對成功時清除。
 pub const MATCH_STALE_KEY: &str = "match_stale_since";
 
+/// 上次全量比對完成的時間（TUI 以此偵測比對產生的新資料）。
+pub const MATCH_LAST_RUN_KEY: &str = "match_last_run";
+
 /// 上次全量比對使用的輸入指紋（產品目錄 + 評分設定）；變更後即使資料沒變也要重新比對。
 pub const MATCH_INPUTS_KEY: &str = "match_inputs_fingerprint";
 
@@ -140,6 +143,7 @@ pub fn run_match(
         MATCH_INPUTS_KEY,
         &inputs_fingerprint(catalog, settings),
     )?;
+    meta::set(&tx, MATCH_LAST_RUN_KEY, &now.to_rfc3339())?;
     tx.commit()?;
     tracing::info!(
         components = report.components,

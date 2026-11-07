@@ -17,6 +17,10 @@ TUI 開啟時 SHALL 顯示 Dashboard，內容包含各等級未處理命中數�
 - **WHEN** 最近一次 OSV 同步失敗
 - **THEN** Dashboard 的 OSV 來源標示為失敗並顯示時間
 
+#### Scenario: Earlier source failed but the last one succeeded
+- **WHEN** 最近一次 NVD 同步失敗，之後結束的 KEV 同步成功
+- **THEN** 標題列的最後同步仍標示失敗並顯示失敗的來源數
+
 ### Requirement: Findings list with filter and sort
 Findings 畫面 SHALL 以風險排序列出命中，並 SHALL 支援依狀態、等級、資產、信心等級與 KEV 篩選，以及即時文字搜尋。
 
@@ -46,6 +50,14 @@ Finding 詳情 SHALL 顯示 CVE 描述、各來源 CVSS、EPSS、KEV 資訊、�
 - **WHEN** 使用者在備註框按 Esc
 - **THEN** 狀態不變更
 
+#### Scenario: Batch includes findings already in that status
+- **WHEN** 使用者選取兩筆未處理命中後按 `u` 並確認
+- **THEN** 兩筆都不寫入事件，狀態列說明原本就是未處理、未變更
+
+#### Scenario: Selected findings hidden by search
+- **WHEN** 使用者選取三筆命中後以 `/` 搜尋，使其中兩筆不再顯示，再按 `r` 並確認
+- **THEN** 只有仍顯示的一筆變更狀態，被隱藏的兩筆維持原狀且仍保持選取
+
 ### Requirement: Assets and pending screens
 TUI SHALL 提供資產畫面（資產、元件、各資產命中、未辨識產品）與等待區畫面（原因、進入天數、逾期、KEV 置頂），並 SHALL 可在等待區手動套用到資產或標為不相關。
 
@@ -66,6 +78,10 @@ TUI 開啟期間若有 sync 寫入新資料，SHALL 在狀態列提示，且 MUS
 #### Scenario: Scheduled sync finishes while browsing
 - **WHEN** 使用者正在瀏覽 Findings，排程 sync 完成
 - **THEN** 狀態列顯示有新資料的提示，清單維持不變直到使用者按 `R`
+
+#### Scenario: Automatic match finishes after reload
+- **WHEN** 使用者在 sync 的來源都結束後按 `R`，之後 sync 結尾的自動比對才完成
+- **THEN** 狀態列再次顯示有新資料的提示
 
 ### Requirement: Background sync from the console
 使用者 SHALL 能按 `S` 在背景啟動一次 sync，TUI SHALL 保持可操作並在 sync 結束後顯示結果。

@@ -46,7 +46,7 @@ pub enum Command {
         #[command(subcommand)]
         action: PendingAction,
     },
-    /// 開啟文字介面（尚未實作）
+    /// 開啟文字介面：Dashboard、命中篩選與處理、資產、等待區、同步紀錄（按 ? 看鍵位）
     Tui,
     /// 資產清冊：匯入 Excel/CSV 與套件清單、檢視資產與產品目錄
     Asset {

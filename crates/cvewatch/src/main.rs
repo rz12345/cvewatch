@@ -56,7 +56,7 @@ fn dispatch(app: &app::App, command: Command, config_created: bool) -> Result<Ex
         Command::Match => commands::matching::run(app),
         Command::Finding { action } => commands::finding::run(app, action),
         Command::Pending { action } => commands::pending::run(app, action),
-        Command::Tui => Err(CoreError::NotImplemented("tui")),
+        Command::Tui => commands::tui::run(app),
         Command::Asset { action } => commands::asset::run(app, action),
         Command::Config { action } => match action {
             ConfigAction::SetSecret { key } => commands::config::set_secret(app, &key),

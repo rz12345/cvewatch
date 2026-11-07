@@ -86,7 +86,7 @@ fn backup_flags_conflict() {
 }
 
 #[test]
-fn not_implemented_commands_exit_1() {
+fn tui_without_database_exits_before_touching_terminal() {
     let (_dir, cfg) = config_with("");
     cvewatch()
         .arg("--config")
@@ -94,7 +94,7 @@ fn not_implemented_commands_exit_1() {
         .arg("tui")
         .assert()
         .code(1)
-        .stderr(predicate::str::contains("not implemented"));
+        .stderr(predicate::str::contains("cvewatch init"));
 }
 
 #[test]

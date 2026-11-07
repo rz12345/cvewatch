@@ -255,6 +255,24 @@ impl<'c> ComponentRepo<'c> {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// 所有未移除的元件，依資產分組（一次查詢；TUI 載入資產畫面用）。
+    pub fn all_by_asset(
+        &self,
+    ) -> Result<std::collections::HashMap<i64, Vec<Component>>, CoreError> {
+        let sql = format!(
+            "{COMPONENT_SELECT} WHERE c.removed_at IS NULL ORDER BY c.asset_id, c.kind DESC, p.key, c.purl"
+        );
+        let mut stmt = self.conn.prepare(&sql)?;
+        let rows = stmt.query_map([], component_from_row)?;
+        let mut out: std::collections::HashMap<i64, Vec<Component>> =
+            std::collections::HashMap::new();
+        for row in rows {
+            let c = row?;
+            out.entry(c.asset_id).or_default().push(c);
+        }
+        Ok(out)
+    }
+
     pub fn history(&self, component_id: i64) -> Result<Vec<HistoryEntry>, CoreError> {
         let mut stmt = self.conn.prepare(
             "SELECT version_raw, changed_at FROM component_history

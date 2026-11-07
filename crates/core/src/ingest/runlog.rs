@@ -29,6 +29,26 @@ pub fn last_success(conn: &Connection, source: &str) -> Result<Option<String>, C
     )?)
 }
 
+/// 已結束的同步紀錄標記（最大 id、筆數）。任一來源執行結束後即改變，TUI 以此偵測新資料。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct FinishedMarker {
+    pub max_id: i64,
+    pub count: i64,
+}
+
+pub fn finished_marker(conn: &Connection) -> Result<FinishedMarker, CoreError> {
+    Ok(conn.query_row(
+        "SELECT coalesce(max(id), 0), count(*) FROM sync_run WHERE finished_at IS NOT NULL",
+        [],
+        |r| {
+            Ok(FinishedMarker {
+                max_id: r.get(0)?,
+                count: r.get(1)?,
+            })
+        },
+    )?)
+}
+
 pub fn start(conn: &Connection, source: &str, now: &str) -> Result<i64, CoreError> {
     conn.execute(
         "INSERT INTO sync_run (started_at, source, status) VALUES (?1, ?2, 'running')",
@@ -123,5 +143,17 @@ mod tests {
             })
             .unwrap();
         assert_eq!(items, 4);
+    }
+
+    #[test]
+    fn finished_marker_changes_only_when_a_run_finishes() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        crate::db::migrate::migrate(&mut conn).unwrap();
+        assert_eq!(finished_marker(&conn).unwrap(), FinishedMarker::default());
+        let a = start(&conn, "kev", "t0").unwrap();
+        assert_eq!(finished_marker(&conn).unwrap().count, 0, "執行中不算");
+        fail(&conn, a, "boom", "t1").unwrap();
+        let m = finished_marker(&conn).unwrap();
+        assert_eq!((m.max_id, m.count), (a, 1));
     }
 }
