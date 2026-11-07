@@ -25,6 +25,8 @@ pub struct ProductDef {
     pub cpe: Option<Vec<CpeDef>>,
     pub cna: Option<Vec<NameDef>>,
     pub csaf: Option<Vec<NameDef>>,
+    /// 英文描述關鍵字（關聯性篩選「僅關鍵字相符」）
+    pub keywords: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

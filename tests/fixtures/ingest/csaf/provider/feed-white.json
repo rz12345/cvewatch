@@ -1,0 +1,69 @@
+{
+  "feed": {
+    "id": "example-white",
+    "title": "Example Corp CSAF feed (TLP:WHITE)",
+    "link": [
+      {
+        "rel": "self",
+        "href": "{{BASE}}/csaf/feed-white.json"
+      }
+    ],
+    "category": [
+      {
+        "scheme": "urn:ietf:params:rolie:category:information-type",
+        "term": "csaf"
+      }
+    ],
+    "updated": "2026-11-04T08:00:00Z",
+    "entry": [
+      {
+        "id": "ex-2026-003",
+        "title": "ex-2026-003",
+        "published": "2026-11-04T08:00:00Z",
+        "updated": "2026-11-04T08:00:00Z",
+        "link": [
+          {
+            "rel": "self",
+            "href": "{{BASE}}/csaf/white/2026/ex-2026-003.json"
+          },
+          {
+            "rel": "hash",
+            "href": "{{BASE}}/csaf/white/2026/ex-2026-003.json.sha512"
+          }
+        ],
+        "content": {
+          "type": "application/json",
+          "src": "{{BASE}}/csaf/white/2026/ex-2026-003.json"
+        },
+        "format": {
+          "schema": "https://docs.oasis-open.org/csaf/csaf/v2.0/csaf_json_schema.json",
+          "version": "2.0"
+        }
+      },
+      {
+        "id": "ex-2026-002",
+        "title": "ex-2026-002",
+        "published": "2026-10-01T08:00:00Z",
+        "updated": "2026-10-01T08:00:00Z",
+        "link": [
+          {
+            "rel": "self",
+            "href": "{{BASE}}/csaf/white/2026/ex-2026-002.json"
+          },
+          {
+            "rel": "hash",
+            "href": "{{BASE}}/csaf/white/2026/ex-2026-002.json.sha512"
+          }
+        ],
+        "content": {
+          "type": "application/json",
+          "src": "{{BASE}}/csaf/white/2026/ex-2026-002.json"
+        },
+        "format": {
+          "schema": "https://docs.oasis-open.org/csaf/csaf/v2.0/csaf_json_schema.json",
+          "version": "2.0"
+        }
+      }
+    ]
+  }
+}

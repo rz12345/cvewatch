@@ -10,6 +10,8 @@
 #   cpe              NVD CPE 的 part / vendor / product
 #   cna              CVE 5.x 記錄 affected[] 的 vendor / product 寫法
 #   csaf             CSAF 公告 product_tree 的 vendor / product_name
+#   keywords         英文描述關鍵字；CVE 沒有可辨識的 affected / CPE 時，描述含這些字詞即保留為「僅關鍵字相符」
+#                    （不分大小寫、需為完整字詞；避免太短或太通用的字）
 #
 # 使用者可在 <data_dir>\catalog.d\*.toml 以相同格式擴充：
 #   新 key → 新增產品；既有 key → 有寫的欄位覆寫、沒寫的沿用，aliases 合併。
@@ -31,6 +33,7 @@ aliases = ["panos", "palo alto", "palo alto networks", "palo alto pan-os", "pa-4
 cpe = [{ part = "o", vendor = "paloaltonetworks", product = "pan-os" }]
 cna = [{ vendor = "Palo Alto Networks", product = "PAN-OS" }]
 csaf = [{ vendor = "Palo Alto Networks", product = "PAN-OS" }]
+keywords = ["PAN-OS"]
 
 # ── 虛擬化 / 伺服器 ─────────────────────────────────────────
 
@@ -45,6 +48,7 @@ cna = [
   { vendor = "VMware", product = "ESXi" },
   { vendor = "VMware", product = "VMware ESXi" },
 ]
+keywords = ["VMware ESXi"]
 
 [[product]]
 key = "vmware-vcenter"
@@ -57,6 +61,7 @@ cna = [
   { vendor = "VMware", product = "vCenter Server" },
   { vendor = "VMware", product = "VMware vCenter Server" },
 ]
+keywords = ["vCenter Server"]
 
 [[product]]
 key = "proxmox-ve"
@@ -65,6 +70,7 @@ vendor_display = "Proxmox Server Solutions"
 version_scheme = "dotted"         # 8.2.4
 aliases = ["proxmox", "pve", "proxmox virtual environment"]
 cpe = [{ part = "a", vendor = "proxmox", product = "virtual_environment" }]
+keywords = ["Proxmox Virtual Environment", "Proxmox VE"]
 
 [[product]]
 key = "dell-idrac9"
@@ -77,6 +83,7 @@ cna = [
   { vendor = "Dell", product = "iDRAC9" },
   { vendor = "Dell", product = "Integrated Dell Remote Access Controller 9" },
 ]
+keywords = ["iDRAC9", "iDRAC 9"]
 
 [[product]]
 key = "dell-poweredge-bios"
@@ -86,6 +93,7 @@ version_scheme = "dotted"         # 2.16.0
 # CPE 依機型而異（例如 poweredge_r6515_firmware），需要時在 catalog.d 補上
 aliases = ["dell bios", "poweredge bios", "dell poweredge bios", "poweredge r6515 bios",
            "r6515 bios", "dell r6515 bios"]
+keywords = ["PowerEdge BIOS"]
 
 # ── 儲存 ────────────────────────────────────────────────────
 
@@ -100,6 +108,7 @@ cna = [
   { vendor = "Synology", product = "DiskStation Manager (DSM)" },
   { vendor = "Synology", product = "DiskStation Manager" },
 ]
+keywords = ["DiskStation Manager", "Synology DSM"]
 
 # ── 作業系統（OS 套件另以 asset import-packages 匯入）──────────
 

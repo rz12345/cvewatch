@@ -1,0 +1,173 @@
+[
+  {
+    "tag_name": "cve_2026-11-07_0300Z",
+    "name": "CVE 2026-11-07_0300Z",
+    "published_at": "2026-11-07T03:24:26Z",
+    "assets": [
+      {
+        "name": "2026-11-07_all_CVEs_at_midnight.zip.zip",
+        "size": 654413635,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0300Z/2026-11-07_all_CVEs_at_midnight.zip.zip"
+      },
+      {
+        "name": "2026-11-07_delta_CVEs_at_0300Z.zip",
+        "size": 95684,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0300Z/2026-11-07_delta_CVEs_at_0300Z.zip"
+      },
+      {
+        "name": "release_notes.md",
+        "size": 1022,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0300Z/release_notes.md"
+      }
+    ]
+  },
+  {
+    "tag_name": "cve_2026-11-07_0200Z",
+    "name": "CVE 2026-11-07_0200Z",
+    "published_at": "2026-11-07T02:32:09Z",
+    "assets": [
+      {
+        "name": "2026-11-07_all_CVEs_at_midnight.zip.zip",
+        "size": 654413635,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0200Z/2026-11-07_all_CVEs_at_midnight.zip.zip"
+      },
+      {
+        "name": "2026-11-07_delta_CVEs_at_0200Z.zip",
+        "size": 5916,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0200Z/2026-11-07_delta_CVEs_at_0200Z.zip"
+      },
+      {
+        "name": "release_notes.md",
+        "size": 137,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0200Z/release_notes.md"
+      }
+    ]
+  },
+  {
+    "tag_name": "cve_2026-11-07_0100Z",
+    "name": "CVE 2026-11-07_0100Z",
+    "published_at": "2026-11-07T01:31:15Z",
+    "assets": [
+      {
+        "name": "2026-11-07_all_CVEs_at_midnight.zip.zip",
+        "size": 654413635,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0100Z/2026-11-07_all_CVEs_at_midnight.zip.zip"
+      },
+      {
+        "name": "2026-11-07_delta_CVEs_at_0100Z.zip",
+        "size": 5916,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0100Z/2026-11-07_delta_CVEs_at_0100Z.zip"
+      },
+      {
+        "name": "release_notes.md",
+        "size": 137,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0100Z/release_notes.md"
+      }
+    ]
+  },
+  {
+    "tag_name": "cve_2026-11-07_0000Z",
+    "name": "CVE 2026-11-07_0000Z",
+    "published_at": "2026-11-07T00:27:00Z",
+    "assets": [
+      {
+        "name": "2026-11-06_all_CVEs_at_midnight.zip.zip",
+        "size": 653221729,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0000Z/2026-11-06_all_CVEs_at_midnight.zip.zip"
+      },
+      {
+        "name": "2026-11-07_delta_CVEs_at_0000Z.zip",
+        "size": 22,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0000Z/2026-11-07_delta_CVEs_at_0000Z.zip"
+      },
+      {
+        "name": "release_notes.md",
+        "size": 89,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-07_0000Z/release_notes.md"
+      }
+    ]
+  },
+  {
+    "tag_name": "cve_2026-11-06_at_end_of_day",
+    "name": "CVE 2026-11-06 at End of Day",
+    "published_at": "2026-11-07T00:34:59Z",
+    "assets": [
+      {
+        "name": "2026-11-06_delta_CVEs_at_end_of_day.zip",
+        "size": 4879229,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_at_end_of_day/2026-11-06_delta_CVEs_at_end_of_day.zip"
+      },
+      {
+        "name": "release_notes.md",
+        "size": 39511,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_at_end_of_day/release_notes.md"
+      }
+    ]
+  },
+  {
+    "tag_name": "cve_2026-11-06_2300Z",
+    "name": "CVE 2026-11-06_2300Z",
+    "published_at": "2026-11-06T23:24:11Z",
+    "assets": [
+      {
+        "name": "2026-11-06_all_CVEs_at_midnight.zip.zip",
+        "size": 653221729,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2300Z/2026-11-06_all_CVEs_at_midnight.zip.zip"
+      },
+      {
+        "name": "2026-11-06_delta_CVEs_at_2300Z.zip",
+        "size": 4876681,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2300Z/2026-11-06_delta_CVEs_at_2300Z.zip"
+      },
+      {
+        "name": "release_notes.md",
+        "size": 39478,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2300Z/release_notes.md"
+      }
+    ]
+  },
+  {
+    "tag_name": "cve_2026-11-06_2200Z",
+    "name": "CVE 2026-11-06_2200Z",
+    "published_at": "2026-11-06T22:27:59Z",
+    "assets": [
+      {
+        "name": "2026-11-06_all_CVEs_at_midnight.zip.zip",
+        "size": 653221729,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2200Z/2026-11-06_all_CVEs_at_midnight.zip.zip"
+      },
+      {
+        "name": "2026-11-06_delta_CVEs_at_2200Z.zip",
+        "size": 4852983,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2200Z/2026-11-06_delta_CVEs_at_2200Z.zip"
+      },
+      {
+        "name": "release_notes.md",
+        "size": 39246,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2200Z/release_notes.md"
+      }
+    ]
+  },
+  {
+    "tag_name": "cve_2026-11-06_2100Z",
+    "name": "CVE 2026-11-06_2100Z",
+    "published_at": "2026-11-06T21:26:27Z",
+    "assets": [
+      {
+        "name": "2026-11-06_all_CVEs_at_midnight.zip.zip",
+        "size": 653221729,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2100Z/2026-11-06_all_CVEs_at_midnight.zip.zip"
+      },
+      {
+        "name": "2026-11-06_delta_CVEs_at_2100Z.zip",
+        "size": 4774377,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2100Z/2026-11-06_delta_CVEs_at_2100Z.zip"
+      },
+      {
+        "name": "release_notes.md",
+        "size": 38563,
+        "browser_download_url": "https://github.com/CVEProject/cvelistV5/releases/download/cve_2026-11-06_2100Z/release_notes.md"
+      }
+    ]
+  }
+]

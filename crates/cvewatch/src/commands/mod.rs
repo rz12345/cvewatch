@@ -1,8 +1,11 @@
 pub mod asset;
 mod asset_view;
 pub mod config;
+pub mod cve;
+mod cve_view;
 pub mod db;
 pub mod init;
+pub mod sync;
 
 /// 提醒使用者匯出復原金鑰的共用訊息。
 pub const EXPORT_REMINDER: &str =

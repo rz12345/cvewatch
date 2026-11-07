@@ -95,7 +95,11 @@ impl Default for HttpConfig {
 pub struct SourcesConfig {
     pub nvd_enabled: bool,
     pub osv_enabled: bool,
+    /// 內建 Palo Alto CSAF 來源（`id = "paloalto"`）
     pub paloalto_enabled: bool,
+    /// 原廠 CSAF 來源（`[[sources.csaf]]`）
+    #[serde(deserialize_with = "csaf_sources")]
+    pub csaf: Vec<CsafSourceConfig>,
 }
 
 impl Default for SourcesConfig {
@@ -104,8 +108,122 @@ impl Default for SourcesConfig {
             nvd_enabled: true,
             osv_enabled: true,
             paloalto_enabled: true,
+            csaf: Vec::new(),
         }
     }
+}
+
+/// 內建 Palo Alto 來源的 id。
+pub const PALOALTO_SOURCE_ID: &str = "paloalto";
+pub const PALOALTO_RSS_URL: &str = "https://security.paloaltonetworks.com/rss.xml";
+pub const PALOALTO_CSAF_TEMPLATE: &str = "https://security.paloaltonetworks.com/csaf/{id}";
+/// `csaf_url_template` 中代表 RSS item 識別的佔位字。
+pub const CSAF_ID_PLACEHOLDER: &str = "{id}";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CsafDiscovery {
+    /// RSS item link → `csaf_url_template`
+    Rss,
+    /// `provider-metadata.json`（ROLIE feed 或 `changes.csv`）
+    ProviderMetadata,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CsafSourceConfig {
+    pub id: String,
+    pub discovery: CsafDiscovery,
+    pub url: String,
+    /// rss 模式必填，例如 `https://security.paloaltonetworks.com/csaf/{id}`
+    pub csaf_url_template: Option<String>,
+    #[serde(default = "enabled_default")]
+    pub enabled: bool,
+}
+
+fn enabled_default() -> bool {
+    true
+}
+
+impl CsafSourceConfig {
+    pub fn paloalto() -> Self {
+        CsafSourceConfig {
+            id: PALOALTO_SOURCE_ID.to_string(),
+            discovery: CsafDiscovery::Rss,
+            url: PALOALTO_RSS_URL.to_string(),
+            csaf_url_template: Some(PALOALTO_CSAF_TEMPLATE.to_string()),
+            enabled: true,
+        }
+    }
+
+    fn validate(&self) -> Result<(), String> {
+        let id_ok = !self.id.is_empty()
+            && self
+                .id
+                .chars()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-');
+        if !id_ok {
+            return Err(format!("CSAF 來源 id `{}` 只能包含小寫英數字與 -", self.id));
+        }
+        let http = |u: &str| {
+            url::Url::parse(u)
+                .ok()
+                .is_some_and(|u| matches!(u.scheme(), "https" | "http"))
+        };
+        if !http(&self.url) {
+            return Err(format!("CSAF 來源 `{}` 的 url 不是有效網址", self.id));
+        }
+        if self.discovery == CsafDiscovery::Rss {
+            let template = self.csaf_url_template.as_deref().unwrap_or_default();
+            if !template.contains(CSAF_ID_PLACEHOLDER) {
+                return Err(format!(
+                    "CSAF 來源 `{}` 為 rss 模式，csaf_url_template 必須包含 {CSAF_ID_PLACEHOLDER}",
+                    self.id
+                ));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl SourcesConfig {
+    /// 啟用中的 CSAF 來源：設定檔的來源 + 內建 Palo Alto（使用者以相同 id 定義時以設定檔為準）。
+    /// `paloalto_enabled = false` 停用 id 為 `paloalto` 的來源。
+    pub fn csaf_sources(&self) -> Vec<CsafSourceConfig> {
+        let mut out: Vec<CsafSourceConfig> =
+            self.csaf.iter().filter(|c| c.enabled).cloned().collect();
+        let user_defined = self.csaf.iter().any(|c| c.id == PALOALTO_SOURCE_ID);
+        if !user_defined {
+            out.insert(0, CsafSourceConfig::paloalto());
+        }
+        if !self.paloalto_enabled {
+            out.retain(|c| c.id != PALOALTO_SOURCE_ID);
+        }
+        out
+    }
+}
+
+impl SourcesConfig {
+    /// 所有已定義的 CSAF 來源（含停用者），供 `sync --source csaf:<id>` 明確指定。
+    pub fn csaf_sources_all(&self) -> Vec<CsafSourceConfig> {
+        let mut out = self.csaf.clone();
+        if !out.iter().any(|c| c.id == PALOALTO_SOURCE_ID) {
+            out.insert(0, CsafSourceConfig::paloalto());
+        }
+        out
+    }
+}
+
+fn csaf_sources<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<CsafSourceConfig>, D::Error> {
+    let list = Vec::<CsafSourceConfig>::deserialize(d)?;
+    let mut seen = std::collections::HashSet::new();
+    for c in &list {
+        c.validate().map_err(D::Error::custom)?;
+        if !seen.insert(c.id.clone()) {
+            return Err(D::Error::custom(format!("CSAF 來源 id `{}` 重複", c.id)));
+        }
+    }
+    Ok(list)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Deserialize)]
@@ -294,7 +412,13 @@ user_agent = "{DEFAULT_USER_AGENT}"
 [sources]
 nvd_enabled = true
 osv_enabled = true
-paloalto_enabled = true
+paloalto_enabled = true     # 內建 Palo Alto CSAF 公告（RSS）
+
+# 新增提供 CSAF 2.0 公告的原廠（不需更新程式）：
+# [[sources.csaf]]
+# id = "vendor-x"
+# discovery = "provider_metadata"     # 或 rss（需 csaf_url_template，{{id}} 為 RSS item link 最後一段）
+# url = "https://vendor-x.example/.well-known/csaf/provider-metadata.json"
 
 [log]
 retention_days = {DEFAULT_LOG_RETENTION_DAYS}
@@ -400,6 +524,70 @@ mod tests {
             cfg.scoring.get("weight").and_then(|v| v.as_integer()),
             Some(3)
         );
+    }
+
+    #[test]
+    fn csaf_sources_default_to_paloalto() {
+        let (cfg, _) = parse("", p()).unwrap();
+        let ids: Vec<String> = cfg
+            .sources
+            .csaf_sources()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+        assert_eq!(ids, vec!["paloalto"]);
+        let (off, _) = parse(
+            "[sources]
+paloalto_enabled = false
+",
+            p(),
+        )
+        .unwrap();
+        assert!(off.sources.csaf_sources().is_empty());
+    }
+
+    #[test]
+    fn csaf_provider_is_added_by_configuration() {
+        let src = "[[sources.csaf]]
+id = \"vendor-x\"
+discovery = \"provider_metadata\"
+                   url = \"https://vendor-x.example/.well-known/csaf/provider-metadata.json\"
+";
+        let (cfg, unknown) = parse(src, p()).unwrap();
+        assert!(unknown.is_empty());
+        let sources = cfg.sources.csaf_sources();
+        assert_eq!(sources.len(), 2);
+        assert_eq!(sources[1].discovery, CsafDiscovery::ProviderMetadata);
+    }
+
+    #[test]
+    fn csaf_rss_requires_template() {
+        let src = "[[sources.csaf]]
+id = \"v\"
+discovery = \"rss\"
+url = \"https://v.example/rss.xml\"
+";
+        let msg = parse(src, p()).unwrap_err().to_string();
+        assert!(
+            msg.contains("csaf_url_template") && msg.contains("sources.csaf"),
+            "{msg}"
+        );
+        let dup = "[[sources.csaf]]
+id = \"a\"
+discovery = \"provider_metadata\"
+url = \"https://a.example/p.json\"
+                   [[sources.csaf]]
+id = \"a\"
+discovery = \"provider_metadata\"
+url = \"https://a.example/p.json\"
+";
+        assert!(parse(dup, p()).unwrap_err().to_string().contains("重複"));
+        let bad_url = "[[sources.csaf]]
+id = \"a\"
+discovery = \"provider_metadata\"
+url = \"ftp://x\"
+";
+        assert!(parse(bad_url, p()).is_err());
     }
 
     #[test]

@@ -8,6 +8,7 @@ pub mod config;
 pub mod db;
 pub mod error;
 pub mod http;
+pub mod ingest;
 pub mod init;
 pub mod logging;
 pub mod paths;

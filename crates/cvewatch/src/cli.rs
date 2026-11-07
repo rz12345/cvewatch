@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use chrono::NaiveDate;
+use clap::{Args, Parser, Subcommand, ValueEnum};
 
 #[derive(Debug, Parser)]
 #[command(
@@ -26,8 +27,13 @@ pub struct Cli {
 pub enum Command {
     /// 建立資料目錄、範例設定檔、加密資料庫與金鑰（可重複執行，不覆蓋既有檔案）
     Init,
-    /// 同步 CVE 資料來源（尚未實作）
-    Sync,
+    /// 同步 CVE 資料來源（cvelistV5、NVD、原廠 CSAF、KEV、EPSS、OSV）
+    Sync(SyncArgs),
+    /// 查詢本機 CVE 紀錄
+    Cve {
+        #[command(subcommand)]
+        action: CveAction,
+    },
     /// 開啟文字介面（尚未實作）
     Tui,
     /// 資產清冊：匯入 Excel/CSV 與套件清單、檢視資產與產品目錄
@@ -51,7 +57,8 @@ impl Command {
     pub fn name(&self) -> &'static str {
         match self {
             Command::Init => "init",
-            Command::Sync => "sync",
+            Command::Sync(_) => "sync",
+            Command::Cve { .. } => "cve",
             Command::Tui => "tui",
             Command::Asset { .. } => "asset",
             Command::Config { .. } => "config",
@@ -189,4 +196,47 @@ pub enum PackageFormatArg {
     Spdx,
     Dpkg,
     Rpm,
+}
+
+#[derive(Debug, Args)]
+#[command(
+    long_about = "同步 CVE 資料來源。順序：cvelist → nvd → csaf:* → kev → epss → osv；                  每個來源各自交易，任一來源失敗時其他來源照常更新，最後以結束碼 4 結束。
+
+                  首次同步會下載 cvelistV5 baseline（約 650 MB），需數分鐘到十數分鐘。"
+)]
+pub struct SyncArgs {
+    /// 只執行指定來源（可重複）：cvelist、nvd、csaf、csaf:<id>、kev、epss、osv
+    #[arg(long, value_name = "NAME")]
+    pub source: Vec<String>,
+    /// 以最新 baseline 依目前產品目錄重新篩選（目錄變更後使用）
+    #[arg(long)]
+    pub rescan: bool,
+    /// 覆寫游標起點（UTC 日期，YYYY-MM-DD）
+    #[arg(long, value_name = "DATE", value_parser = parse_date)]
+    pub since: Option<NaiveDate>,
+    /// 列出最近 20 次各來源的執行結果（不執行同步）
+    #[arg(long, conflicts_with_all = ["source", "rescan", "since"])]
+    pub history: bool,
+}
+
+fn parse_date(value: &str) -> Result<NaiveDate, String> {
+    NaiveDate::parse_from_str(value, "%Y-%m-%d")
+        .map_err(|_| format!("日期格式應為 YYYY-MM-DD：{value}"))
+}
+
+#[derive(Debug, Subcommand)]
+pub enum CveAction {
+    /// 顯示整合後的 CVE 資料（描述、各來源 CVSS、affected、NVD、KEV、EPSS、原廠公告、參考連結）
+    Show {
+        /// CVE ID，例如 CVE-2024-3400
+        id: String,
+        /// 本機沒有時，直接向 CVE.org 取得單筆（不存入本機）
+        #[arg(long)]
+        fetch: bool,
+    },
+    /// 在 cvelistV5 baseline 索引中搜尋（含與目錄無關、未存入本機的 CVE），用來找出漏掉的別名
+    Search {
+        /// 關鍵字（比對 CVE ID、vendor / product 與描述，不分大小寫）
+        keyword: String,
+    },
 }

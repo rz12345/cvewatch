@@ -239,6 +239,14 @@ fn print_product(p: &Product) {
     );
     println!("  CNA：{}", pairs(&p.cna));
     println!("  CSAF：{}", pairs(&p.csaf));
+    println!(
+        "  描述關鍵字：{}",
+        if p.keywords.is_empty() {
+            "（無）".to_string()
+        } else {
+            p.keywords.join("、")
+        }
+    );
 }
 
 pub fn catalog_unresolved(app: &App) -> Result<ExitCode, CoreError> {

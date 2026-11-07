@@ -3,6 +3,7 @@
 mod app;
 mod cli;
 mod commands;
+mod progress;
 mod prompt;
 
 use clap::Parser;
@@ -50,7 +51,8 @@ fn run(cli: Cli) -> Result<ExitCode, CoreError> {
 fn dispatch(app: &app::App, command: Command, config_created: bool) -> Result<ExitCode, CoreError> {
     match command {
         Command::Init => commands::init::run(app, config_created),
-        Command::Sync => Err(CoreError::NotImplemented("sync")),
+        Command::Sync(args) => commands::sync::run(app, args),
+        Command::Cve { action } => commands::cve::run(app, action),
         Command::Tui => Err(CoreError::NotImplemented("tui")),
         Command::Asset { action } => commands::asset::run(app, action),
         Command::Config { action } => match action {

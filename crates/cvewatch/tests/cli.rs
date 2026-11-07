@@ -3,7 +3,7 @@
 use assert_cmd::Command;
 use predicates::prelude::*;
 
-const SUBCOMMANDS: [&str; 6] = ["init", "sync", "tui", "asset", "config", "db"];
+const SUBCOMMANDS: [&str; 7] = ["init", "sync", "tui", "asset", "config", "db", "cve"];
 
 fn cvewatch() -> Command {
     let mut cmd = Command::cargo_bin("cvewatch").unwrap();
@@ -74,15 +74,13 @@ fn backup_flags_conflict() {
 #[test]
 fn not_implemented_commands_exit_1() {
     let (_dir, cfg) = config_with("");
-    for sub in ["sync", "tui"] {
-        cvewatch()
-            .arg("--config")
-            .arg(&cfg)
-            .arg(sub)
-            .assert()
-            .code(1)
-            .stderr(predicate::str::contains("not implemented"));
-    }
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .arg("tui")
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("not implemented"));
 }
 
 #[test]
@@ -119,7 +117,8 @@ fn unknown_key_warns_and_continues() {
         .assert()
         .code(1)
         .stderr(predicate::str::contains("`foo`"))
-        .stderr(predicate::str::contains("not implemented"));
+        // 警告後繼續執行，直到資料庫檢查才停止
+        .stderr(predicate::str::contains("cvewatch init"));
 }
 
 #[test]
@@ -292,4 +291,87 @@ fn invalid_import_column_target_exits_2() {
         .assert()
         .code(2)
         .stderr(predicate::str::contains("import.columns"));
+}
+
+#[test]
+fn sync_and_cve_help_list_options() {
+    let out = cvewatch().args(["sync", "--help"]).assert().success();
+    let text = String::from_utf8(out.get_output().stdout.clone()).unwrap();
+    for opt in ["--source", "--rescan", "--since", "--history"] {
+        assert!(
+            text.contains(opt),
+            "sync --help 缺少 {opt}：
+{text}"
+        );
+    }
+    for sub in ["show", "search"] {
+        cvewatch().args(["cve", sub, "--help"]).assert().success();
+    }
+    let show = cvewatch()
+        .args(["cve", "show", "--help"])
+        .assert()
+        .success();
+    assert!(String::from_utf8_lossy(&show.get_output().stdout).contains("--fetch"));
+}
+
+#[test]
+fn sync_argument_errors_exit_1() {
+    cvewatch()
+        .args(["sync", "--since", "2026-13-01"])
+        .assert()
+        .code(1);
+    cvewatch()
+        .args(["sync", "--history", "--rescan"])
+        .assert()
+        .code(1);
+    let (_dir, cfg) = config_with("");
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["sync", "--source", "bogus"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("未知的來源"));
+}
+
+#[test]
+fn sync_without_database_asks_for_init() {
+    let (_dir, cfg) = config_with("");
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["sync", "--source", "kev"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("cvewatch init"));
+}
+
+#[test]
+fn cve_show_validates_id() {
+    let (_dir, cfg) = config_with("");
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["cve", "show", "CVE-24-1"])
+        .assert()
+        .code(1)
+        .stderr(predicate::str::contains("不是有效的 CVE ID"));
+}
+
+#[test]
+fn invalid_csaf_source_config_exits_2() {
+    let (_dir, cfg) = config_with(
+        "[[sources.csaf]]
+id = \"v\"
+discovery = \"rss\"
+url = \"https://v.example/rss.xml\"
+",
+    );
+    cvewatch()
+        .arg("--config")
+        .arg(&cfg)
+        .args(["sync", "--source", "kev"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("csaf_url_template"));
 }

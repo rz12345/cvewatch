@@ -12,7 +12,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use file::{CatalogFile, CpeDef, NameDef, ProductDef};
-pub use normalize::normalize;
+pub use normalize::{normalize, normalize_vendor};
 use scheme::{scheme_by_name, VersionScheme};
 
 use crate::error::CoreError;
@@ -48,6 +48,8 @@ pub struct Product {
     pub cpe: Vec<Cpe>,
     pub cna: Vec<NamePair>,
     pub csaf: Vec<NamePair>,
+    /// 英文描述關鍵字（原始寫法）
+    pub keywords: Vec<String>,
 }
 
 impl Product {
@@ -177,6 +179,7 @@ fn merge_into(merged: &mut Vec<(ProductDef, String)>, def: ProductDef, origin: &
         cpe: def.cpe.or(existing.cpe.take()),
         cna: def.cna.or(existing.cna.take()),
         csaf: def.csaf.or(existing.csaf.take()),
+        keywords: def.keywords.or(existing.keywords.take()),
     };
     *existing = combined;
 }
@@ -222,6 +225,13 @@ fn build_product(def: ProductDef, origin: &str) -> Result<Product, CoreError> {
         cpe: build_cpes(def.cpe.unwrap_or_default(), &key, origin)?,
         cna: name_pairs(def.cna.unwrap_or_default()),
         csaf: name_pairs(def.csaf.unwrap_or_default()),
+        keywords: def
+            .keywords
+            .unwrap_or_default()
+            .into_iter()
+            .map(|k| k.trim().to_string())
+            .filter(|k| !k.is_empty())
+            .collect(),
         advisory_source: def.advisory_source,
         aliases,
         key,

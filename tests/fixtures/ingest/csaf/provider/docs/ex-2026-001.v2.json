@@ -1,0 +1,138 @@
+{
+  "document": {
+    "category": "csaf_security_advisory",
+    "csaf_version": "2.0",
+    "distribution": {
+      "tlp": {
+        "label": "WHITE",
+        "url": "https://www.first.org/tlp/"
+      }
+    },
+    "lang": "en",
+    "publisher": {
+      "category": "vendor",
+      "name": "Example Corp",
+      "namespace": "https://example.invalid"
+    },
+    "title": "Example advisory ex-2026-001",
+    "tracking": {
+      "id": "EX-2026-001",
+      "version": "1.1.0",
+      "status": "final",
+      "initial_release_date": "2026-09-01T08:00:00Z",
+      "current_release_date": "2026-09-02T08:00:00Z",
+      "revision_history": [
+        {
+          "number": "1.0.0",
+          "date": "2026-09-01T08:00:00Z",
+          "summary": "rev"
+        },
+        {
+          "number": "1.1.0",
+          "date": "2026-09-02T08:00:00Z",
+          "summary": "rev"
+        }
+      ],
+      "generator": {
+        "engine": {
+          "name": "synthetic"
+        }
+      }
+    }
+  },
+  "product_tree": {
+    "branches": [
+      {
+        "category": "vendor",
+        "name": "Example Corp",
+        "branches": [
+          {
+            "category": "product_name",
+            "name": "Widget OS",
+            "branches": [
+              {
+                "category": "product_version_range",
+                "name": "vers:generic/>=2.0.0|<2.4.1",
+                "product": {
+                  "name": "Widget OS >=2.0.0|<2.4.1",
+                  "product_id": "WOS-RANGE-1"
+                }
+              },
+              {
+                "category": "product_version",
+                "name": "2.4.1",
+                "product": {
+                  "name": "Widget OS 2.4.1",
+                  "product_id": "WOS-241"
+                }
+              },
+              {
+                "category": "product_version",
+                "name": "1.9.9",
+                "product": {
+                  "name": "Widget OS 1.9.9",
+                  "product_id": "WOS-199"
+                }
+              }
+            ]
+          },
+          {
+            "category": "product_name",
+            "name": "Gadget",
+            "branches": [
+              {
+                "category": "product_version",
+                "name": "5.0",
+                "product": {
+                  "name": "Gadget 5.0",
+                  "product_id": "GADGET-50"
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "vulnerabilities": [
+    {
+      "cve": "CVE-2099-60001",
+      "product_status": {
+        "known_affected": [
+          "WOS-RANGE-1"
+        ],
+        "under_investigation": [
+          "WOS-199"
+        ],
+        "first_fixed": [
+          "WOS-241"
+        ]
+      },
+      "flags": [
+        {
+          "label": "vulnerable_code_not_present",
+          "product_ids": [
+            "WOS-199"
+          ]
+        }
+      ],
+      "remediations": [
+        {
+          "category": "vendor_fix",
+          "details": "Upgrade to 2.4.1",
+          "product_ids": [
+            "WOS-RANGE-1"
+          ],
+          "url": "https://example.invalid/fix2"
+        },
+        {
+          "category": "workaround",
+          "details": "Disable the web UI",
+          "product_ids": [
+            "WOS-RANGE-1"
+          ]
+        }
+      ]
+    }
+  ]
+}

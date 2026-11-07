@@ -243,3 +243,34 @@ fn catalog_syncs_to_database_idempotently() {
         .unwrap();
     assert_eq!(alias_owner, "paloalto-panos");
 }
+
+#[test]
+fn keywords_are_inherited_or_overridden() {
+    // 03：product-catalog「Product keywords」
+    let seed = Catalog::seed().unwrap();
+    let proxmox = seed.get("proxmox-ve").unwrap();
+    assert!(proxmox
+        .keywords
+        .iter()
+        .any(|k| k == "Proxmox Virtual Environment"));
+
+    let inherited = with_user(&[(
+        "a.toml",
+        "[[product]]\nkey = \"proxmox-ve\"\naliases = [\"pve8\"]\n",
+    )])
+    .unwrap();
+    assert_eq!(
+        inherited.get("proxmox-ve").unwrap().keywords,
+        proxmox.keywords
+    );
+
+    let overridden = with_user(&[(
+        "a.toml",
+        "[[product]]\nkey = \"proxmox-ve\"\nkeywords = [\" Proxmox Backup \", \"\"]\n",
+    )])
+    .unwrap();
+    assert_eq!(
+        overridden.get("proxmox-ve").unwrap().keywords,
+        vec!["Proxmox Backup".to_string()]
+    );
+}

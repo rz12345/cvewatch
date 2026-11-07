@@ -1,0 +1,18 @@
+{
+  "canonical_url": "{{BASE}}/.well-known/csaf/provider-metadata.json",
+  "distributions": [
+    {
+      "directory_url": "{{BASE}}/csaf/white/"
+    }
+  ],
+  "last_updated": "2026-11-05T00:00:00Z",
+  "list_on_CSAF_aggregators": true,
+  "metadata_version": "2.0",
+  "mirror_on_CSAF_aggregators": true,
+  "publisher": {
+    "category": "vendor",
+    "name": "Example Corp",
+    "namespace": "https://example.invalid"
+  },
+  "role": "csaf_trusted_provider"
+}

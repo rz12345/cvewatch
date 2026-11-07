@@ -86,7 +86,24 @@ cargo test                                     # 不呼叫外部 API、不存取
 
 做完 01 再開始 02，依此類推。實作過程中若發現規格要改，請 Claude 用 `/opsx:update` 修改該 change，而不是直接改程式碼跳過規格。
 
+## 同步 CVE（`cvewatch sync`）
+
+```powershell
+cvewatch sync                      # 依序：cvelist → nvd → csaf:* → kev → epss → osv
+cvewatch sync --source kev         # 只更新指定來源（可重複；csaf 或 csaf:<id>）
+cvewatch sync --rescan             # 目錄（catalog.d）變更後，以最新 baseline 重新篩選
+cvewatch sync --history            # 最近 20 次各來源的執行結果
+cvewatch cve show CVE-2024-3400    # 整合後的 CVE 資料；本機沒有時加 --fetch 直接向 CVE.org 取得
+cvewatch cve search proxmox        # 在 baseline 索引中搜尋（含未存入本機者），找出漏掉的別名
+```
+
+- **首次同步會下載 cvelistV5 baseline（約 650 MB）**，串流解壓不落地，依網路速度約需數分鐘到十數分鐘；之後每次只下載當日 delta（數 KB～數 MB）。超過 25 天沒同步會重新下載 baseline
+- 只保留與產品目錄或資產套件相關的 CVE；另在 `<data_dir>\cache\cvelist\search-index.jsonl.zst` 保留全部 CVE 的精簡索引供 `cve search` 使用
+- 任一來源失敗時其他來源照常更新，失敗來源的資料與游標不變，結束碼為 4
+- NVD API key（選用，速率由 5 次/30 秒提高到 50 次/30 秒）：`cvewatch config set-secret nvd_api_key`
+- 新增提供 CSAF 2.0 公告的原廠：在設定檔加一筆 `[[sources.csaf]]`（見範例設定檔），不需更新程式
+
 ## 實作前請先確認
 
 - 機構 SMTP 的連接埠與認證方式（實作完成後在 TUI「設定」畫面填寫並測試）
-- 03 任務 1.1：各外部端點的 URL 與格式以實際請求為準
+- 03 任務 1.1：各外部端點的 URL 與格式已於 2026-11-07 實測（見 `openspec/changes/03-add-cve-ingestion/design.md`）

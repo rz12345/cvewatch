@@ -118,6 +118,33 @@ impl HttpClient {
         self.send(|c| c.get(url)).await
     }
 
+    /// 以指定的整體逾時（含下載內容）送出 GET，用於大型檔案。
+    pub async fn get_with_timeout(
+        &self,
+        url: &str,
+        timeout: Duration,
+    ) -> Result<Response, HttpError> {
+        self.send(|c| c.get(url).timeout(timeout)).await
+    }
+
+    /// 讀取完整回應內容；錯誤訊息中的 URL 經遮罩。
+    pub async fn bytes(&self, resp: Response) -> Result<Vec<u8>, HttpError> {
+        let url = self.redact(resp.url().as_str());
+        resp.bytes()
+            .await
+            .map(|b| b.to_vec())
+            .map_err(|e| self.request_error(&url, &e))
+    }
+
+    /// 讀取下一段內容（串流下載）。
+    pub async fn chunk(&self, resp: &mut Response) -> Result<Option<Vec<u8>>, HttpError> {
+        let url = self.redact(resp.url().as_str());
+        resp.chunk()
+            .await
+            .map(|c| c.map(|b| b.to_vec()))
+            .map_err(|e| self.request_error(&url, &e))
+    }
+
     /// 送出請求；`build` 每次重試都會重新呼叫以建立新的請求。
     pub async fn send<F>(&self, build: F) -> Result<Response, HttpError>
     where
