@@ -3,28 +3,24 @@
 
 #[path = "../../../core/tests/common/mod.rs"]
 pub mod common;
+#[path = "../../../frontend/tests/shared/mod.rs"]
+pub mod shared;
 
-use std::cell::{Cell, RefCell};
-use std::path::PathBuf;
-use std::rc::Rc;
-use std::sync::{Arc, Mutex};
-
-use common::matching::{affected, at, panos, world_with, World};
-use cvewatch_core::config::Config;
-use cvewatch_core::notify::redmine::Named;
-use cvewatch_core::secrets::{MemoryStore, SecretError, SecretKey, SecretStore};
-use cvewatch_tui::data::Settings;
-use cvewatch_tui::services::{
-    ClipboardSink, DisplayTz, Opener, RunningSync, Services, SyncLauncher,
+use common::matching::{at, world_with, World};
+#[allow(unused_imports)]
+pub use cvewatch_frontend::test_support::{
+    self, named, FakeBackend, InlineSpawner, Recorder, SharedStore,
 };
-use cvewatch_tui::settings::{NotifyBackend, RedmineLists, Spawner};
+use cvewatch_tui::data::Settings;
+use cvewatch_tui::services::Services;
 use cvewatch_tui::{glyphs, ui, App, Context};
 use ratatui::backend::TestBackend;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use rusqlite::params;
-use serde_json::json;
-use zeroize::Zeroizing;
+use shared::{keyword_only_pending, panos_cves};
+#[allow(unused_imports)]
+pub use shared::{PANOS_CVES, PENDING_CVE, PROXMOX_CNA};
 
 /// 測試時鐘。
 pub const NOW: &str = "2026-11-07T00:00:00+00:00";
@@ -32,239 +28,11 @@ pub const WIDTH: u16 = 110;
 pub const HEIGHT: u16 = 26;
 
 pub const KEV_CVE: &str = "CVE-2026-0001";
-pub const PANOS_CVES: [&str; 3] = ["CVE-2026-0001", "CVE-2026-0002", "CVE-2026-0003"];
-pub const PENDING_CVE: &str = "CVE-2099-20001";
 pub const LONG_NAME: &str = "資訊所機房核心防火牆主機";
 
-/// 種子目錄沒有 Proxmox 的 CNA 寫法，以 catalog.d 補上。
-pub const PROXMOX_CNA: &str = r#"
-[[product]]
-key = "proxmox-ve"
-cna = [{ vendor = "Proxmox Server Solutions GmbH", product = "Proxmox VE" }]
-"#;
-
-/// 設定畫面的連線替身：記錄呼叫（含使用的設定值）並回傳預設結果。
-#[derive(Default)]
-pub struct FakeBackend {
-    pub calls: Mutex<Vec<String>>,
-    pub email: Mutex<Option<Result<String, String>>>,
-    pub redmine: Mutex<Option<Result<String, String>>>,
-    pub lists: Mutex<Option<Result<RedmineLists, String>>>,
-    pub project_lists: Mutex<Option<Result<RedmineLists, String>>>,
-    /// 依專案回傳不同的 tracker／成員清單（優先於 `project_lists`）
-    pub lists_by_project: Mutex<std::collections::HashMap<String, RedmineLists>>,
-}
-
-impl FakeBackend {
-    fn log(&self, s: String) {
-        self.calls.lock().expect("calls").push(s);
-    }
-}
-
-impl NotifyBackend for FakeBackend {
-    fn test_email(
-        &self,
-        c: &Config,
-        password: Option<Zeroizing<String>>,
-    ) -> Result<String, String> {
-        let e = &c.notify.email;
-        self.log(format!(
-            "test_email {}:{} {} password={}",
-            e.smtp_host,
-            e.smtp_port,
-            e.security,
-            password.is_some()
-        ));
-        self.email
-            .lock()
-            .expect("email")
-            .clone()
-            .unwrap_or(Ok("已寄出測試信".into()))
-    }
-
-    fn test_redmine(&self, c: &Config, key: Option<Zeroizing<String>>) -> Result<String, String> {
-        self.log(format!(
-            "test_redmine {} key={}",
-            c.notify.redmine.base_url,
-            key.is_some()
-        ));
-        self.redmine
-            .lock()
-            .expect("redmine")
-            .clone()
-            .unwrap_or(Ok("Redmine 連線正常".into()))
-    }
-
-    fn redmine_lists(
-        &self,
-        _c: &Config,
-        _key: Option<Zeroizing<String>>,
-        project: Option<String>,
-    ) -> Result<RedmineLists, String> {
-        self.log(format!("lists {project:?}"));
-        if let Some(l) = project
-            .as_ref()
-            .and_then(|p| self.lists_by_project.lock().expect("by").get(p).cloned())
-        {
-            return Ok(l);
-        }
-        let slot = if project.is_some() {
-            &self.project_lists
-        } else {
-            &self.lists
-        };
-        slot.lock()
-            .expect("lists")
-            .clone()
-            .unwrap_or(Ok(RedmineLists::default()))
-    }
-
-    fn install_schedule(&self) -> Result<String, String> {
-        self.log("install_schedule".into());
-        Ok("排程已重新安裝".into())
-    }
-}
-
-/// 立即執行（測試中背景工作同步完成，下一次 tick 即可取回結果）。
-pub struct InlineSpawner;
-
-impl Spawner for InlineSpawner {
-    fn spawn(&self, job: Box<dyn FnOnce() + Send>) {
-        job();
-    }
-}
-
-/// 共用的記憶體憑證庫；`fails` 為真時模擬 Credential Manager 無法存取。
-pub struct SharedStore(pub Arc<MemoryStore>, pub Arc<std::sync::atomic::AtomicBool>);
-
-impl SharedStore {
-    fn check(&self, key: SecretKey) -> Result<(), SecretError> {
-        if self.1.load(std::sync::atomic::Ordering::SeqCst) {
-            return Err(SecretError::Backend {
-                key,
-                reason: "無法存取憑證庫".into(),
-            });
-        }
-        Ok(())
-    }
-}
-
-impl SecretStore for SharedStore {
-    fn get(&self, key: SecretKey) -> Result<Option<Zeroizing<String>>, SecretError> {
-        self.check(key)?;
-        self.0.get(key)
-    }
-    fn set(&self, key: SecretKey, value: &str) -> Result<(), SecretError> {
-        self.check(key)?;
-        self.0.set(key, value)
-    }
-    fn delete(&self, key: SecretKey) -> Result<(), SecretError> {
-        self.check(key)?;
-        self.0.delete(key)
-    }
-}
-
-pub fn named(id: u64, name: &str) -> Named {
-    Named {
-        id,
-        name: name.into(),
-    }
-}
-
-/// 外部效果的紀錄與替身設定。
-#[derive(Clone)]
-pub struct Recorder {
-    /// 設定檔所在的臨時目錄
-    pub dir: Rc<tempfile::TempDir>,
-    pub secrets: Arc<MemoryStore>,
-    /// 模擬憑證庫無法存取
-    pub store_fails: Arc<std::sync::atomic::AtomicBool>,
-    pub backend: Arc<FakeBackend>,
-    pub opened: Rc<RefCell<Vec<String>>>,
-    pub copied: Rc<RefCell<Vec<String>>>,
-    pub launches: Rc<Cell<usize>>,
-    /// 背景 sync 的結束狀態；None 表示仍在執行
-    pub exit: Rc<RefCell<Option<Option<i32>>>>,
-    pub clipboard_fails: Rc<Cell<bool>>,
-}
-
-struct FakeOpener(Recorder);
-impl Opener for FakeOpener {
-    fn open(&self, url: &str) -> Result<(), String> {
-        self.0.opened.borrow_mut().push(url.to_string());
-        Ok(())
-    }
-}
-
-struct FakeClipboard(Recorder);
-impl ClipboardSink for FakeClipboard {
-    fn copy(&self, text: &str) -> Result<(), String> {
-        if self.0.clipboard_fails.get() {
-            return Err("剪貼簿無法使用".into());
-        }
-        self.0.copied.borrow_mut().push(text.to_string());
-        Ok(())
-    }
-}
-
-struct FakeLauncher(Recorder);
-struct FakeChild(Recorder);
-
-impl SyncLauncher for FakeLauncher {
-    fn launch(&self) -> Result<Box<dyn RunningSync>, String> {
-        self.0.launches.set(self.0.launches.get() + 1);
-        Ok(Box::new(FakeChild(self.0.clone())))
-    }
-}
-
-impl RunningSync for FakeChild {
-    fn try_wait(&mut self) -> Result<Option<Option<i32>>, String> {
-        Ok(*self.0.exit.borrow())
-    }
-}
-
-impl Default for Recorder {
-    fn default() -> Self {
-        Recorder {
-            dir: Rc::new(tempfile::tempdir().expect("tempdir")),
-            secrets: Arc::new(MemoryStore::new()),
-            store_fails: Arc::default(),
-            backend: Arc::new(FakeBackend::default()),
-            opened: Rc::default(),
-            copied: Rc::default(),
-            launches: Rc::default(),
-            exit: Rc::default(),
-            clipboard_fails: Rc::default(),
-        }
-    }
-}
-
-impl Recorder {
-    pub fn documents_dir(&self) -> PathBuf {
-        self.dir.path().join("Documents")
-    }
-
-    pub fn config_path(&self) -> PathBuf {
-        self.dir.path().join("cvewatch.toml")
-    }
-
-    pub fn config_text(&self) -> String {
-        std::fs::read_to_string(self.config_path()).expect("config")
-    }
-}
-
+/// 外部效果替身（與 GUI 測試共用，見 `cvewatch_frontend::test_support`）。
 pub fn services(rec: &Recorder) -> Services {
-    Services {
-        opener: Box::new(FakeOpener(rec.clone())),
-        clipboard: Box::new(FakeClipboard(rec.clone())),
-        launcher: Box::new(FakeLauncher(rec.clone())),
-        clock: Box::new(|| at(NOW)),
-        tz: DisplayTz::Fixed(chrono::FixedOffset::east_opt(0).expect("utc")),
-        secrets: Box::new(SharedStore(rec.secrets.clone(), rec.store_fails.clone())),
-        backend: rec.backend.clone(),
-        spawner: Box::new(InlineSpawner),
-        documents_dir: rec.documents_dir(),
-    }
+    test_support::services(rec, at(NOW))
 }
 
 /// 以 World 的資料庫與設定開啟 App（Unicode 框線）。
@@ -282,7 +50,7 @@ pub fn app_with_config(world: World, glyphs: glyphs::Glyphs, config_text: &str) 
     std::fs::write(rec.config_path(), config_text).expect("write config");
     let (config, _) =
         cvewatch_core::config::parse(config_text, &rec.config_path()).expect("parse config");
-    let ctx = Context {
+    let base = cvewatch_frontend::Context {
         config,
         config_path: rec.config_path(),
         conn: world.conn,
@@ -292,8 +60,8 @@ pub fn app_with_config(world: World, glyphs: glyphs::Glyphs, config_text: &str) 
             stale_days: world.settings.stale_days,
         },
         services: services(&rec),
-        glyphs,
     };
+    let ctx = Context { base, glyphs };
     (App::new(ctx).expect("app"), rec)
 }
 
@@ -314,41 +82,11 @@ pub fn seeded_world() -> World {
         )
         .expect("name");
     w.asset("PVE-01", "internal", &[("proxmox-ve", "8.2.2")]);
-    for (i, cve) in PANOS_CVES.iter().enumerate() {
-        let upper = format!("11.1.{}", 3 + i);
-        w.cve(
-            cve,
-            panos(json!([{"version": "11.1.0", "lessThan": upper, "status": "affected"}])),
-            json!([]),
-        );
-        w.cvss(cve, 9.8 - i as f64);
-    }
+    panos_cves(&w, true);
     w.kev(KEV_CVE, "2026-10-20");
     w.epss(KEV_CVE, 0.945);
-    w.cve(
-        PENDING_CVE,
-        json!([affected(
-            "Proxmox Server Solutions GmbH",
-            "Proxmox VE",
-            None,
-            json!([])
-        )]),
-        json!([]),
-    );
     // 僅關鍵字相符：進等待區、不自動建立 probable 命中
-    w.conn
-        .execute(
-            "DELETE FROM cve_affected WHERE cve_id = ?1",
-            params![PENDING_CVE],
-        )
-        .expect("affected");
-    w.conn
-        .execute(
-            "UPDATE cve SET relevance_reason = 'keyword_only',
-                            description_en = 'Proxmox VE privilege escalation' WHERE id = ?1",
-            params![PENDING_CVE],
-        )
-        .expect("desc");
+    keyword_only_pending(&w);
     w.run_at("2026-11-01T00:00:00+00:00");
     sync_run(&w, "cvelist", "2026-11-06T22:00:00+00:00", "success", None);
     sync_run(

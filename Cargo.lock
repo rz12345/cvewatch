@@ -1235,6 +1235,7 @@ dependencies = [
  "chrono",
  "clap",
  "cvewatch-core",
+ "cvewatch-frontend",
  "cvewatch-tui",
  "indicatif",
  "predicates",
@@ -1294,20 +1295,39 @@ dependencies = [
 ]
 
 [[package]]
-name = "cvewatch-tui"
+name = "cvewatch-frontend"
 version = "0.1.0"
 dependencies = [
  "arboard",
  "chrono",
  "cvewatch-core",
+ "cvewatch-frontend",
  "insta",
  "jsonschema",
  "open",
- "ratatui",
  "rusqlite",
  "serde_json",
  "tempfile",
  "toml_edit",
+ "tracing",
+ "wiremock",
+ "zeroize",
+ "zip",
+]
+
+[[package]]
+name = "cvewatch-tui"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "cvewatch-core",
+ "cvewatch-frontend",
+ "insta",
+ "jsonschema",
+ "ratatui",
+ "rusqlite",
+ "serde_json",
+ "tempfile",
  "tracing",
  "tui-input",
  "unicode-width",

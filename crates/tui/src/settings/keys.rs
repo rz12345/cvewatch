@@ -245,20 +245,20 @@ impl App {
             return true;
         }
         // 先寫入憑證庫：失敗時什麼都沒寫；成功後秘密即成為比較基準，設定檔寫入失敗時只剩一般欄位未儲存
-        if let Err(e) = save::apply_secrets(self.services.secrets.as_ref(), &self.page.form) {
+        if let Err(e) = save::apply_secrets(self.ws.services.secrets.as_ref(), &self.page.form) {
             tracing::warn!(error = %e, "寫入憑證庫失敗");
             self.message = Some(format!("無法寫入 Credential Manager，設定未儲存：{e}"));
             return false;
         }
         self.page.secrets_saved();
         let page = &self.page;
-        if let Err(e) = save::write_config(&self.config_path, &page.original, &page.form) {
+        if let Err(e) = save::write_config(&self.ws.config_path, &page.original, &page.form) {
             tracing::warn!(error = %e, "儲存設定失敗");
             self.message = Some(format!("密碼／API key 已存入 Credential Manager，但{e}"));
             return false;
         }
         let schedule_changed = page.form.schedule_changed(&page.original);
-        self.config = form::apply(&page.form, &self.config);
+        self.ws.config = form::apply(&page.form, &self.ws.config);
         self.page.saved();
         tracing::info!("已儲存通知與排程設定");
         self.page.schedule_pending |= schedule_changed;
@@ -281,7 +281,7 @@ impl App {
         job: impl FnOnce() -> JobResult + Send + 'static,
     ) {
         let (tx, rx) = mpsc::channel();
-        self.services.spawner.spawn(Box::new(move || {
+        self.ws.services.spawner.spawn(Box::new(move || {
             let _ = tx.send(job());
         }));
         self.page.jobs.push(Running { kind, project, rx });
@@ -292,7 +292,7 @@ impl App {
             FieldId::Password => (&self.page.form.smtp_password, SecretKey::SmtpPassword),
             _ => (&self.page.form.api_key, SecretKey::RedmineApiKey),
         };
-        secret.effective(self.services.secrets.as_ref(), key)
+        secret.effective(self.ws.services.secrets.as_ref(), key)
     }
 
     /// `t`：以目前（含未儲存）的表單值測試。
@@ -329,8 +329,8 @@ impl App {
                 return;
             }
         };
-        let config = form::apply(&self.page.form, &self.config);
-        let backend = self.services.backend.clone();
+        let config = form::apply(&self.page.form, &self.ws.config);
+        let backend = self.ws.services.backend.clone();
         self.message = Some(format!("{}中…（背景執行）", kind.label()));
         self.spawn_job(kind, move || {
             JobResult::Message(match kind {
@@ -379,8 +379,8 @@ impl App {
                 return;
             }
         };
-        let config = form::apply(&self.page.form, &self.config);
-        let backend = self.services.backend.clone();
+        let config = form::apply(&self.page.form, &self.ws.config);
+        let backend = self.ws.services.backend.clone();
         self.message = Some("正在載入 Redmine 清單…".into());
         let tag = project.clone();
         self.spawn_tagged(kind, tag, move || {
@@ -397,7 +397,7 @@ impl App {
         if self.page.running(JobKind::InstallSchedule) {
             return;
         }
-        let backend = self.services.backend.clone();
+        let backend = self.ws.services.backend.clone();
         self.message = Some("正在重新安裝排程…".into());
         self.spawn_job(JobKind::InstallSchedule, move || {
             JobResult::Message(backend.install_schedule())

@@ -8,6 +8,7 @@ anyhow = "1.0.104"
 chrono = "0.4.45"
 clap = { version = "4.6.7", features = ["derive"] }
 cvewatch-core = { version = "0.1.0", path = "../core" }
+cvewatch-frontend = { version = "0.1.0", path = "../frontend" }
 cvewatch-tui = { version = "0.1.0", path = "../tui" }
 indicatif = "0.18.6"
 rpassword = "7.5.4"

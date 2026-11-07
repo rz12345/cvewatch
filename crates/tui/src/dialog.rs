@@ -64,14 +64,8 @@ pub enum Dialog {
     },
 }
 
-/// 變更的原因與理由說明，例如「（判定不受影響，需特定設定）」；沒有原因時為空字串。
-pub fn change_detail(reason: Option<IgnoreReason>, justification: Option<Justification>) -> String {
-    match (reason, justification) {
-        (Some(r), Some(j)) => format!("（{}，{}）", r.label(), j.label()),
-        (Some(r), None) => format!("（{}）", r.label()),
-        _ => String::new(),
-    }
-}
+/// 變更的原因與理由說明（與狀態列訊息共用 frontend 的文字）。
+pub use cvewatch_frontend::workspace::change_detail;
 
 /// 對話框送出的命令（由 App 執行）。
 #[derive(Debug, Clone, PartialEq)]

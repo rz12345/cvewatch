@@ -3,14 +3,14 @@
 //! 連線一律在背景執行緒（[`Spawner`]），結果經 channel 回到 UI 執行緒，於 `on_tick` 取回，
 //! 畫面不會被阻塞。實際動作以 [`NotifyBackend`] 抽象，測試以替身取代。
 
-use std::path::PathBuf;
-use std::process::{Command, Stdio};
 use std::sync::mpsc::{Receiver, TryRecvError};
 
 use cvewatch_core::config::Config;
 use cvewatch_core::notify::check;
 use cvewatch_core::notify::redmine::{Named, RedmineClient, RedmineSettings};
 use zeroize::Zeroizing;
+
+use crate::services::CliTarget;
 
 /// Redmine 清單（未載入者為 None）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -118,10 +118,7 @@ impl Running {
 }
 
 /// 實際連線：呼叫 core 的測試與 Redmine API；重新安裝排程以子程序執行 `cvewatch schedule install`。
-pub struct LiveBackend {
-    pub exe: PathBuf,
-    pub config: Option<PathBuf>,
-}
+pub struct LiveBackend(pub CliTarget);
 
 impl NotifyBackend for LiveBackend {
     fn test_email(
@@ -174,13 +171,9 @@ impl NotifyBackend for LiveBackend {
     }
 
     fn install_schedule(&self) -> Result<String, String> {
-        let mut cmd = Command::new(&self.exe);
-        if let Some(c) = &self.config {
-            cmd.arg("--config").arg(c);
-        }
-        cmd.args(["schedule", "install"]).stdin(Stdio::null());
-        cvewatch_core::process::hide_window(&mut cmd);
-        let out = cmd
+        let out = self
+            .0
+            .command(&["schedule", "install"])
             .output()
             .map_err(|e| format!("無法執行 schedule install：{e}"))?;
         let text = |b: &[u8]| String::from_utf8_lossy(b).trim().to_string();

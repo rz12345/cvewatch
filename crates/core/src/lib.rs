@@ -21,6 +21,7 @@ pub mod notify;
 pub mod paths;
 pub mod process;
 pub mod redact;
+pub mod runtime;
 pub mod schedule;
 pub mod secrets;
 pub mod version_text;

@@ -60,6 +60,8 @@ openspec validate --all --strict
 
 ### 建置（Windows MSVC）
 
+Workspace 由 `crates/core`（資料、比對、通知與執行環境啟動）、`crates/frontend`（TUI 與 GUI 共用、不相依 UI 框架的前端層：畫面資料、命中清單模型、狀態變更等操作與設定表單）、`crates/tui`（ratatui 繪製與按鍵）與 `crates/cvewatch`（CLI 執行檔）組成。
+
 資料庫使用 rusqlite 的 `bundled-sqlcipher-vendored-openssl`，首次編譯會從原始碼建置 OpenSSL（約 5 分鐘）：
 
 1. 安裝 Visual Studio Build Tools（「使用 C++ 的桌面開發」）與 Rust MSVC toolchain

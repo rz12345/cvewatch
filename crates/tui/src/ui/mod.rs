@@ -132,7 +132,7 @@ fn status_line(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let right_width = u16::try_from(display_width(&right)).unwrap_or(area.width);
     let [left_area, right_area] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(right_width)]).areas(area);
-    if let Some(input) = &app.findings.search_input {
+    if let Some(input) = &app.ws.findings.view.search_input {
         let text = format!("/{}", input.value());
         frame.render_widget(Paragraph::new(text), left_area);
         let x = left_area.x + 1 + u16::try_from(input.visual_cursor()).unwrap_or(0);

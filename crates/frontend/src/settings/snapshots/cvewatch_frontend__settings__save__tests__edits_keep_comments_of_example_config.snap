@@ -1,5 +1,5 @@
 ---
-source: crates/tui/src/settings/save.rs
+source: crates/frontend/src/settings/save.rs
 expression: out
 ---
 # cvewatch 設定檔

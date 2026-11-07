@@ -5,10 +5,8 @@
 //! - 測試寄信／測試 Redmine 使用尚未儲存的表單值，在背景執行
 //! - TUI 不提供無加密 SMTP、http Redmine 或明文傳輸例外開關
 
-pub mod form;
-pub mod jobs;
+pub use cvewatch_frontend::settings::{form, jobs, save};
 mod keys;
-pub mod save;
 
 use cvewatch_core::config::Config;
 use cvewatch_core::notify::redmine::Named;

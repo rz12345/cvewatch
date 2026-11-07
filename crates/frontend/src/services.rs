@@ -8,6 +8,7 @@ use chrono::{DateTime, FixedOffset, Local, Utc};
 use cvewatch_core::secrets::SecretStore;
 use cvewatch_core::ExitCode;
 
+use crate::report::Report;
 use crate::settings::{NotifyBackend, Spawner};
 
 pub trait Opener {
@@ -87,25 +88,46 @@ impl ClipboardSink for SystemClipboard {
     }
 }
 
-/// 以目前執行檔啟動 `cvewatch [--config <path>] sync`，不開新視窗、不接標準輸出入。
-pub struct ProcessLauncher {
+/// 子程序要執行的 CLI：執行檔與要傳入的設定檔。背景 sync 與重新安裝排程共用，
+/// 確保兩者傳遞設定檔的方式一致。
+///
+/// TUI 傳入自己的執行檔；GUI 必須傳入同資料夾的 `cvewatch.exe`（GUI 執行檔不認得 `sync`）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliTarget {
     pub exe: PathBuf,
+    /// 明確指定的設定檔（絕對路徑）；None 時子程序自行解析（環境變數會自動繼承）
     pub config: Option<PathBuf>,
 }
 
-impl SyncLauncher for ProcessLauncher {
-    fn launch(&self) -> Result<Box<dyn RunningSync>, String> {
+impl CliTarget {
+    /// `<exe> [--config <path>] <args…>`，不開新視窗、不接標準輸入。
+    pub fn command(&self, args: &[&str]) -> Command {
         let mut cmd = Command::new(&self.exe);
         if let Some(config) = &self.config {
             cmd.arg("--config").arg(config);
         }
-        cmd.arg("sync")
-            .stdin(Stdio::null())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        cmd.args(args).stdin(Stdio::null());
         cvewatch_core::process::hide_window(&mut cmd);
-        let child = cmd.spawn().map_err(|e| e.to_string())?;
-        tracing::info!(pid = child.id(), "TUI 啟動背景 sync");
+        cmd
+    }
+}
+
+/// 背景啟動 `cvewatch [--config <path>] sync`，不開新視窗、不接標準輸出入。
+pub struct ProcessLauncher(pub CliTarget);
+
+impl ProcessLauncher {
+    /// 要執行的命令：`<exe> [--config <path>] sync`。
+    pub fn command(&self) -> Command {
+        let mut cmd = self.0.command(&["sync"]);
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
+        cmd
+    }
+}
+
+impl SyncLauncher for ProcessLauncher {
+    fn launch(&self) -> Result<Box<dyn RunningSync>, String> {
+        let child = self.command().spawn().map_err(|e| e.to_string())?;
+        tracing::info!(pid = child.id(), exe = %self.0.exe.display(), "啟動背景 sync");
         Ok(Box::new(ChildSync(child)))
     }
 }
@@ -121,33 +143,72 @@ impl RunningSync for ChildSync {
     }
 }
 
-/// 背景 sync 結束後的狀態列訊息。
-pub fn sync_exit_message(code: Option<i32>) -> String {
+/// 背景 sync 結束後的結果（文字與等級在同一處依結束碼決定）。
+pub fn sync_exit_report(code: Option<i32>) -> Report {
     let is = |c: ExitCode| code == Some(i32::from(c.code()));
     if is(ExitCode::Success) {
-        "背景 sync 完成".into()
+        Report::info("背景 sync 完成")
     } else if is(ExitCode::SyncLocked) {
-        "已有 sync 正在執行（排程 sync 進行中），本次未啟動".into()
+        Report::warning("已有 sync 正在執行（排程 sync 進行中），本次未啟動")
     } else if is(ExitCode::PartialFailure) {
-        "背景 sync 完成，但部分來源或自動比對失敗（結束碼 4），詳見 Sync log".into()
+        Report::warning("背景 sync 完成，但部分來源或自動比對失敗（結束碼 4），詳見 Sync log")
     } else {
-        match code {
+        Report::error(match code {
             Some(c) => format!("背景 sync 失敗（結束碼 {c}），詳見日誌"),
             None => "背景 sync 異常結束（沒有結束碼），詳見日誌".into(),
-        }
+        })
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::report::Level;
 
     #[test]
-    fn exit_code_messages() {
-        assert_eq!(sync_exit_message(Some(0)), "背景 sync 完成");
-        assert!(sync_exit_message(Some(3)).starts_with("已有 sync 正在執行"));
-        assert!(sync_exit_message(Some(4)).contains("結束碼 4"));
-        assert!(sync_exit_message(Some(5)).contains("結束碼 5"));
-        assert!(sync_exit_message(None).contains("異常結束"));
+    fn exit_code_reports() {
+        let r = |code| sync_exit_report(code);
+        assert_eq!(r(Some(0)), Report::info("背景 sync 完成"));
+        assert!(r(Some(3)).message.starts_with("已有 sync 正在執行"));
+        assert_eq!(r(Some(3)).level, Level::Warning);
+        assert!(r(Some(4)).message.contains("結束碼 4"));
+        assert_eq!(r(Some(4)).level, Level::Warning);
+        assert!(r(Some(5)).message.contains("結束碼 5"));
+        assert_eq!(r(Some(5)).level, Level::Error);
+        assert!(r(None).message.contains("異常結束"));
+    }
+
+    fn args(cmd: &Command) -> Vec<String> {
+        cmd.get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect()
+    }
+
+    fn target(config: Option<&str>) -> CliTarget {
+        CliTarget {
+            exe: PathBuf::from(r"C:\Tools\cvewatch.exe"),
+            config: config.map(PathBuf::from),
+        }
+    }
+
+    #[test]
+    fn launcher_runs_given_exe_with_optional_config() {
+        let cmd = ProcessLauncher(target(None)).command();
+        assert_eq!(cmd.get_program(), r"C:\Tools\cvewatch.exe");
+        assert_eq!(args(&cmd), ["sync"]);
+        let explicit = ProcessLauncher(target(Some(r"D:\cfg\cvewatch.toml")));
+        assert_eq!(
+            args(&explicit.command()),
+            ["--config", r"D:\cfg\cvewatch.toml", "sync"]
+        );
+    }
+
+    #[test]
+    fn schedule_install_uses_same_config_argument() {
+        let cmd = target(Some(r"D:\cfg\cvewatch.toml")).command(&["schedule", "install"]);
+        assert_eq!(
+            args(&cmd),
+            ["--config", r"D:\cfg\cvewatch.toml", "schedule", "install"]
+        );
     }
 }

@@ -24,11 +24,7 @@ fn install(app: &App, runner: &SystemRunner) -> Result<ExitCode, CoreError> {
         wrapper: schedule::wrapper_path(&exe)?,
         // 明確指定的設定檔傳給排程；環境變數 CVEWATCH_CONFIG 在排程中不一定存在，一併寫入。
         // 排程的工作目錄是執行檔所在資料夾，相對路徑先轉為絕對路徑
-        config: app
-            .location()
-            .is_explicit()
-            .then(|| schedule::absolute(&app.location().path))
-            .transpose()?,
+        config: app.explicit_config()?,
         today: chrono::Local::now().date_naive(),
     };
     let cfg = &app.loaded.config.schedule;

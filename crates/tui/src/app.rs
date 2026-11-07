@@ -1,40 +1,24 @@
-//! TUI 狀態與按鍵分派（Elm 式：按鍵 → 更新狀態 → 重繪）。寫入與外部效果在 [`crate::actions`]。
+//! TUI 狀態與按鍵分派（Elm 式：按鍵 → 更新狀態 → 重繪）。資料、清單模型與有副作用的操作在
+//! `cvewatch_frontend::Workspace`（[`App::ws`]）；結果文字的顯示與詳情畫面的更新在 [`crate::dispatch`]。
 
 use std::cell::Cell;
-use std::collections::{BTreeSet, HashSet};
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::ops::{Deref, DerefMut};
+use std::time::Instant;
 
-use cvewatch_core::config::Config;
-
+use cvewatch_core::matching::pending_ops::Action;
+use cvewatch_core::matching::query::FindingRow;
 use cvewatch_core::matching::triage::Status;
 use cvewatch_core::CoreError;
+use cvewatch_frontend::{ListView, Report, Workspace};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
-use rusqlite::Connection;
 use tui_input::Input;
 
-use crate::data::{DetailData, Settings, Snapshot};
+use crate::data::DetailData;
 use crate::dialog::{self, moved, Dialog, NotePurpose, Outcome};
-use crate::filter::{self, Filter, SortKey};
 use crate::glyphs::Glyphs;
-use crate::services::{RunningSync, Services};
 use crate::settings::{Form, Leave, SettingsPage};
 
-/// 預設匯出檔名已存在時附加的序號上限（`-2` … `-N`）。
-const MAX_NAME_SUFFIX: u32 = 99;
-
-/// `<dir>/<stem>.json`；已存在時改用 `<stem>-2.json`、`<stem>-3.json`…（同一分鐘內多次匯出）。
-/// 序號用完時回傳原檔名，由寫入時回報已存在。
-fn unused_path(dir: &std::path::Path, stem: &str) -> PathBuf {
-    let first = dir.join(format!("{stem}.json"));
-    std::iter::once(first.clone())
-        .chain((2..=MAX_NAME_SUFFIX).map(|n| dir.join(format!("{stem}-{n}.json"))))
-        .find(|p| !p.exists())
-        .unwrap_or(first)
-}
-
-/// 檢查是否有新同步資料的間隔。
-pub const NEW_DATA_POLL: Duration = Duration::from_secs(5);
+pub use cvewatch_frontend::workspace::NEW_DATA_POLL;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -87,17 +71,21 @@ pub enum View {
     AssetDetail { asset_tag: String, cursor: usize },
 }
 
+/// Findings 清單的 TUI 專屬狀態（篩選、搜尋、排序、多選與可見列在 `Workspace::findings`），
+/// 即 `FindingsModel::view`。tui 內部一律寫 `findings.view.<欄位>`；`FindingsModel` 的 `Deref`
+/// 只為了讓既有測試的 `app.findings.cursor` 等路徑可用。
 #[derive(Debug, Clone, Default)]
 pub struct FindingsState {
-    pub filter: Filter,
-    pub search: String,
     /// 正在輸入搜尋字串
     pub search_input: Option<Input>,
-    pub sort: SortKey,
     pub cursor: usize,
-    pub selected: BTreeSet<i64>,
-    /// 符合條件的列（`Snapshot::findings` 的索引）
-    pub visible: Vec<usize>,
+}
+
+impl ListView for FindingsState {
+    /// 可見列改變後把游標修正到範圍內。
+    fn visible_changed(&mut self, len: usize) {
+        self.cursor = self.cursor.min(len.saturating_sub(1));
+    }
 }
 
 /// 各清單的捲動位置（繪製時依游標調整；以 `Cell` 保存，繪製只需 `&App`）。
@@ -112,120 +100,76 @@ pub struct ScrollOffsets {
     pub detail_max: Cell<u16>,
 }
 
-/// 開啟 TUI 所需的一切。
+/// 開啟 TUI 所需的一切：前端共用的 `Context` 加上框線字元。
 pub struct Context {
-    pub conn: Connection,
-    pub settings: Settings,
-    /// 目前的設定檔內容（設定畫面由此載入，儲存後更新）
-    pub config: Config,
-    /// 設定畫面寫回的設定檔
-    pub config_path: PathBuf,
-    pub services: Services,
+    pub base: cvewatch_frontend::Context,
     pub glyphs: Glyphs,
 }
 
 pub struct App {
-    pub conn: Connection,
-    pub settings: Settings,
-    pub config: Config,
-    pub config_path: PathBuf,
+    /// 前端共用狀態；`App` 以 `Deref` 直接存取其欄位（`app.conn`、`app.data`…）
+    pub ws: Workspace<FindingsState>,
     /// 設定畫面
     pub page: SettingsPage,
-    pub services: Services,
     pub glyphs: Glyphs,
-    pub data: Snapshot,
     pub screen: Screen,
     pub stack: Vec<View>,
-    pub findings: FindingsState,
     pub assets_cursor: usize,
     pub pending_cursor: usize,
     pub sync_cursor: usize,
     pub dialog: Option<Dialog>,
     pub help: bool,
     pub message: Option<String>,
-    /// 載入後有 sync 寫入新資料（按 R 重新載入）
-    pub new_data: bool,
-    pub sync: Option<Box<dyn RunningSync>>,
-    pub last_poll: Option<Instant>,
     pub quit: bool,
     pub offsets: ScrollOffsets,
 }
 
+impl Deref for App {
+    type Target = Workspace<FindingsState>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.ws
+    }
+}
+
+impl DerefMut for App {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.ws
+    }
+}
+
 impl App {
     pub fn new(ctx: Context) -> Result<App, CoreError> {
-        let now = ctx.services.now();
-        let data = Snapshot::load(&ctx.conn, ctx.settings.stale_days, now)?;
-        let page = SettingsPage::new(&ctx.config);
-        let mut app = App {
-            conn: ctx.conn,
-            settings: ctx.settings,
-            config: ctx.config,
-            config_path: ctx.config_path,
+        let ws = Workspace::new(ctx.base)?;
+        let page = SettingsPage::new(&ws.config);
+        Ok(App {
+            ws,
             page,
-            services: ctx.services,
             glyphs: ctx.glyphs,
-            data,
             screen: Screen::Dashboard,
             stack: Vec::new(),
-            findings: FindingsState::default(),
             assets_cursor: 0,
             pending_cursor: 0,
             sync_cursor: 0,
             dialog: None,
             help: false,
             message: None,
-            new_data: false,
-            sync: None,
-            last_poll: None,
             quit: false,
             offsets: ScrollOffsets::default(),
-        };
-        app.refresh_visible();
-        Ok(app)
+        })
     }
 
     pub fn view(&self) -> Option<&View> {
         self.stack.last()
     }
 
-    /// 重新計算 Findings 可見列並修正游標。多選保留（搜尋縮小再放寬後仍在），
-    /// 但批次變更只套用到可見的所選命中（見 [`App::visible_selection`]）。
-    pub fn refresh_visible(&mut self) {
-        let f = &self.findings;
-        let visible = filter::visible(
-            &self.data.findings,
-            &self.data.search_keys,
-            &f.filter,
-            &f.search,
-            f.sort,
-        );
-        let cursor = f.cursor.min(visible.len().saturating_sub(1));
-        self.findings.visible = visible;
-        self.findings.cursor = cursor;
-    }
-
-    /// 目前可見的所選命中（依畫面順序）。
-    pub fn visible_selection(&self) -> Vec<i64> {
-        self.findings
-            .visible
-            .iter()
-            .map(|i| self.data.findings[*i].id)
-            .filter(|id| self.findings.selected.contains(id))
-            .collect()
-    }
-
-    /// 重新載入後移除已不存在的命中。
-    pub(crate) fn prune_selection(&mut self) {
-        let ids: HashSet<i64> = self.data.findings.iter().map(|f| f.id).collect();
-        self.findings.selected.retain(|id| ids.contains(id));
-    }
-
     /// Findings 目前列的命中 id。
     pub fn current_finding(&self) -> Option<i64> {
-        self.findings
-            .visible
-            .get(self.findings.cursor)
-            .map(|i| self.data.findings[*i].id)
+        self.current_row().map(|r| r.id)
+    }
+
+    pub fn current_row(&self) -> Option<&FindingRow> {
+        self.ws.row_at(self.ws.findings.view.cursor)
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -243,7 +187,7 @@ impl App {
             self.on_dialog_key(d, key);
             return;
         }
-        if self.findings.search_input.is_some() {
+        if self.ws.findings.view.search_input.is_some() {
             self.on_search_key(key);
             return;
         }
@@ -293,20 +237,20 @@ impl App {
     }
 
     fn on_search_key(&mut self, key: KeyEvent) {
-        let Some(input) = self.findings.search_input.take() else {
+        let Some(input) = self.ws.findings.view.search_input.take() else {
             return;
         };
         match key.code {
             KeyCode::Enter => {}
-            KeyCode::Esc => self.findings.search.clear(),
+            KeyCode::Esc => self.ws.findings.search.clear(),
             _ => {
                 let next = dialog::edit(&input, key);
-                self.findings.search = next.value().to_string();
-                self.findings.search_input = Some(next);
+                self.ws.findings.search = next.value().to_string();
+                self.ws.findings.view.search_input = Some(next);
             }
         }
-        self.findings.cursor = 0;
-        self.refresh_visible();
+        self.ws.findings.view.cursor = 0;
+        self.ws.refresh_visible();
     }
 
     /// 全域鍵位；已處理時回傳 true。
@@ -326,8 +270,8 @@ impl App {
             }
             KeyCode::Char('?') => self.help = true,
             KeyCode::Char('q') => self.request_quit(),
-            KeyCode::Char('R') => self.reload(),
-            KeyCode::Char('S') => self.start_sync(),
+            KeyCode::Char('R') => self.reload_screen(),
+            KeyCode::Char('S') => self.start_background_sync(),
             _ => return false,
         }
         true
@@ -346,7 +290,7 @@ impl App {
                 Screen::Assets => self.on_assets_key(code),
                 Screen::Pending => self.on_pending_key(code),
                 Screen::SyncLog => {
-                    self.sync_cursor = moved(self.sync_cursor, self.data.sync_runs.len(), code)
+                    self.sync_cursor = moved(self.sync_cursor, self.ws.data.sync_runs.len(), code)
                 }
                 Screen::Settings => self.on_settings_key(KeyEvent::from(code)),
             },
@@ -354,7 +298,7 @@ impl App {
     }
 
     fn on_findings_key(&mut self, code: KeyCode) {
-        let len = self.findings.visible.len();
+        let len = self.ws.findings.visible.len();
         match code {
             KeyCode::Enter => {
                 if let Some(id) = self.current_finding() {
@@ -363,13 +307,13 @@ impl App {
             }
             KeyCode::Char(' ') => self.toggle_selected(),
             KeyCode::Char('/') => {
-                self.findings.search_input =
-                    Some(Input::default().with_value(self.findings.search.clone()))
+                let search = self.ws.findings.search.clone();
+                self.ws.findings.view.search_input = Some(Input::default().with_value(search))
             }
             KeyCode::Char('f') => self.open_filter(),
             KeyCode::Char('s') => {
-                self.findings.sort = self.findings.sort.next();
-                self.refresh_visible();
+                self.ws.findings.sort = self.ws.findings.sort.next();
+                self.ws.refresh_visible();
             }
             KeyCode::Char('r') => self.start_triage(Status::Resolved),
             KeyCode::Char('i') => self.start_triage(Status::Ignored),
@@ -381,101 +325,71 @@ impl App {
             }
             KeyCode::Char('y') => {
                 if let Some(cve) = self.current_row().map(|r| r.cve_id.clone()) {
-                    self.copy(&cve);
+                    self.copy_text(&cve);
                 }
             }
             KeyCode::Char('E') => self.start_vex_export(),
             KeyCode::Esc => {
-                self.findings.selected.clear();
-                self.findings.search.clear();
-                self.refresh_visible();
+                self.ws.findings.selected.clear();
+                self.ws.findings.search.clear();
+                self.ws.refresh_visible();
             }
-            code => self.findings.cursor = moved(self.findings.cursor, len, code),
+            code => self.ws.findings.view.cursor = moved(self.ws.findings.view.cursor, len, code),
         }
-    }
-
-    pub fn current_row(&self) -> Option<&cvewatch_core::matching::query::FindingRow> {
-        self.findings
-            .visible
-            .get(self.findings.cursor)
-            .map(|i| &self.data.findings[*i])
     }
 
     fn toggle_selected(&mut self) {
         if let Some(id) = self.current_finding() {
-            if !self.findings.selected.remove(&id) {
-                self.findings.selected.insert(id);
-            }
-            let len = self.findings.visible.len();
-            self.findings.cursor = moved(self.findings.cursor, len, KeyCode::Down);
+            self.ws.findings.toggle(id);
+            let len = self.ws.findings.visible.len();
+            self.ws.findings.view.cursor = moved(self.ws.findings.view.cursor, len, KeyCode::Down);
         }
     }
 
     /// `E`：以目前篩選（含搜尋）匯出 VEX；預設存到「文件」資料夾，可在對話框修改路徑。
     fn start_vex_export(&mut self) {
-        let count = self.findings.visible.len();
-        if count == 0 {
-            self.message = Some("目前篩選沒有命中，未匯出".into());
-            return;
+        match self.ws.vex_export_default() {
+            Ok((path, count)) => {
+                self.dialog = Some(Dialog::ExportVex {
+                    input: Input::default().with_value(path.display().to_string()),
+                    count,
+                })
+            }
+            Err(r) => self.show(r),
         }
-        let stamp = self
-            .services
-            .tz
-            .format(self.services.now().fixed_offset(), "%Y%m%d-%H%M");
-        let path = unused_path(
-            &self.services.documents_dir,
-            &format!("cvewatch-vex-{stamp}"),
-        );
-        self.dialog = Some(Dialog::ExportVex {
-            input: Input::default().with_value(path.display().to_string()),
-            count,
-        });
-    }
-
-    /// 目前篩選（含搜尋）的命中 id，依畫面順序。
-    pub fn visible_ids(&self) -> Vec<i64> {
-        self.findings
-            .visible
-            .iter()
-            .map(|i| self.data.findings[*i].id)
-            .collect()
     }
 
     fn open_filter(&mut self) {
         let assets = self
+            .ws
             .data
             .assets
             .iter()
             .map(|a| a.asset.record.asset_tag.clone())
             .collect();
         self.dialog = Some(Dialog::Filter {
-            draft: self.findings.filter.clone(),
+            draft: self.ws.findings.filter.clone(),
             assets,
             cursor: 0,
         });
     }
 
-    /// 變更狀態的對象：Findings 有多選時為所選命中，否則為目前列；詳情畫面為該命中。
-    fn triage_targets(&self) -> Vec<i64> {
+    /// 變更狀態的對象：Findings 有多選時為可見的所選命中，否則為目前列；詳情畫面為該命中。
+    /// 所選命中都未顯示時回報原因。
+    fn triage_targets(&self) -> Result<Vec<i64>, Report> {
         match self.stack.last() {
-            Some(View::FindingDetail { data, .. }) => vec![data.finding.row.id],
-            Some(View::AssetDetail { .. }) => Vec::new(),
-            None if !self.findings.selected.is_empty() => self.visible_selection(),
-            None => self.current_finding().into_iter().collect(),
+            Some(View::FindingDetail { data, .. }) => Ok(vec![data.finding.row.id]),
+            Some(View::AssetDetail { .. }) => Ok(Vec::new()),
+            None => self.ws.list_targets(self.current_finding()),
         }
     }
 
     fn start_triage(&mut self, status: Status) {
-        let targets = self.triage_targets();
-        if targets.is_empty() {
-            if self.stack.is_empty() && !self.findings.selected.is_empty() {
-                self.message = Some(format!(
-                    "已選的 {} 筆命中目前都未顯示，未變更（放寬搜尋／篩選，或按 Esc 清除多選）",
-                    self.findings.selected.len()
-                ));
-            }
-            return;
-        }
+        let targets = match self.triage_targets() {
+            Ok(t) if t.is_empty() => return,
+            Ok(t) => t,
+            Err(r) => return self.show(r),
+        };
         self.dialog = Some(match status {
             Status::Ignored => Dialog::Reason { targets, cursor: 0 },
             _ => dialog::note_dialog(NotePurpose::Triage {
@@ -515,7 +429,7 @@ impl App {
             }
             KeyCode::Char('y') => {
                 if let Some(cve) = self.detail().map(|d| d.finding.row.cve_id.clone()) {
-                    self.copy(&cve);
+                    self.copy_text(&cve);
                 }
                 return;
             }
@@ -531,19 +445,19 @@ impl App {
     fn on_assets_key(&mut self, code: KeyCode) {
         match code {
             KeyCode::Enter => {
-                if let Some(a) = self.data.assets.get(self.assets_cursor) {
+                if let Some(a) = self.ws.data.assets.get(self.assets_cursor) {
                     self.stack.push(View::AssetDetail {
                         asset_tag: a.asset.record.asset_tag.clone(),
                         cursor: 0,
                     });
                 }
             }
-            code => self.assets_cursor = moved(self.assets_cursor, self.data.assets.len(), code),
+            code => self.assets_cursor = moved(self.assets_cursor, self.ws.data.assets.len(), code),
         }
     }
 
     fn on_asset_detail_key(&mut self, asset_tag: String, cursor: usize, code: KeyCode) {
-        let findings = self.data.asset_findings(&asset_tag);
+        let findings = self.ws.data.asset_findings(&asset_tag);
         match code {
             KeyCode::Esc | KeyCode::Char('h') => {
                 self.stack.pop();
@@ -564,6 +478,7 @@ impl App {
 
     fn on_pending_key(&mut self, code: KeyCode) {
         let cve = self
+            .ws
             .data
             .pending
             .get(self.pending_cursor)
@@ -573,75 +488,55 @@ impl App {
             (KeyCode::Char('d'), Some(cve)) => {
                 self.dialog = Some(dialog::note_dialog(NotePurpose::Pending {
                     cve,
-                    action: cvewatch_core::matching::pending_ops::Action::Dismiss,
+                    action: Action::Dismiss,
                 }))
             }
             (KeyCode::Char('o'), Some(cve)) => self.open_links_for(&cve),
-            (KeyCode::Char('y'), Some(cve)) => self.copy(&cve),
+            (KeyCode::Char('y'), Some(cve)) => self.copy_text(&cve),
             (code, _) => {
-                self.pending_cursor = moved(self.pending_cursor, self.data.pending.len(), code)
+                self.pending_cursor = moved(self.pending_cursor, self.ws.data.pending.len(), code)
             }
         }
     }
 
-    /// 套用目標：有產品元件的使用中資產（等待區只含產品，套件由 OSV 判定）；
-    /// 有多個產品元件時另列 `<資產>:<產品>`。
+    /// 套用目標由 `Workspace::pending_targets` 決定（有產品元件的使用中資產）。
     fn start_pending_apply(&mut self, cve: String) {
-        let options: Vec<String> = self
-            .data
-            .assets
-            .iter()
-            .flat_map(|a| {
-                let tag = a.asset.record.asset_tag.clone();
-                let products: Vec<String> = a
-                    .components
-                    .iter()
-                    .filter_map(|c| match &c.kind {
-                        cvewatch_core::assets::ComponentKind::Product { product_key, .. } => {
-                            Some(format!("{tag}:{product_key}"))
-                        }
-                        _ => None,
-                    })
-                    .collect();
-                let head = (!products.is_empty()).then_some(tag);
-                let extra = if products.len() > 1 {
-                    products
-                } else {
-                    Vec::new()
-                };
-                head.into_iter().chain(extra)
-            })
-            .collect();
-        if options.is_empty() {
-            self.message = Some("沒有含產品元件的使用中資產可套用".into());
-            return;
+        match self.ws.pending_targets() {
+            Ok(options) => {
+                self.dialog = Some(Dialog::PendingTarget {
+                    cve,
+                    options,
+                    cursor: 0,
+                })
+            }
+            Err(r) => self.show(r),
         }
-        self.dialog = Some(Dialog::PendingTarget {
-            cve,
-            options,
-            cursor: 0,
-        });
     }
 
     /// 背景 sync 結束檢查與新資料偵測（每 5 秒）。畫面需要重繪時回傳 true。
     pub fn on_tick(&mut self, now: Instant) -> bool {
-        let before = (self.sync.is_some(), self.new_data, self.message.clone());
+        let before = self.background_state();
         let jobs_done = self.poll_settings_jobs();
-        self.poll_sync();
-        let due = self
-            .last_poll
-            .is_none_or(|t| now.duration_since(t) >= NEW_DATA_POLL);
-        if due {
-            self.last_poll = Some(now);
-            self.check_new_data();
+        if let Some(r) = self.ws.tick(now) {
+            self.show(r);
         }
-        jobs_done || before != (self.sync.is_some(), self.new_data, self.message.clone())
+        jobs_done || before != self.background_state()
+    }
+
+    /// 背景狀態中會反映在畫面上的部分（改變即需重繪）。
+    fn background_state(&self) -> (bool, bool, Option<String>) {
+        (
+            self.ws.sync.is_some(),
+            self.ws.new_data,
+            self.message.clone(),
+        )
     }
 
     /// 進入設定畫面：沒有未儲存的變更時重新讀取欄位與秘密狀態（Redmine 清單保留）。
     fn enter_settings(&mut self) {
         if !self.page.dirty() {
-            let (form, error) = Form::load_checked(&self.config, self.services.secrets.as_ref());
+            let (form, error) =
+                Form::load_checked(&self.ws.config, self.ws.services.secrets.as_ref());
             self.page.original = form.clone();
             self.page.form = form;
             if let Some(e) = error {
@@ -649,5 +544,30 @@ impl App {
                 self.message = Some(e);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cvewatch_frontend::FindingsModel;
+
+    /// 既有測試的 `app.findings.cursor` 等路徑經 `FindingsModel` 的 `Deref` 指向 `FindingsState`。
+    /// 兩邊新增欄位時這裡無法編譯（完整解構），提醒確認沒有同名欄位：同名時 `Deref` 的路徑會
+    /// 靜默改指向模型的欄位。
+    #[test]
+    fn findings_model_fields_do_not_shadow_view_state() {
+        let FindingsModel {
+            filter: _,
+            search: _,
+            sort: _,
+            selected: _,
+            visible: _,
+            view,
+        } = FindingsModel::<FindingsState>::default();
+        let FindingsState {
+            search_input: _,
+            cursor: _,
+        } = view;
     }
 }

@@ -119,8 +119,8 @@ fn rematch_after_reload_is_detected() {
     assert!(!app.new_data);
     // 之後 sync 結尾的自動比對才完成（不寫 sync_run）
     run_match(
-        &mut app.conn,
-        &app.settings.catalog,
+        &mut app.ws.conn,
+        &app.ws.settings.catalog,
         &MatchSettings::default(),
         at("2026-11-07T01:01:00+00:00"),
     )

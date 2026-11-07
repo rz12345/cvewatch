@@ -75,7 +75,7 @@ pub fn cells(app: &App, r: &FindingRow, selected: bool) -> Vec<String> {
 pub fn list(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let [summary, body] =
         Layout::vertical([Constraint::Length(1), Constraint::Fill(1)]).areas(area);
-    let f = &app.findings;
+    let f = &app.ws.findings;
     // 畫面窄時從右側截斷：筆數、多選、搜尋放前面，篩選條件最後
     let mut parts = vec![format!("{} 筆", f.visible.len())];
     if !f.selected.is_empty() {
@@ -105,7 +105,7 @@ pub fn list(frame: &mut Frame<'_>, area: Rect, app: &App) {
         headers: &HEADERS,
         cols: &COLUMNS,
     };
-    let scroll = Scroll::new(f.visible.len(), f.cursor, &app.offsets.findings);
+    let scroll = Scroll::new(f.visible.len(), f.view.cursor, &app.offsets.findings);
     scrolling_table(frame, body, app, &spec, &scroll, |i| {
         let r = &app.data.findings[f.visible[i]];
         (cells(app, r, f.selected.contains(&r.id)), Style::new())

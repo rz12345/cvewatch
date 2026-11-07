@@ -1,0 +1,30 @@
+[package]
+name = "cvewatch-frontend"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+# 測試替身（瀏覽器、剪貼簿、sync 子程序、通知後端、背景工作、時鐘）；只在 dev-dependencies 啟用
+test-support = ["dep:tempfile"]
+
+[dependencies]
+arboard = { version = "3.7.0", default-features = false }
+chrono = "0.4.45"
+cvewatch-core = { version = "0.1.0", path = "../core" }
+open = "5.4.5"
+rusqlite = "0.41.1"
+tempfile = { version = "3.27.0", optional = true }
+toml_edit = "0.25.19"
+tracing = "0.1.44"
+zeroize = "1.9.1"
+
+# tempfile、wiremock、zip、jsonschema 由 tests 引入的 core 測試建構器（crates/core/tests/common）使用
+[dev-dependencies]
+cvewatch-frontend = { path = ".", features = ["test-support"] }
+insta = "1.49.0"
+jsonschema = { version = "0.60.2", default-features = false }
+serde_json = "1.0.154"
+tempfile = "3.27.0"
+wiremock = "0.6.5"
+zip = { version = "9.4.1", default-features = false, features = ["deflate"] }

@@ -73,11 +73,6 @@ pub fn current_user() -> Result<String, CoreError> {
     })
 }
 
-/// 絕對路徑（相對路徑以目前工作目錄為準）。
-pub fn absolute(path: &Path) -> Result<PathBuf, CoreError> {
-    std::path::absolute(path).map_err(|e| CoreError::io(path, e))
-}
-
 /// 與 `cvewatch.exe` 同目錄的無視窗包裝程式。
 pub fn wrapper_path(exe: &Path) -> Result<PathBuf, CoreError> {
     let dir = exe
