@@ -79,6 +79,10 @@ cargo clippy --all-targets -- -D warnings
 cargo test                                     # 不呼叫外部 API、不存取真實 Credential Manager
 ```
 
+開發時測試視窗版：`scripts\dev-gui.bat` 會建置 `cvewatch` 與 `cvewatch-gui`，在 `.dev\`（已 gitignore）建立獨立的設定檔與資料目錄、
+首次匯入 `tests\fixtures\inventory_basic.xlsx`，再以 `--config .dev\cvewatch.toml` 開啟視窗；`reset` 重建測試環境、`release` 改用 release 建置、`noseed` 不匯入範例清冊。
+資料庫金鑰在 Credential Manager 與正式環境共用（只沿用、不覆蓋）。
+
 在 Claude Code 中，一次做一個 change：
 
 ```
