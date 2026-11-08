@@ -4,10 +4,10 @@
 
 ## 1. crate 骨架、啟動與字型
 
-- [ ] 1.1 新增 `crates/gui`（套件名 `cvewatch-gui`，lib + `src/bin/cvewatch-gui.rs`，`#![cfg_attr(windows, windows_subsystem = "windows")]`），相依 `eframe` 0.37（關閉預設功能，啟用 `accesskit`、`default_fonts`、`wgpu`、`glow`）、`egui_extras` 0.37、`rfd` 0.17.x；dev-dependency `egui_kittest` 0.37。完成條件：`cargo build --release` 產生 `target\release\cvewatch-gui.exe`，雙擊開啟空白視窗且沒有主控台視窗
+- [x] 1.1 新增 `crates/gui`（套件名 `cvewatch-gui`，lib + `src/bin/cvewatch-gui.rs`，`#![cfg_attr(windows, windows_subsystem = "windows")]`），相依 `eframe` 0.37（關閉預設功能，啟用 `accesskit`、`default_fonts`、`wgpu`、`glow`）、`egui_extras` 0.37、`rfd` 0.17.x；dev-dependency `egui_kittest` 0.37。完成條件：`cargo build --release` 產生 `target\release\cvewatch-gui.exe`，雙擊開啟空白視窗且沒有主控台視窗
 - [x] 1.2 `startup.rs`：解析 `--config`，呼叫 `core::runtime::start(location, "gui")` 與 `frontend::context::build`；失敗時顯示錯誤畫面（design D7），`Runtime.warnings` 在主畫面頂端顯示黃色訊息列。完成條件：kittest 以「資料庫不存在」與「金鑰遺失」兩種 `CoreError` 建立錯誤畫面，斷言畫面含 `cvewatch init`／`cvewatch db import-key`；以含未知欄位的設定斷言警告文字
 - [ ] 1.3 繪製後端 wgpu → glow → `rfd::MessageDialog` 的退回流程（design D6）。完成條件：以環境變數 `WGPU_BACKEND=invalid` 手動啟動時改用 glow 開啟視窗；在遠端桌面工作階段手動開啟一次並記錄結果於 design.md
-- [ ] 1.4 `fonts.rs`：依序嘗試 `msjh.ttc`、`msjhl.ttc`、`mingliu.ttc` 並加入字族後備；找不到時回傳警告。完成條件：單元測試以暫存資料夾驗證「第一個存在的檔案被採用」與「全部不存在時回傳警告且不 panic」；手動確認視窗中「資訊所機房核心防火牆主機」正常顯示
+- [x] 1.4 `fonts.rs`：依序嘗試 `msjh.ttc`、`msjhl.ttc`、`mingliu.ttc` 並加入字族後備；找不到時回傳警告。完成條件：單元測試以暫存資料夾驗證「第一個存在的檔案被採用」與「全部不存在時回傳警告且不 panic」；手動確認視窗中「資訊所機房核心防火牆主機」正常顯示
 - [x] 1.5 `companion.rs`：計算同資料夾 `cvewatch.exe` 並傳入 `ContextOptions`；提供隱藏視窗執行子程序並擷取 stdout／stderr 與結束碼的 trait 與實作。完成條件：單元測試以暫存資料夾驗證「存在 → Some(path)、不存在 → None」；fake companion 可記錄參數
 
 ## 2. 外框與 Dashboard

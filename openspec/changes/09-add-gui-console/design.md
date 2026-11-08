@@ -166,20 +166,29 @@ GUI 測試以 `egui_kittest::Harness` 在無視窗環境中執行 `GuiApp`，以
   - 繪製後端退回（D6）：執行環境（日誌寫入器）由 `main` 保留到程式結束；第二個後端需要重建視窗內容時沿用同一個執行環境（`startup::rebuild`），不重新啟動日誌。
 - **測試步長**：kittest 每步預設 0.25 秒，超過 egui 按兩下的 0.3 秒門檻，GUI 測試的 Harness 改為每步 0.05 秒。
 
-## 手動驗證（待使用者執行）
+## 手動驗證
 
-自動化流程中嘗試以臨時設定檔（不存取使用者資料）啟動 release 版 `cvewatch-gui.exe`、擷取畫面與設定 `WGPU_BACKEND=invalid`，皆被 Claude Code 的權限檢查拒絕，因此以下需要人工操作的完成條件尚未驗證，對應任務維持未勾選：
+### 已自動驗證（2026-11-08）
+
+以暫存資料夾中的獨立設定檔啟動（資料庫不存在 → 錯誤畫面；不建立資料庫、不存取憑證庫與使用者資料），讀取該設定檔的日誌並以 DPI-aware 的 `PrintWindow` 擷取視窗：
+
+| 任務 | 結果 |
+|---|---|
+| 1.1 | `cargo build --release` 產生 `target\release\cvewatch-gui.exe`；啟動後開啟標題為 cvewatch 的視窗（日誌「繪製後端 renderer=Wgpu」「視窗已建立」）。PE 標頭的 subsystem 為 2（Windows GUI；`cvewatch.exe` 為 3），雙擊不會開主控台視窗 → 勾選 |
+| 1.3（前半） | `WGPU_BACKEND=invalid` 啟動：日誌依序為 wgpu「Failed to create surface for any enabled backend」、「無法以此繪製後端開啟視窗 renderer=Wgpu」、「繪製後端 renderer=Glow」，視窗以 glow 正常顯示錯誤畫面 |
+| 1.4 | 日誌「載入中文字型 path=C:\WINDOWS\Fonts\msjh.ttc」；設定檔路徑含「資訊所機房核心防火牆主機」時錯誤畫面正確顯示這串字，長路徑訊息在 125% 縮放下正確換行 → 勾選 |
+
+（第一次擷取時截圖程式不是 DPI-aware，只截到視窗左上部分，看起來像長路徑沒有換行；以 kittest 載入實際字型與 DPI-aware 重新擷取確認是截圖問題，不是程式問題。）
+
+### 仍待使用者執行
+
+以下需要人工操作或實際環境，無法由自動化流程完成，對應任務維持未勾選；驗證結果請補記於本節後再封存：
 
 | 任務 | 待確認項目 |
 |---|---|
-| 1.1 | 雙擊 `target
-elease\cvewatch-gui.exe` 開啟視窗，沒有主控台視窗（`windows_subsystem = "windows"` 已設定；`cargo build --release` 已確認產生執行檔） |
-| 1.3 | `$env:WGPU_BACKEND='invalid'` 後啟動，日誌（`<data_dir>\logs`）出現「繪製後端 renderer=Glow」；在遠端桌面工作階段開啟一次並記錄結果 |
-| 1.4 | 視窗中「資訊所機房核心防火牆主機」正常顯示（字型挑選的單元測試已通過） |
-| 6.3 | 以 `cvewatch asset template` 產生並填好的清冊拖進視窗：預覽、匯入、自動比對與重新載入正常，沒有主控台視窗閃現（流程已以 fake companion 的 kittest 驗證） |
+| 1.3（後半） | 在遠端桌面工作階段開啟一次視窗並記錄使用的繪製後端（日誌「繪製後端 renderer=…」） |
+| 6.3 | 以 `cvewatch asset template` 產生並填好的清冊拖進 release 版視窗：預覽、匯入、自動比對與重新載入正常，沒有主控台視窗閃現（流程已以 fake companion 的 kittest 驗證；可用 `scripts\dev-gui.bat release`） |
 | 7.1 | 以注音輸入法在搜尋框、備註、收件者欄位輸入中文，確認組字與候選字可用 |
-
-驗證結果請補記於本節後再封存。
 
 ## Open Questions
 
