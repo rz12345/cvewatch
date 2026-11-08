@@ -60,7 +60,7 @@
 ## 9. 整合驗證
 
 - [x] 9.1 全專案檢查：`cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 全部通過；`openspec validate 10-add-gui-asset-editing --strict` 通過。完成條件：四個指令皆成功
-- [ ] 9.2 手動整合測試：以 `cargo build --release` 的實際執行檔，在視窗中下載範本 → 填好匯入 → 新增一個資產、修改一個版本、刪除並恢復一個資產 → 匯出清冊 → 將匯出檔拖回視窗，確認預覽為「新增 0、更新 0」；永久刪除一個已退役資產後命中畫面不再列出其命中。完成條件：結果記錄於 design.md 的「手動驗證」章節
+- [x] 9.2 手動整合測試：以 `cargo build --release` 的實際執行檔，在視窗中下載範本 → 填好匯入 → 新增一個資產、修改一個版本、刪除並恢復一個資產 → 匯出清冊 → 將匯出檔拖回視窗，確認預覽為「新增 0、更新 0」；永久刪除一個已退役資產後命中畫面不再列出其命中。完成條件：結果記錄於 design.md 的「手動驗證」章節
 
 ## Workflow follow-up
 
