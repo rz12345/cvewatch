@@ -8,7 +8,7 @@ use chrono::Utc;
 use cvewatch_core::assets::packages::import::import_packages;
 use cvewatch_core::assets::packages::{detect, parse_packages, Distro, PackageFormat};
 use cvewatch_core::assets::{
-    AssetRecord, AssetRepo, Category, ComponentKind, ComponentRepo, Exposure,
+    AssetRecord, AssetRepo, Cia, ClassCode, ComponentKind, ComponentRepo, Exposure,
 };
 use cvewatch_core::db::open_working_db;
 use rusqlite::Connection;
@@ -30,11 +30,12 @@ fn add_asset(conn: &Connection, tag: &str) -> i64 {
             &AssetRecord {
                 asset_tag: tag.into(),
                 name: tag.into(),
-                category: Category::Host,
+                category: ClassCode::parse("HW01").unwrap(),
                 location: None,
                 owner: None,
                 exposure: Exposure::Internal,
-                criticality: 2,
+                cia: Cia::new(2, 3, 4),
+                isms_id: None,
                 notes: None,
             },
             Utc::now(),

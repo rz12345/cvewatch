@@ -4,8 +4,8 @@ mod common;
 
 use chrono::{Duration, Utc};
 use cvewatch_core::assets::{
-    AssetRecord, AssetRepo, AssetStatus, Category, ComponentKind, ComponentRepo, ComponentSource,
-    Exposure, PackageUpsert, UpsertOutcome,
+    AssetRecord, AssetRepo, AssetStatus, Cia, ClassCode, ComponentKind, ComponentRepo,
+    ComponentSource, Exposure, PackageUpsert, UpsertOutcome,
 };
 use cvewatch_core::db::migrate::{current_version, latest_version};
 use cvewatch_core::db::open_working_db;
@@ -25,11 +25,12 @@ fn record(tag: &str) -> AssetRecord {
     AssetRecord {
         asset_tag: tag.to_string(),
         name: format!("{tag}-host"),
-        category: Category::Storage,
+        category: ClassCode::parse("HW05").unwrap(),
         location: None,
         owner: None,
         exposure: Exposure::Internal,
-        criticality: 2,
+        cia: Cia::new(2, 3, 4),
+        isms_id: None,
         notes: None,
     }
 }

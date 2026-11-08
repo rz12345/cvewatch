@@ -16,6 +16,7 @@ use cvewatch_core::assets::columns::ColumnMap;
 use cvewatch_core::assets::import::{import_inventory, ImportOptions};
 use cvewatch_core::assets::sheet::read_inventory;
 use cvewatch_core::assets::validate::parse_inventory;
+use cvewatch_core::assets::AssetClasses;
 use cvewatch_core::catalog::store::sync_catalog;
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::ingest::csaf::fetch::Document;
@@ -65,7 +66,8 @@ fn import_with(
 ) {
     let components = components.map(fixture);
     let book = read_inventory(&fixture(inventory), components.as_deref()).expect("讀取清冊");
-    let parsed = parse_inventory(&book, &ColumnMap::default()).expect("驗證清冊");
+    let parsed =
+        parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).expect("驗證清冊");
     let plan =
         import_inventory(conn, catalog, &parsed, ImportOptions::default(), now).expect("匯入");
     assert!(

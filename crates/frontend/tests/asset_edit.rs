@@ -20,6 +20,7 @@ fn open(w: World) -> (Workspace, Recorder) {
         conn: w.conn,
         settings: Settings {
             catalog: w.catalog,
+            classes: w.classes,
             scoring: w.settings.scoring.clone(),
             stale_days: w.settings.stale_days,
         },
@@ -122,7 +123,7 @@ fn asset_first_step_failure_is_unchanged() {
     let mut form = AssetForm::new();
     form.asset_tag = "NAS-02".into();
     form.name = "nas02".into();
-    form.category = "storage".into();
+    form.category = "HW05".into();
     form.add_product("synology-dsm");
     form.components[0].version = "7.2.2-72806".into();
     let r = ws.save_asset_form(&form, &[]);
@@ -136,7 +137,7 @@ fn asset_local_validation_blocks_writes() {
     let (mut ws, _rec) = open(assets_world());
     let mut form = AssetForm::new();
     form.name = "x".into();
-    form.category = "security".into();
+    form.category = "HW03".into();
     let r = ws.save_asset_form(&form, &[]);
     assert_eq!(r.report.level, Level::Error);
     assert!(!r.needs_match);
@@ -152,7 +153,7 @@ fn asset_new_form_creates_asset_with_warning_for_unreadable_version() {
     let mut form = AssetForm::new();
     form.asset_tag = "ESX-01".into();
     form.name = "esx01".into();
-    form.category = "virtualization".into();
+    form.category = "HW01".into();
     form.add_product("vmware-esxi");
     form.components[0].version = "8.0 latest".into();
     let r = ws.save_asset_form(&form, &[]);
@@ -200,7 +201,10 @@ fn asset_list_includes_retired_only_when_asked() {
     let (ws, _rec) = open(assets_world());
     let tags = |include_retired: bool| -> Vec<String> {
         ws.data
-            .asset_list(&AssetListFilter { include_retired })
+            .asset_list(&AssetListFilter {
+                include_retired,
+                class: None,
+            })
             .iter()
             .map(|a| a.asset.record.asset_tag.clone())
             .collect()
@@ -209,6 +213,95 @@ fn asset_list_includes_retired_only_when_asked() {
     assert_eq!(tags(true), vec!["FW-01", "NAS-02"]);
     assert!(ws.data.asset("NAS-02").is_none(), "使用中清單不含已退役");
     assert!(ws.data.any_asset("NAS-02").is_some());
+}
+
+#[test]
+fn asset_list_filters_by_class_or_major_class() {
+    use cvewatch_core::assets::ClassFilter;
+    let w = assets_world();
+    w.conn
+        .execute(
+            "UPDATE asset SET category = 'SW02' WHERE asset_tag = 'FW-01'",
+            [],
+        )
+        .unwrap();
+    w.asset("NAS-01", "internal", &[("synology-dsm", "7.2.1-69057")]);
+    w.conn
+        .execute(
+            "UPDATE asset SET category = 'HW05' WHERE asset_tag = 'NAS-01'",
+            [],
+        )
+        .unwrap();
+    let (ws, _rec) = open(w);
+    let tags = |class: &str| -> Vec<String> {
+        ws.data
+            .asset_list(&AssetListFilter {
+                include_retired: false,
+                class: ClassFilter::parse(class),
+            })
+            .iter()
+            .map(|a| a.asset.record.asset_tag.clone())
+            .collect()
+    };
+    assert_eq!(tags("SW"), vec!["FW-01"]);
+    assert_eq!(tags("hw"), vec!["NAS-01"]);
+    assert_eq!(tags("HW05"), vec!["NAS-01"]);
+    assert!(tags("HW01").is_empty());
+}
+
+/// Scenario: Changing class keeps ratings — PVE-01 為 HW01、C/I/A 3/3/4，改為 HW05 後 C/I/A 不變。
+#[test]
+fn changing_class_keeps_ratings() {
+    let w = world();
+    w.asset("PVE-01", "internal", &[("proxmox-ve", "8.2.4")]);
+    w.conn
+        .execute(
+            "UPDATE asset SET category = 'HW01', confidentiality = 3, integrity = 3,
+                              availability = 4
+             WHERE asset_tag = 'PVE-01'",
+            [],
+        )
+        .unwrap();
+    let (mut ws, _rec) = open(w);
+    let mut form = edit_form(&ws, "PVE-01");
+    assert_eq!(
+        (
+            form.confidentiality.as_str(),
+            form.integrity.as_str(),
+            form.availability.as_str()
+        ),
+        ("3", "3", "4"),
+        "編輯表單帶入已設定的值"
+    );
+    form.category = "HW05".into();
+    let r = ws.save_asset_form(&form, &[]);
+    assert_eq!(r.report.level, Level::Info, "{}", r.report.message);
+    let record = &ws.data.asset("PVE-01").unwrap().asset.record;
+    assert_eq!(record.category.as_str(), "HW05");
+    assert_eq!(record.cia, cvewatch_core::assets::Cia::new(3, 3, 4));
+}
+
+/// ISMS 編號已被已退役資產使用時，錯誤標在「ISMS 編號」欄位（寫入前的本地檢查）。
+#[test]
+fn isms_id_used_by_a_retired_asset_is_reported_on_its_field() {
+    use cvewatch_core::assets::columns::StandardField;
+    let w = assets_world();
+    w.conn
+        .execute(
+            "UPDATE asset SET isms_id = 'ALL-HW-005' WHERE asset_tag = 'NAS-02'",
+            [],
+        )
+        .unwrap();
+    let (ws, _rec) = open(w);
+    let mut form = edit_form(&ws, "FW-01");
+    form.isms_id = "all-hw-005".into();
+    let e = ws.validate_asset_form(&form).unwrap_err();
+    assert_eq!(
+        e.field(StandardField::IsmsId),
+        Some("已被使用（已退役的 NAS-02）")
+    );
+    form.isms_id = "ALL-HW-006".into();
+    assert!(ws.validate_asset_form(&form).is_ok());
 }
 
 #[test]

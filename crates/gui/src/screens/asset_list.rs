@@ -57,6 +57,7 @@ impl GuiApp {
     pub(super) fn asset_list(&self, ui: &mut egui::Ui) -> Option<String> {
         let filter = AssetListFilter {
             include_retired: self.assets_show_retired,
+            class: None,
         };
         let mut picked = None;
         egui::Panel::left("asset-list")

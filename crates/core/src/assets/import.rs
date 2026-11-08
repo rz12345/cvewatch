@@ -35,6 +35,7 @@ pub fn import_inventory(
         tx.rollback()?;
         return Ok(plan);
     }
+    release_changed_isms_ids(&tx, &plan, &snapshot)?;
     for planned in &plan.assets {
         apply_asset(
             &tx,
@@ -66,6 +67,25 @@ pub fn import_inventory(
         "清冊匯入完成"
     );
     Ok(plan)
+}
+
+/// 先清除這次會變更的 ISMS 編號：兩個資產互換編號時，逐筆寫入不會暫時違反唯一索引
+/// （重複已在 [`plan_import`] 檢查）。
+fn release_changed_isms_ids(
+    conn: &Connection,
+    plan: &ImportPlan,
+    snapshot: &Snapshot,
+) -> Result<(), CoreError> {
+    let assets = AssetRepo::new(conn);
+    for planned in &plan.assets {
+        if let Some(current) = snapshot.get(&planned.record.asset_tag) {
+            if current.record.isms_id.is_some() && current.record.isms_id != planned.record.isms_id
+            {
+                assets.clear_isms_id(current.id)?;
+            }
+        }
+    }
+    Ok(())
 }
 
 /// 所有資產（含 retired）與其 Excel 來源的產品元件。

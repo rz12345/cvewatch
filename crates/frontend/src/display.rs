@@ -1,10 +1,10 @@
 //! 顯示用文字（TUI 與 GUI 共用）：時間格式、等待區天數、命中詳情的段落，以及資產畫面的
-//! 使用者用語（產品顯示名稱、類別與曝露度的中文名稱，design 11 D1）。
+//! 使用者用語（產品顯示名稱、子類別「代碼 名稱」、C/I/A 與曝露度的中文名稱，design 11 D1、13 D8）。
 //!
 //! 只產生純文字；粗體、標題樣式與控制字元處理由各前端決定。
 
 use chrono::{DateTime, Utc};
-use cvewatch_core::assets::{AssetRecord, Category, Component, Exposure};
+use cvewatch_core::assets::{AssetClasses, AssetRecord, Cia, ClassCode, Component, Exposure};
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::matching::evidence::{Source, Verdict};
 use cvewatch_core::matching::findings::MANUAL;
@@ -61,18 +61,6 @@ pub fn shown_name(record: &AssetRecord) -> Option<&str> {
     (name != record.asset_tag.trim()).then_some(name)
 }
 
-/// 類別的中文名稱。
-fn category_zh(c: Category) -> &'static str {
-    match c {
-        Category::Network => "網路設備",
-        Category::Security => "資安設備",
-        Category::Virtualization => "虛擬化",
-        Category::Server => "伺服器",
-        Category::Storage => "儲存設備",
-        Category::Host => "主機",
-    }
-}
-
 /// 曝露度的中文名稱。
 fn exposure_zh(e: Exposure) -> &'static str {
     match e {
@@ -83,9 +71,21 @@ fn exposure_zh(e: Exposure) -> &'static str {
     }
 }
 
-/// 「英文值（中文）」，例如「server（伺服器）」；儲存與匯出仍使用英文值。
-pub fn category_label(c: Category) -> String {
-    format!("{}（{}）", c.as_str(), category_zh(c))
+/// 子類別「代碼 名稱」，例如「HW01 伺服器」；設定檔已不再定義的代碼為「HW12（未定義）」。
+/// 儲存與匯出仍使用代碼。
+pub fn class_label(code: &ClassCode, classes: &AssetClasses) -> String {
+    classes.label(code)
+}
+
+/// 「C2 / I3 / A4（價值 4）」。
+pub fn rating_summary(cia: &Cia) -> String {
+    format!(
+        "C{} / I{} / A{}（價值 {}）",
+        cia.confidentiality,
+        cia.integrity,
+        cia.availability,
+        cia.value()
+    )
 }
 
 /// 「英文值（中文）」，例如「internal（內部網路）」。
@@ -160,8 +160,8 @@ fn summary(data: &DetailData, tz: DisplayTz, marks: Marks) -> Section {
             r.confidence.as_str()
         ),
         format!(
-            "資產 {}（{}，重要性 {}）  元件 {} {}",
-            r.asset_tag, r.asset_name, r.criticality, r.component, r.version
+            "資產 {}（{}，資產價值 {}）  元件 {} {}",
+            r.asset_tag, r.asset_name, r.asset_value, r.component, r.version
         ),
         format!(
             "首次發現 {}  最近比對 {}",
@@ -359,11 +359,12 @@ mod tests {
         let mut r = AssetRecord {
             asset_tag: "PVE-01".into(),
             name: "PVE-01 ".into(),
-            category: Category::Server,
+            category: ClassCode::parse("HW01").unwrap(),
             location: None,
             owner: None,
             exposure: Exposure::Internal,
-            criticality: 2,
+            cia: Cia::new(2, 3, 4),
+            isms_id: None,
             notes: None,
         };
         assert_eq!(shown_name(&r), None);
@@ -396,12 +397,16 @@ mod tests {
     }
 
     #[test]
-    fn category_and_exposure_are_bilingual() {
-        assert_eq!(category_label(Category::Server), "server（伺服器）");
-        assert_eq!(exposure_label(Exposure::Internal), "internal（內部網路）");
-        for c in Category::ALL {
-            assert!(category_label(*c).starts_with(c.as_str()));
+    fn class_and_exposure_labels() {
+        let classes = AssetClasses::builtin();
+        let code = |s: &str| ClassCode::parse(s).unwrap();
+        assert_eq!(class_label(&code("HW01"), &classes), "HW01 伺服器");
+        assert_eq!(class_label(&code("HW12"), &classes), "HW12（未定義）");
+        for c in classes.all() {
+            assert!(class_label(&c.code, &classes).starts_with(c.code.as_str()));
         }
+        assert_eq!(rating_summary(&Cia::new(2, 3, 4)), "C2 / I3 / A4（價值 4）");
+        assert_eq!(exposure_label(Exposure::Internal), "internal（內部網路）");
         for e in Exposure::ALL {
             assert!(exposure_label(*e).starts_with(e.as_str()));
         }

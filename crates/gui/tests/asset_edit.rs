@@ -27,7 +27,7 @@ fn asset_edit_adding_an_asset_from_the_window() {
     assert!(!shows(&h, "選擇類別"), "下拉選單只有左側一個標籤");
     h.get_by_label("類別 *").click();
     h.run();
-    click_option(&mut h, "security（資安設備）");
+    click_option(&mut h, "HW03 資安設備");
     h.get_by_label("加入元件").click();
     h.run();
     click_option(&mut h, "PAN-OS（Palo Alto Networks）");
@@ -37,12 +37,12 @@ fn asset_edit_adding_an_asset_from_the_window() {
     assert_eq!(h.state().assets_selected.as_deref(), Some("FW-02"));
     let entry = h.state().ws.data.asset("FW-02").expect("清單出現 FW-02");
     assert_eq!(entry.components[0].version_raw, "11.2.3");
-    assert_eq!(entry.asset.record.criticality, 2);
     assert_eq!(
-        entry.asset.record.category.as_str(),
-        "security",
-        "儲存英文值"
+        entry.asset.record.cia,
+        cvewatch_core::assets::Cia::new(2, 3, 4),
+        "C/I/A 依類別"
     );
+    assert_eq!(entry.asset.record.category.as_str(), "HW03", "儲存代碼");
     assert!(listed(&h, "FW-02") && listed(&h, "fw02"), "清單列出 FW-02");
     assert_eq!(match_calls(&f), 1, "儲存後背景比對");
 }
@@ -192,7 +192,7 @@ fn asset_edit_cancel_clears_the_write_failure_from_the_status_bar() {
     replace_text(&mut h, "名稱 *", "重複");
     h.get_by_label("類別 *").click();
     h.run();
-    click_option(&mut h, "security（資安設備）");
+    click_option(&mut h, "HW03 資安設備");
     h.get_by_label("加入元件").click();
     h.run();
     click_option(&mut h, "PAN-OS（Palo Alto Networks）");
@@ -261,4 +261,119 @@ fn asset_edit_duplicate_rows_have_separate_version_fields() {
     assert_eq!(versions, ["", "11.2.3"]);
     click(&mut h, "儲存");
     assert!(shows(&h, "已有產品 PAN-OS，請改為修改版本"));
+}
+
+/// 新增資產並填入必填欄位與一個元件（類別由呼叫端選擇）。
+fn new_asset_with_component(h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiApp>, tag: &str) {
+    ctrl(h, egui::Key::Num3);
+    click(h, "新增資產");
+    replace_text(h, "資產編號 *", tag);
+    replace_text(h, "名稱 *", tag);
+    h.get_by_label("加入元件").click();
+    h.run();
+    click_option(h, "PAN-OS（Palo Alto Networks）");
+    replace_text(h, "PAN-OS 版本", "11.2.3");
+}
+
+/// C/I/A 下拉選單目前顯示的文字。
+fn rating_shown(h: &egui_kittest::Harness<'_, cvewatch_gui::GuiApp>, label: &str) -> String {
+    h.get_by_label(label).value().unwrap_or_default()
+}
+
+fn choose_class(h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiApp>, label: &str) {
+    h.get_by_label("類別 *").click();
+    h.run();
+    click_option(h, label);
+}
+
+/// Scenario: Template values follow the chosen class
+#[test]
+fn asset_edit_template_values_follow_the_chosen_class() {
+    let (mut h, _f) = gui(seeded_world());
+    new_asset_with_component(&mut h, "NAS-09");
+    assert_eq!(rating_shown(&h, "機密性"), "依類別（無預設）", "尚未選類別");
+    choose_class(&mut h, "HW05 儲存設備");
+    assert_eq!(
+        ["機密性", "完整性", "可用性"].map(|l| rating_shown(&h, l)),
+        ["依類別（2）", "依類別（3）", "依類別（4）"]
+    );
+    let label = h.get_by_label("資產價值").rect();
+    assert!(
+        h.query_all_by_label("4")
+            .any(|n| (n.rect().center().y - label.center().y).abs() < 8.0
+                && n.rect().left() > label.left()),
+        "即時顯示資產價值 4"
+    );
+    click(&mut h, "儲存");
+    assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
+    let record = &h
+        .state()
+        .ws
+        .data
+        .asset("NAS-09")
+        .expect("NAS-09")
+        .asset
+        .record;
+    assert_eq!(record.category.as_str(), "HW05");
+    assert_eq!(record.cia, cvewatch_core::assets::Cia::new(2, 3, 4));
+}
+
+/// Scenario: Application system needs ratings
+#[test]
+fn asset_edit_application_system_needs_ratings() {
+    use cvewatch_core::assets::columns::StandardField as F;
+    let (mut h, _f) = gui(seeded_world());
+    let before = asset_count(&h);
+    new_asset_with_component(&mut h, "APP-01");
+    choose_class(&mut h, "SW01 應用系統");
+    assert_eq!(rating_shown(&h, "可用性"), "依類別（無預設）");
+    click(&mut h, "儲存");
+    assert!(h.state().asset_dialog.is_some(), "對話框不關閉");
+    let errors = &dialog(&h).errors;
+    for field in [F::Confidentiality, F::Integrity, F::Availability] {
+        assert_eq!(errors.field(field), Some("必填"), "{field:?} {errors:?}");
+    }
+    assert_eq!(
+        h.query_all_by_label("必填").count(),
+        3,
+        "三個欄位旁顯示必填"
+    );
+    assert_eq!(asset_count(&h), before, "資料庫不變");
+    // 選擇 C/I/A 後可儲存
+    for label in ["機密性", "完整性", "可用性"] {
+        h.get_by_label(label).click();
+        h.run();
+        click_option(&mut h, "3");
+    }
+    click(&mut h, "儲存");
+    assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
+    let record = &h
+        .state()
+        .ws
+        .data
+        .asset("APP-01")
+        .expect("APP-01")
+        .asset
+        .record;
+    assert_eq!(record.cia, cvewatch_core::assets::Cia::new(3, 3, 3));
+}
+
+/// Scenario: ISMS ID with the wrong major class
+#[test]
+fn asset_edit_isms_id_with_the_wrong_major_class() {
+    use cvewatch_core::assets::columns::StandardField as F;
+    use cvewatch_frontend::asset_form::ISMS_CLASS_MISMATCH;
+    let (mut h, _f) = gui(seeded_world());
+    let before = asset_count(&h);
+    new_asset_with_component(&mut h, "FW-09");
+    choose_class(&mut h, "HW03 資安設備");
+    replace_text(&mut h, "ISMS 編號", "ALL-SW-001");
+    click(&mut h, "儲存");
+    assert!(h.state().asset_dialog.is_some(), "對話框不關閉");
+    assert_eq!(
+        dialog(&h).errors.field(F::IsmsId),
+        Some(ISMS_CLASS_MISMATCH)
+    );
+    assert!(shows(&h, ISMS_CLASS_MISMATCH), "錯誤顯示在欄位旁");
+    assert_eq!(asset_count(&h), before, "資料庫不變");
 }

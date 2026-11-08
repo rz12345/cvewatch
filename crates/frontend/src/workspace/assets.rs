@@ -12,13 +12,13 @@ use cvewatch_core::assets::export::export_inventory;
 use cvewatch_core::assets::plan::VersionWarning;
 use cvewatch_core::assets::template::write_template;
 use cvewatch_core::assets::validate::validate_record;
-use cvewatch_core::assets::AssetRecord;
+use cvewatch_core::assets::{AssetClasses, AssetRecord};
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::CoreError;
 
 use super::reload::Refreshed;
 use super::Workspace;
-use crate::asset_form::{rename_conflict, AssetForm, FormErrors, UnresolvedAction};
+use crate::asset_form::{isms_conflict, rename_conflict, AssetForm, FormErrors, UnresolvedAction};
 use crate::data::AssetEntry;
 use crate::display::product_name;
 use crate::findings::ListView;
@@ -35,8 +35,8 @@ type Step<'a> = (String, EditOp<'a>);
 
 /// 資產欄位是否與資料庫不同（以與 core 相同的驗證結果比較，忽略前後空白）。
 /// 編號另由更名步驟處理，比較時換回原編號（12 design D3）。
-fn fields_changed(form: &AssetForm, entry: &AssetEntry) -> bool {
-    match validate_record(&form.record_input()) {
+fn fields_changed(form: &AssetForm, entry: &AssetEntry, classes: &AssetClasses) -> bool {
+    match validate_record(&form.record_input(), classes) {
         Ok(record) => {
             let record = AssetRecord {
                 asset_tag: entry.asset.record.asset_tag.clone(),
@@ -114,13 +114,18 @@ fn component_steps<'a>(form: &'a AssetForm, catalog: &Catalog) -> Vec<Step<'a>> 
 }
 
 /// 編輯既有資產時，表單與資料庫目前內容的差異。
-fn edit_steps<'a>(form: &'a AssetForm, entry: &AssetEntry, catalog: &Catalog) -> Vec<Step<'a>> {
+fn edit_steps<'a>(
+    form: &'a AssetForm,
+    entry: &AssetEntry,
+    catalog: &Catalog,
+    classes: &AssetClasses,
+) -> Vec<Step<'a>> {
     let mut steps = Vec::new();
     if let Some(new_tag) = form.renamed_to() {
         let old = &entry.asset.record.asset_tag;
         steps.push((format!("更名 {old} → {new_tag}"), EditOp::Rename(new_tag)));
     }
-    if fields_changed(form, entry) {
+    if fields_changed(form, entry, classes) {
         steps.push((
             "修改資產欄位".to_string(),
             EditOp::Fields(form.record_input()),
@@ -182,12 +187,16 @@ impl<V: ListView> Workspace<V> {
     /// 寫入前的本地驗證：欄位與元件（[`AssetForm::validate`]），以及更名的新編號是否已被使用。
     pub fn validate_asset_form(&self, form: &AssetForm) -> Result<(), FormErrors> {
         let mut errors = form
-            .validate(&self.settings.catalog)
+            .validate(&self.settings.catalog, &self.settings.classes)
             .err()
             .unwrap_or_default();
         let tag_ok = errors.field(StandardField::AssetTag).is_none();
         if let Some(msg) = rename_conflict(form, &self.data).filter(|_| tag_ok) {
             errors.fields.insert(0, (StandardField::AssetTag, msg));
+        }
+        let isms_ok = errors.field(StandardField::IsmsId).is_none();
+        if let Some(msg) = isms_conflict(form, &self.data).filter(|_| isms_ok) {
+            errors.fields.push((StandardField::IsmsId, msg));
         }
         if errors.is_empty() {
             Ok(())
@@ -201,6 +210,7 @@ impl<V: ListView> Workspace<V> {
         let result = edit::create_asset(
             &mut self.conn,
             &self.settings.catalog,
+            &self.settings.classes,
             &form.record_input(),
             &new_components(form),
             self.services.now(),
@@ -216,7 +226,8 @@ impl<V: ListView> Workspace<V> {
             return Refreshed::unchanged(r, open);
         };
         let catalog = &self.settings.catalog;
-        let steps = edit_steps(form, entry, catalog);
+        let classes = &self.settings.classes;
+        let steps = edit_steps(form, entry, catalog, classes);
         if steps.is_empty() {
             return Refreshed::unchanged(Report::info(format!("{original} 沒有變更")), open);
         }
@@ -225,8 +236,14 @@ impl<V: ListView> Workspace<V> {
         let done = format!("已儲存 {shown}（{}）", labels.join("、"));
         let ops: Vec<EditOp<'_>> = steps.into_iter().map(|(_, op)| op).collect();
         let needs_match = ops.iter().any(EditOp::affects_matching);
-        let result =
-            edit::apply_edits(&mut self.conn, catalog, original, &ops, self.services.now());
+        let result = edit::apply_edits(
+            &mut self.conn,
+            catalog,
+            classes,
+            original,
+            &ops,
+            self.services.now(),
+        );
         let mut r = self.after_save(done, original, result, open);
         r.needs_match &= needs_match;
         r
@@ -334,7 +351,7 @@ impl<V> Workspace<V> {
 
     /// 寫出空白範本（不覆蓋既有檔案）。
     pub fn write_template(&self, path: &Path) -> Report {
-        match write_template(path) {
+        match write_template(path, &self.settings.classes) {
             Ok(()) => Report::info(format!("已產生範本：{}", path.display())),
             Err(e) => Report::failure("無法產生範本", &e),
         }

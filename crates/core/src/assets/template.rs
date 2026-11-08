@@ -4,8 +4,20 @@ use std::path::Path;
 
 use rust_xlsxwriter::{Format, Workbook};
 
+use super::classes::AssetClasses;
 use super::columns::{SheetKind, StandardField};
 use crate::error::CoreError;
+
+/// 子類別說明工作表（匯入時不讀）。
+pub const CLASSES_SHEET: &str = "classes";
+const CLASSES_HEADERS: [&str; 6] = [
+    "code",
+    "name",
+    "description",
+    "confidentiality",
+    "integrity",
+    "availability",
+];
 
 const HEADER_COLUMN_WIDTH: f64 = 18.0;
 
@@ -16,17 +28,20 @@ pub struct SheetData<'a> {
     pub rows: Vec<Vec<String>>,
 }
 
-/// 範本範例列。
+/// 範本範例列（欄位順序同 [`SheetKind::columns`]；C/I/A 留空表示依子類別範本值）。
 fn example_assets() -> Vec<Vec<String>> {
-    let rows: [[&str; 10]; 3] = [
+    let rows: [[&str; 13]; 3] = [
         [
             "FW-01",
             "fw01",
-            "security",
+            "HW03",
             "PAN-OS",
             "11.1.4-h7",
             "internet",
-            "3",
+            "",
+            "",
+            "",
+            "ALL-HW-001",
             "機房 A",
             "網管組",
             "",
@@ -34,11 +49,14 @@ fn example_assets() -> Vec<Vec<String>> {
         [
             "R6515-01",
             "esx01",
-            "virtualization",
+            "HW01",
             "ESXi",
             "8.0 U3c",
             "mgmt",
             "3",
+            "",
+            "",
+            "",
             "機房 A",
             "系統組",
             "",
@@ -46,11 +64,14 @@ fn example_assets() -> Vec<Vec<String>> {
         [
             "NAS-01",
             "nas01",
-            "storage",
+            "HW05",
             "Synology DSM",
             "7.2.2-72806 Update 3",
             "internal",
-            "2",
+            "",
+            "",
+            "",
+            "",
             "機房 B",
             "系統組",
             "",
@@ -59,6 +80,27 @@ fn example_assets() -> Vec<Vec<String>> {
     rows.iter()
         .map(|r| r.iter().map(|s| s.to_string()).collect())
         .collect()
+}
+
+/// `classes` 工作表：目前生效的子類別（無範本值時 C/I/A 留空）。
+pub fn class_sheet(classes: &AssetClasses) -> SheetData<'static> {
+    let rows = classes
+        .all()
+        .iter()
+        .map(|c| {
+            let ratings = c.template.map_or([const { String::new() }; 3], |t| {
+                t.to_array().map(|n| n.to_string())
+            });
+            let mut row = vec![c.code.to_string(), c.name.clone(), c.description.clone()];
+            row.extend(ratings);
+            row
+        })
+        .collect();
+    SheetData {
+        name: CLASSES_SHEET,
+        headers: CLASSES_HEADERS.iter().map(|h| h.to_string()).collect(),
+        rows,
+    }
 }
 
 fn example_components() -> Vec<Vec<String>> {
@@ -77,8 +119,9 @@ pub(crate) fn headers(kind: SheetKind) -> Vec<String> {
         .collect()
 }
 
-/// 寫出含 `assets` 與 `components` 工作表、標準欄名與範例列的範本；目的檔已存在時拒絕。
-pub fn write_template(path: &Path) -> Result<(), CoreError> {
+/// 寫出含 `assets` 與 `components` 工作表（標準欄名與範例列）及 `classes` 子類別說明的範本；
+/// 目的檔已存在時拒絕。
+pub fn write_template(path: &Path, classes: &AssetClasses) -> Result<(), CoreError> {
     write_sheets(
         path,
         &[
@@ -92,6 +135,7 @@ pub fn write_template(path: &Path) -> Result<(), CoreError> {
                 headers: headers(SheetKind::Components),
                 rows: example_components(),
             },
+            class_sheet(classes),
         ],
     )
 }

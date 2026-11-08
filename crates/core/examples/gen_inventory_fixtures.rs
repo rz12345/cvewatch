@@ -7,7 +7,21 @@ use std::path::{Path, PathBuf};
 
 use cvewatch_core::assets::template::{write_sheets, SheetData};
 
-const ASSET_HEADERS: [&str; 7] = [
+const ASSET_HEADERS: [&str; 10] = [
+    "asset_tag",
+    "name",
+    "category",
+    "product",
+    "version",
+    "exposure",
+    "confidentiality",
+    "integrity",
+    "availability",
+    "isms_id",
+];
+
+/// 13 之前的清冊：英文 category 與重要性欄（相容測試用）。
+const LEGACY_HEADERS: [&str; 7] = [
     "asset_tag",
     "name",
     "category",
@@ -38,7 +52,77 @@ fn write(name: &str, sheets: &[SheetData<'_>]) {
     println!("wrote {}", path.display());
 }
 
+/// 新格式：子類別代碼（或名稱）、C/I/A 多數留空（依子類別範本值）。
 fn base_assets() -> Vec<Vec<String>> {
+    rows(&[
+        &[
+            "FW-01",
+            "fw01",
+            "HW03",
+            "PAN-OS",
+            "11.1.4-h7",
+            "internet",
+            "",
+            "",
+            "",
+            "ALL-HW-003",
+        ],
+        &[
+            "R6515-01", "esx01", "HW01", "ESXi", "8.0 U3c", "mgmt", "3", "", "", "",
+        ],
+        &[
+            "NAS-01",
+            "nas01",
+            "儲存設備",
+            "Synology DSM",
+            "7.2.1-69057",
+            "internal",
+            "",
+            "",
+            "",
+            "",
+        ],
+        &[
+            "NAS-02",
+            "nas02",
+            "HW05",
+            "DSM",
+            "7.2.1-69057",
+            "",
+            "",
+            "",
+            "",
+            "",
+        ],
+        &[
+            "NAS-03",
+            "nas03",
+            "hw05",
+            "Synolgy DSM",
+            "7.2.2-72806",
+            "internal",
+            "",
+            "",
+            "2",
+            "",
+        ],
+        &[
+            "FW-02",
+            "fw02",
+            "HW03",
+            "Palo Alto PA-460",
+            "11.1 latest",
+            "dmz",
+            "",
+            "",
+            "",
+            "",
+        ],
+    ])
+}
+
+/// 13 之前的清冊內容（`inventory_legacy.xlsx`）。
+fn legacy_assets() -> Vec<Vec<String>> {
     rows(&[
         &[
             "FW-01",
@@ -130,6 +214,22 @@ fn main() {
         })
         .collect();
     write(
+        "inventory_legacy.xlsx",
+        &[
+            SheetData {
+                name: "assets",
+                headers: headers(&LEGACY_HEADERS),
+                rows: legacy_assets(),
+            },
+            SheetData {
+                name: "components",
+                headers: components_headers.clone(),
+                rows: base_components(),
+            },
+        ],
+    );
+
+    write(
         "inventory_v2.xlsx",
         &[
             SheetData {
@@ -157,13 +257,13 @@ fn main() {
                 "產品",
                 "版本",
                 "曝露度",
-                "重要性",
+                "機密性",
                 "放置地點",
             ]),
             rows: rows(&[&[
                 "FW-01",
                 "fw01",
-                "security",
+                "資安設備",
                 "PAN-OS",
                 "11.1.4-h7",
                 "internet",
@@ -179,7 +279,7 @@ fn main() {
         &[SheetData {
             name: "assets",
             headers: headers(&["asset_tag", "name", "category", "product"]),
-            rows: rows(&[&["FW-01", "fw01", "security", "PAN-OS"]]),
+            rows: rows(&[&["FW-01", "fw01", "HW03", "PAN-OS"]]),
         }],
     );
 
@@ -188,19 +288,22 @@ fn main() {
     let mut bad: Vec<Vec<String>> = (1..=10)
         .map(|i| {
             let tag = format!("HOST-{i:02}");
-            vec![
+            let mut row = vec![
                 tag.clone(),
                 tag,
-                "host".into(),
+                "HW01".into(),
                 "Debian".into(),
                 "12.7".into(),
                 "internal".into(),
-                "2".into(),
-            ]
+            ];
+            row.resize(ASSET_HEADERS.len(), String::new());
+            row
         })
         .collect();
     bad[3][5] = "public".into();
-    bad.push(rows(&[&["HOST-11", "host11", "host", "Debian", "", "", ""]]).remove(0));
+    let mut last = rows(&[&["HOST-11", "host11", "HW01", "Debian", ""]]).remove(0);
+    last.resize(ASSET_HEADERS.len(), String::new());
+    bad.push(last);
     write(
         "inventory_bad_rows.xlsx",
         &[SheetData {

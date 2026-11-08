@@ -4,9 +4,12 @@
 //! 讓常見錯誤在任何寫入前就被擋下；錯誤以欄位（[`StandardField`]）或元件列索引定位。
 //! core 的編修操作仍會在交易內再檢查一次。
 
+use cvewatch_core::assets::classes::{MAX_RATING, MIN_RATING};
 use cvewatch_core::assets::columns::StandardField;
-use cvewatch_core::assets::validate::{validate_record, FieldErrorKind, RecordInput};
-use cvewatch_core::assets::{MAX_CRITICALITY, MIN_CRITICALITY};
+use cvewatch_core::assets::validate::{
+    validate_record, FieldError, FieldErrorKind, RecordInput, RATING_FIELDS,
+};
+use cvewatch_core::assets::{AssetClass, AssetClasses, Cia};
 use cvewatch_core::catalog::Catalog;
 
 use crate::data::{AssetEntry, Snapshot};
@@ -85,9 +88,14 @@ pub struct AssetForm {
     pub mode: FormMode,
     pub asset_tag: String,
     pub name: String,
+    /// 子類別代碼
     pub category: String,
     pub exposure: String,
-    pub criticality: String,
+    /// C/I/A：空字串 = 依類別（範本值）
+    pub confidentiality: String,
+    pub integrity: String,
+    pub availability: String,
+    pub isms_id: String,
     pub location: String,
     pub owner: String,
     pub notes: String,
@@ -95,9 +103,8 @@ pub struct AssetForm {
     pub unresolved: Vec<UnresolvedDraft>,
 }
 
-/// 新增時的預設值（與清冊匯入相同：曝露度 internal、重要性 2）。
+/// 新增時的預設值（與清冊匯入相同：曝露度 internal、C/I/A 依類別）。
 const DEFAULT_EXPOSURE: &str = "internal";
-const DEFAULT_CRITICALITY: &str = "2";
 
 impl Default for AssetForm {
     fn default() -> Self {
@@ -114,7 +121,10 @@ impl AssetForm {
             name: String::new(),
             category: String::new(),
             exposure: DEFAULT_EXPOSURE.into(),
-            criticality: DEFAULT_CRITICALITY.into(),
+            confidentiality: String::new(),
+            integrity: String::new(),
+            availability: String::new(),
+            isms_id: String::new(),
             location: String::new(),
             owner: String::new(),
             notes: String::new(),
@@ -135,7 +145,11 @@ impl AssetForm {
             name: r.name.clone(),
             category: r.category.as_str().into(),
             exposure: r.exposure.as_str().into(),
-            criticality: r.criticality.to_string(),
+            // 既有資產帶入已設定的值：改類別不會改變 C/I/A（spec Changing class keeps ratings）
+            confidentiality: r.cia.confidentiality.to_string(),
+            integrity: r.cia.integrity.to_string(),
+            availability: r.cia.availability.to_string(),
+            isms_id: text(&r.isms_id),
             location: text(&r.location),
             owner: text(&r.owner),
             notes: text(&r.notes),
@@ -189,11 +203,68 @@ impl AssetForm {
             name: &self.name,
             category: &self.category,
             exposure: &self.exposure,
-            criticality: &self.criticality,
+            confidentiality: &self.confidentiality,
+            integrity: &self.integrity,
+            availability: &self.availability,
+            isms_id: &self.isms_id,
             location: &self.location,
             owner: &self.owner,
             notes: &self.notes,
         }
+    }
+
+    /// C/I/A 欄位的輸入（`field` 不是 C/I/A 時為空字串）。
+    pub fn rating(&self, field: StandardField) -> &str {
+        match field {
+            StandardField::Confidentiality => &self.confidentiality,
+            StandardField::Integrity => &self.integrity,
+            StandardField::Availability => &self.availability,
+            _ => "",
+        }
+    }
+
+    /// C/I/A 欄位的可寫參照（下拉選單用）；`field` 不是 C/I/A 時為 None。
+    pub fn rating_mut(&mut self, field: StandardField) -> Option<&mut String> {
+        match field {
+            StandardField::Confidentiality => Some(&mut self.confidentiality),
+            StandardField::Integrity => Some(&mut self.integrity),
+            StandardField::Availability => Some(&mut self.availability),
+            _ => None,
+        }
+    }
+
+    /// 目前選擇的子類別（只接受已定義子類別的代碼或名稱，與畫面編修相同）。
+    pub fn class<'c>(&self, classes: &'c AssetClasses) -> Option<&'c AssetClass> {
+        let resolved = classes.resolve(&self.category, false)?;
+        classes.get(&resolved.code)
+    }
+
+    /// 某個 C/I/A 欄位的實際值：有填時為填寫值，空白時為 `template` 中的值；
+    /// 不是 1–4 或沒有範本值時為 None。`template` 為目前子類別的範本值（呼叫端解析一次）。
+    pub fn effective_rating_with(&self, field: StandardField, template: Option<Cia>) -> Option<u8> {
+        let raw = self.rating(field).trim();
+        if raw.is_empty() {
+            return template?.rating(field);
+        }
+        raw.parse::<u8>()
+            .ok()
+            .filter(|n| (MIN_RATING..=MAX_RATING).contains(n))
+    }
+
+    /// 與 [`effective_rating_with`](Self::effective_rating_with) 相同，範本值取自目前的子類別。
+    pub fn effective_rating(&self, field: StandardField, classes: &AssetClasses) -> Option<u8> {
+        self.effective_rating_with(field, self.class(classes).and_then(|c| c.template))
+    }
+
+    /// 即時的資產價值 MAX(C, I, A)；任何一項沒有值時為 None（畫面顯示「—」）。
+    pub fn asset_value_with(&self, template: Option<Cia>) -> Option<u8> {
+        let [c, i, a] = RATING_FIELDS.map(|(f, _)| self.effective_rating_with(f, template));
+        Some(Cia::new(c?, i?, a?).value())
+    }
+
+    /// 與 [`asset_value_with`](Self::asset_value_with) 相同，範本值取自目前的子類別。
+    pub fn asset_value(&self, classes: &AssetClasses) -> Option<u8> {
+        self.asset_value_with(self.class(classes).and_then(|c| c.template))
     }
 
     /// 加入一個目錄產品元件列（版本待填）。
@@ -203,13 +274,10 @@ impl AssetForm {
 
     /// 本地驗證（不需資料庫）。錯誤以介面用語回報（design 11 D2）：不出現清冊的英文欄位名，
     /// 產品以目錄的顯示名稱呈現。
-    pub fn validate(&self, catalog: &Catalog) -> Result<(), FormErrors> {
+    pub fn validate(&self, catalog: &Catalog, classes: &AssetClasses) -> Result<(), FormErrors> {
         let mut errors = FormErrors::default();
-        if let Err(fields) = validate_record(&self.record_input()) {
-            errors.fields = fields
-                .into_iter()
-                .map(|e| (e.field, field_message(e.kind)))
-                .collect();
+        if let Err(fields) = validate_record(&self.record_input(), classes) {
+            errors.fields = fields.iter().map(|e| (e.field, field_message(e))).collect();
         }
         let mut seen: Vec<&str> = Vec::new();
         for (i, c) in self.components.iter().enumerate() {
@@ -260,7 +328,11 @@ pub fn field_label(field: StandardField) -> &'static str {
         StandardField::Name => "名稱",
         StandardField::Category => "類別",
         StandardField::Exposure => "曝露度",
-        StandardField::Criticality => "重要性",
+        StandardField::Confidentiality => "機密性",
+        StandardField::Integrity => "完整性",
+        StandardField::Availability => "可用性",
+        StandardField::IsmsId => "ISMS 編號",
+        StandardField::Criticality => "重要性（已停用）",
         StandardField::Location => "位置",
         StandardField::Owner => "負責人",
         StandardField::Notes => "備註",
@@ -270,13 +342,15 @@ pub fn field_label(field: StandardField) -> &'static str {
 }
 
 /// core 的欄位錯誤種類轉為介面用語（不解析 core 的訊息字串；core 與 CLI 的文字不變）。
-fn field_message(kind: FieldErrorKind) -> String {
-    match kind {
-        FieldErrorKind::Missing => REQUIRED.into(),
-        FieldErrorKind::NotAllowed => CHOOSE_FROM_LIST.into(),
-        FieldErrorKind::OutOfRange => {
-            format!("重要性只能是 {MIN_CRITICALITY}–{MAX_CRITICALITY}")
+fn field_message(e: &FieldError) -> String {
+    match (e.kind, e.field) {
+        (FieldErrorKind::Missing, _) => REQUIRED.into(),
+        (FieldErrorKind::NotAllowed, StandardField::IsmsId) => ISMS_FORMAT.into(),
+        (FieldErrorKind::NotAllowed, _) => CHOOSE_FROM_LIST.into(),
+        (FieldErrorKind::OutOfRange, field) => {
+            format!("{}只能是 {MIN_RATING}–{MAX_RATING}", field_label(field))
         }
+        (FieldErrorKind::ClassMismatch, _) => ISMS_CLASS_MISMATCH.into(),
     }
 }
 
@@ -284,6 +358,10 @@ fn field_message(kind: FieldErrorKind) -> String {
 pub const REQUIRED: &str = "必填";
 /// 下拉選單的值不在允許清單中。
 pub const CHOOSE_FROM_LIST: &str = "請從清單選擇";
+/// ISMS 編號格式不符。
+pub const ISMS_FORMAT: &str = "格式應為「系統代碼-大類-流水號」，例如 ALL-HW-001";
+/// ISMS 編號的大類與類別不符。
+pub const ISMS_CLASS_MISMATCH: &str = "大類（HW／SW）與類別不符";
 /// 元件沒有版本。
 pub const VERSION_REQUIRED: &str = "請填寫版本";
 /// 沒有任何元件。
@@ -346,25 +424,51 @@ impl FormErrors {
     }
 }
 
-/// 更名的新編號已被其他資產（含已退役、不分大小寫）使用時，「資產編號」欄位的錯誤。
-/// 以載入的資料先行檢查，讓錯誤標在欄位旁（12 code review）；core 仍在交易內再檢查一次。
-pub fn rename_conflict(form: &AssetForm, data: &Snapshot) -> Option<String> {
-    let new_tag = form.renamed_to()?;
-    let original = form.original_tag()?;
+/// 第一個符合 `conflicts` 的其他資產（先找使用中、再找已退役；排除編輯中的 `original`），
+/// 回傳欄位旁的錯誤「已被使用（FW-01）」「已被使用（已退役的 NAS-02）」。
+fn used_by(
+    data: &Snapshot,
+    original: Option<&str>,
+    conflicts: impl Fn(&cvewatch_core::assets::AssetRecord) -> bool,
+) -> Option<String> {
     let (other, retired) = data
         .assets
         .iter()
         .map(|a| (a, false))
         .chain(data.retired_assets.iter().map(|a| (a, true)))
         .find(|(a, _)| {
-            let tag = &a.asset.record.asset_tag;
-            tag != original && tag.eq_ignore_ascii_case(new_tag)
+            let r = &a.asset.record;
+            Some(r.asset_tag.as_str()) != original && conflicts(r)
         })?;
     let tag = &other.asset.record.asset_tag;
     Some(if retired {
         format!("已被使用（已退役的 {tag}）")
     } else {
         format!("已被使用（{tag}）")
+    })
+}
+
+/// 更名的新編號已被其他資產（含已退役、不分大小寫）使用時，「資產編號」欄位的錯誤。
+/// 以載入的資料先行檢查，讓錯誤標在欄位旁（12 code review）；core 仍在交易內再檢查一次。
+pub fn rename_conflict(form: &AssetForm, data: &Snapshot) -> Option<String> {
+    let new_tag = form.renamed_to()?;
+    let original = form.original_tag()?;
+    used_by(data, Some(original), |r| {
+        r.asset_tag.eq_ignore_ascii_case(new_tag)
+    })
+}
+
+/// ISMS 編號已被其他資產（含已退役、不分大小寫）使用時，「ISMS 編號」欄位的錯誤。
+/// 與 [`rename_conflict`] 相同以載入的資料先行檢查；core 仍在交易內再檢查一次。
+pub fn isms_conflict(form: &AssetForm, data: &Snapshot) -> Option<String> {
+    let id = form.isms_id.trim();
+    if id.is_empty() {
+        return None;
+    }
+    used_by(data, form.original_tag(), |r| {
+        r.isms_id
+            .as_deref()
+            .is_some_and(|x| x.eq_ignore_ascii_case(id))
     })
 }
 
@@ -418,14 +522,14 @@ mod tests {
     }
 
     fn check(f: &AssetForm) -> Result<(), FormErrors> {
-        f.validate(&catalog())
+        f.validate(&catalog(), &AssetClasses::builtin())
     }
 
     fn filled() -> AssetForm {
         let mut f = AssetForm::new();
         f.asset_tag = "FW-02".into();
         f.name = "fw02".into();
-        f.category = "security".into();
+        f.category = "HW03".into();
         f.add_product("paloalto-panos");
         f.components[0].version = "11.2.3".into();
         f
@@ -450,7 +554,8 @@ mod tests {
         let mut f = AssetForm::new();
         f.category = "router".into();
         f.exposure = "public".into();
-        f.criticality = "5".into();
+        f.availability = "5".into();
+        f.isms_id = "ALLHW001".into();
         f.add_product("paloalto-panos");
         f.add_product("paloalto-panos");
         let e = check(&f).unwrap_err();
@@ -459,7 +564,8 @@ mod tests {
         assert_eq!(e.field(F::Name), Some(REQUIRED));
         assert_eq!(e.field(F::Category), Some(CHOOSE_FROM_LIST));
         assert_eq!(e.field(F::Exposure), Some(CHOOSE_FROM_LIST));
-        assert_eq!(e.field(F::Criticality), Some("重要性只能是 1–3"));
+        assert_eq!(e.field(F::Availability), Some("可用性只能是 1–4"));
+        assert_eq!(e.field(F::IsmsId), Some(ISMS_FORMAT));
         assert_eq!(e.component(0), vec![VERSION_REQUIRED]);
         assert!(e.component(1).contains(&"已有產品 PAN-OS，請改為修改版本"));
         f.category.clear();
@@ -472,12 +578,54 @@ mod tests {
             "name",
             "category",
             "exposure",
-            "criticality",
+            "availability",
+            "isms_id",
             "paloalto-panos",
             "version",
         ] {
             assert!(!all.contains(internal), "{internal}: {all}");
         }
+    }
+
+    #[test]
+    fn ratings_follow_the_class_template() {
+        let classes = AssetClasses::builtin();
+        let mut f = filled();
+        f.category = "HW05".into();
+        assert_eq!(
+            RATING_FIELDS.map(|(field, _)| f.effective_rating(field, &classes)),
+            [Some(2), Some(3), Some(4)]
+        );
+        assert_eq!(f.asset_value(&classes), Some(4));
+        f.confidentiality = "4".into();
+        assert_eq!(
+            f.effective_rating(StandardField::Confidentiality, &classes),
+            Some(4)
+        );
+        f.category = "SW01".into();
+        f.confidentiality.clear();
+        assert_eq!(f.asset_value(&classes), None, "SW01 沒有範本值");
+        let e = check(&f).unwrap_err();
+        for (field, _) in RATING_FIELDS {
+            assert_eq!(e.field(field), Some(REQUIRED), "{field:?}");
+        }
+        f.category = "security".into();
+        assert_eq!(f.class(&classes), None, "畫面編修不接受舊值");
+        assert_eq!(
+            check(&f).unwrap_err().field(StandardField::Category),
+            Some(CHOOSE_FROM_LIST)
+        );
+    }
+
+    #[test]
+    fn isms_id_with_the_wrong_major_class() {
+        let mut f = filled();
+        f.isms_id = "ALL-SW-001".into();
+        let e = check(&f).unwrap_err();
+        assert_eq!(e.field(StandardField::IsmsId), Some(ISMS_CLASS_MISMATCH));
+        f.isms_id = "ALL-HW-001".into();
+        assert_eq!(check(&f), Ok(()));
+        assert_eq!(field_label(StandardField::IsmsId), "ISMS 編號");
     }
 
     #[test]

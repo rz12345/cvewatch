@@ -128,7 +128,7 @@ mod tests {
             status: Status::Open,
             still_vulnerable: false,
             scores: ScoreInputs::default(),
-            criticality: 3,
+            asset_value: 3,
             component_removed: false,
             manual: false,
             asset_name: "防火牆".into(),

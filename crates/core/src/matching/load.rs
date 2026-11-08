@@ -31,7 +31,8 @@ pub struct ActiveComponent {
     pub id: i64,
     pub asset_tag: String,
     pub exposure: Exposure,
-    pub criticality: u8,
+    /// 資產價值 MAX(C, I, A)（13 design D6；同等級內排序用）
+    pub asset_value: u8,
     pub target: Target,
     pub version_raw: String,
     pub updated_at: String,
@@ -181,7 +182,7 @@ fn component_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Option<ActiveCo
         id,
         asset_tag: r.get(1)?,
         exposure,
-        criticality: r.get(3)?,
+        asset_value: r.get(3)?,
         target,
         version_raw: r.get(7)?,
         updated_at: r.get(8)?,
@@ -193,7 +194,7 @@ fn active_components(
     asset_tag: Option<&str>,
 ) -> Result<Vec<ActiveComponent>, CoreError> {
     let mut stmt = conn.prepare(
-        "SELECT c.id, c.asset_tag, c.exposure, c.criticality, c.kind, p.key, c.purl,
+        "SELECT c.id, c.asset_tag, c.exposure, c.asset_value, c.kind, p.key, c.purl,
                 c.version_raw, c.updated_at
          FROM active_component c LEFT JOIN catalog_product p ON p.id = c.product_id
          WHERE ?1 IS NULL OR c.asset_tag = ?1 COLLATE NOCASE

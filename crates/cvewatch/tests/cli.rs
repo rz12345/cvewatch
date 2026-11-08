@@ -606,3 +606,24 @@ fn vex_import_reports_unreadable_and_invalid_files_before_database() {
         .code(1)
         .stderr(predicate::str::contains("CycloneDX"));
 }
+
+/// 13 任務 4.1：`asset list --category` 接受子類別代碼或大類，其他值為參數錯誤（與未知子命令相同，結束碼 1）。
+#[test]
+fn asset_list_category_accepts_class_code_or_major_class() {
+    let assert = cvewatch()
+        .args(["asset", "list", "--help"])
+        .assert()
+        .success();
+    let out = String::from_utf8(assert.get_output().stdout.clone()).unwrap();
+    assert!(
+        out.contains("子類別代碼") && out.contains("HW01") && out.contains("大類"),
+        "{out}"
+    );
+    for bad in ["security", "IF01", "HW1"] {
+        cvewatch()
+            .args(["asset", "list", "--category", bad])
+            .assert()
+            .code(1)
+            .stderr(predicate::str::contains("不是子類別代碼"));
+    }
+}

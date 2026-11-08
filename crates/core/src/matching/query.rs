@@ -37,7 +37,8 @@ pub struct FindingRow {
     pub status: Status,
     pub still_vulnerable: bool,
     pub scores: ScoreInputs,
-    pub criticality: u8,
+    /// 資產價值 MAX(C, I, A)
+    pub asset_value: u8,
     /// 元件已自清冊或套件清單移除（命中保留但不再更新）
     pub component_removed: bool,
     /// 使用者人工判定套用
@@ -52,7 +53,8 @@ pub struct FindingRow {
 const ROW_SELECT: &str =
     "SELECT f.id, a.asset_tag, a.status, coalesce(p.key, c.purl), c.version_raw, f.cve_id,
             coalesce(cv.title, substr(cv.description_en, 1, 80)), f.priority, f.confidence,
-            f.decided_by, f.status, (f.status = 'resolved' AND f.in_range), k.date_added, e.score, a.criticality,
+            f.decided_by, f.status, (f.status = 'resolved' AND f.in_range), k.date_added, e.score,
+            max(a.confidentiality, a.integrity, a.availability),
             c.removed_at IS NOT NULL, f.manual, a.name, cv.description_en, f.first_seen
      FROM finding f
      JOIN component c ON c.id = f.component_id
@@ -91,7 +93,7 @@ fn row_from(r: &rusqlite::Row<'_>) -> rusqlite::Result<FindingRow> {
             epss: r.get(13)?,
             cvss: None,
         },
-        criticality: r.get(14)?,
+        asset_value: r.get(14)?,
         component_removed: r.get(15)?,
         manual: r.get(16)?,
         asset_name: r.get(17)?,
@@ -187,7 +189,7 @@ fn rank_key(r: &FindingRow) -> RankKey {
     RankKey {
         priority: r.priority,
         inputs: r.scores.clone(),
-        criticality: r.criticality,
+        asset_value: r.asset_value,
     }
 }
 

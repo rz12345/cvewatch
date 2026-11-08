@@ -9,8 +9,9 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
-use super::model::{Asset, AssetStatus, Component, ComponentKind};
-use super::plan::{resolve_version, VersionWarning};
+use super::classes::AssetClasses;
+use super::model::{Asset, AssetRecord, AssetStatus, Component, ComponentKind};
+use super::plan::{isms_in_use_message, resolve_version, VersionWarning};
 use super::repo::{AssetRepo, ComponentRepo};
 use super::validate::{validate_record, FieldError, RecordInput};
 use crate::catalog::store::sync_catalog;
@@ -232,16 +233,36 @@ fn tag_in_use(
     Ok(row.map(|(t, s)| (t, AssetStatus::parse(&s).unwrap_or(AssetStatus::Active))))
 }
 
+/// ISMS 編號已被其他資產（含 retired、不分大小寫）使用時拒絕；`exclude` 為資產自身。
+fn ensure_isms_id_free(
+    conn: &Connection,
+    record: &AssetRecord,
+    exclude: Option<i64>,
+) -> Result<(), CoreError> {
+    let Some(id) = &record.isms_id else {
+        return Ok(());
+    };
+    match AssetRepo::new(conn).isms_id_in_use(id, exclude)? {
+        Some((owner, status)) => Err(invalid(isms_in_use_message(
+            id,
+            &owner,
+            status == AssetStatus::Retired,
+        ))),
+        None => Ok(()),
+    }
+}
+
 /// 新增 active 資產（至少一個目錄產品元件）。`asset_tag` 已被任何資產（含 retired、
-/// 不分大小寫）使用時拒絕。
+/// 不分大小寫）使用時拒絕；ISMS 編號亦同。
 pub fn create_asset(
     conn: &mut Connection,
     catalog: &Catalog,
+    classes: &AssetClasses,
     input: &RecordInput<'_>,
     components: &[NewComponent],
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
-    let record = validate_record(input).map_err(join_field_errors)?;
+    let record = validate_record(input, classes).map_err(join_field_errors)?;
     if components.is_empty() {
         return Err(invalid("至少需要一個元件（產品與版本）"));
     }
@@ -254,6 +275,7 @@ pub fn create_asset(
                 AssetStatus::Active => format!("資產編號 {existing} 已存在"),
             }));
         }
+        ensure_isms_id_free(tx, &record, None)?;
         AssetRepo::new(tx).insert(&record, now)?;
         let asset = find_asset(tx, &record.asset_tag)?;
         let mut outcome = EditOutcome::default();
@@ -271,6 +293,7 @@ pub fn create_asset(
 
 fn update_fields(
     conn: &Connection,
+    classes: &AssetClasses,
     asset: &Asset,
     input: &RecordInput<'_>,
     now: DateTime<Utc>,
@@ -279,7 +302,8 @@ fn update_fields(
         asset_tag: &asset.record.asset_tag,
         ..*input
     };
-    let record = validate_record(&input).map_err(join_field_errors)?;
+    let record = validate_record(&input, classes).map_err(join_field_errors)?;
+    ensure_isms_id_free(conn, &record, Some(asset.id))?;
     AssetRepo::new(conn).update_record(asset.id, &record, now)?;
     Ok(EditOutcome::default())
 }
@@ -419,6 +443,7 @@ fn delete_in(
 fn apply_op(
     conn: &Connection,
     catalog: &Catalog,
+    classes: &AssetClasses,
     asset: &mut Asset,
     op: &EditOp<'_>,
     now: DateTime<Utc>,
@@ -428,7 +453,7 @@ fn apply_op(
             *asset = rename_in(conn, asset, new_tag)?;
             Ok(EditOutcome::default())
         }
-        EditOp::Fields(input) => update_fields(conn, asset, input, now),
+        EditOp::Fields(input) => update_fields(conn, classes, asset, input, now),
         EditOp::AddComponent(c) => add_to(conn, catalog, asset, c, now),
         EditOp::SetVersion {
             component_id,
@@ -449,6 +474,7 @@ fn apply_op(
 pub fn apply_edits(
     conn: &mut Connection,
     catalog: &Catalog,
+    classes: &AssetClasses,
     tag: &str,
     ops: &[EditOp<'_>],
     now: DateTime<Utc>,
@@ -458,7 +484,7 @@ pub fn apply_edits(
     let mut asset = original.clone();
     let mut outcome = EditOutcome::default();
     for op in ops {
-        let out = apply_op(&tx, catalog, &mut asset, op, now)?;
+        let out = apply_op(&tx, catalog, classes, &mut asset, op, now)?;
         outcome.warnings.extend(out.warnings);
     }
     ensure_minimum(&tx, &asset)?;
@@ -520,12 +546,13 @@ pub fn rename_asset(conn: &mut Connection, tag: &str, new_tag: &str) -> Result<S
 /// 修改 active 資產的欄位；`asset_tag` 不使用（`input.asset_tag` 被忽略，更名見 [`rename_asset`]）。
 pub fn update_asset(
     conn: &mut Connection,
+    classes: &AssetClasses,
     tag: &str,
     input: &RecordInput<'_>,
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
     in_tx(conn, now, |tx| {
-        update_fields(tx, &active_asset(tx, tag)?, input, now)
+        update_fields(tx, classes, &active_asset(tx, tag)?, input, now)
     })
 }
 

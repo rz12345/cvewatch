@@ -1,7 +1,8 @@
-//! Findings 的篩選、即時搜尋與排序（在記憶體中進行；不改變載入的資料）。
+//! Findings 的篩選、即時搜尋與排序（在記憶體中進行；不改變載入的資料），以及資產清單的類別篩選選項。
 
 use std::cmp::Ordering;
 
+use cvewatch_core::assets::{AssetClasses, ClassFilter, MajorClass};
 use cvewatch_core::matching::engine::Confidence;
 use cvewatch_core::matching::query::FindingRow;
 use cvewatch_core::matching::scoring::Priority;
@@ -253,9 +254,43 @@ pub fn visible(
     out
 }
 
+/// 資產清單的類別篩選選項：全部、兩個大類（「實體（HW）」「軟體（SW）」），再依代碼列出各子類別
+/// （「HW01 伺服器」）。
+pub fn class_filter_choices(classes: &AssetClasses) -> Vec<(Option<ClassFilter>, String)> {
+    let majors = MajorClass::ALL.into_iter().map(|m| {
+        (
+            Some(ClassFilter::Major(m)),
+            format!("{}（{}）", m.label(), m.as_str()),
+        )
+    });
+    let codes = classes
+        .all()
+        .iter()
+        .map(|c| (Some(ClassFilter::Code(c.code.clone())), c.label()));
+    std::iter::once((None, "全部類別".to_string()))
+        .chain(majors)
+        .chain(codes)
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn class_filter_choices_list_majors_then_codes() {
+        let classes = AssetClasses::builtin();
+        let choices = class_filter_choices(&classes);
+        let labels: Vec<&str> = choices.iter().map(|(_, l)| l.as_str()).collect();
+        assert_eq!(
+            labels[..4],
+            ["全部類別", "實體（HW）", "軟體（SW）", "HW01 伺服器"]
+        );
+        assert_eq!(choices.len(), 3 + classes.all().len());
+        let hw = choices[1].0.clone().unwrap();
+        assert!(hw.matches(&cvewatch_core::assets::ClassCode::parse("HW05").unwrap()));
+        assert!(!hw.matches(&cvewatch_core::assets::ClassCode::parse("SW02").unwrap()));
+    }
     use cvewatch_core::matching::scoring::ScoreInputs;
 
     fn row(id: i64, cve: &str, asset: &str, status: Status, priority: Priority) -> FindingRow {
@@ -273,7 +308,7 @@ mod tests {
             status,
             still_vulnerable: false,
             scores: ScoreInputs::default(),
-            criticality: 3,
+            asset_value: 3,
             component_removed: false,
             manual: false,
             asset_name: format!("{asset} 防火牆"),

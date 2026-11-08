@@ -3,14 +3,17 @@
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
+use super::classes::{Cia, ClassCode, MajorClass};
 use super::model::{
-    Asset, AssetRecord, AssetStatus, Category, Component, ComponentKind, ComponentSource, Exposure,
+    Asset, AssetRecord, AssetStatus, Component, ComponentKind, ComponentSource, Exposure,
     HistoryEntry, UnresolvedEntry,
 };
 use crate::error::CoreError;
 
+// criticality 欄自 0007 起停用（保留在資料表、不再讀寫）
 const ASSET_COLUMNS: &str = "id, asset_tag, name, category, location, owner, exposure, \
-                             criticality, notes, status, first_seen, last_seen, retired_at";
+                             confidentiality, integrity, availability, isms_id, notes, status, \
+                             first_seen, last_seen, retired_at";
 
 const COMPONENT_SELECT: &str = "SELECT c.id, c.asset_id, c.kind, c.product_id, p.key, c.purl, \
      c.purl_full, c.version_raw, c.version_norm, c.source, c.updated_at \
@@ -39,17 +42,18 @@ fn asset_from_row(row: &Row<'_>) -> rusqlite::Result<Asset> {
         record: AssetRecord {
             asset_tag: row.get(1)?,
             name: row.get(2)?,
-            category: parse_col(row, 3, Category::parse)?,
+            category: parse_col(row, 3, ClassCode::parse)?,
             location: row.get(4)?,
             owner: row.get(5)?,
             exposure: parse_col(row, 6, Exposure::parse)?,
-            criticality: row.get(7)?,
-            notes: row.get(8)?,
+            cia: Cia::new(row.get(7)?, row.get(8)?, row.get(9)?),
+            isms_id: row.get(10)?,
+            notes: row.get(11)?,
         },
-        status: parse_col(row, 9, AssetStatus::parse)?,
-        first_seen: row.get(10)?,
-        last_seen: row.get(11)?,
-        retired_at: row.get(12)?,
+        status: parse_col(row, 12, AssetStatus::parse)?,
+        first_seen: row.get(13)?,
+        last_seen: row.get(14)?,
+        retired_at: row.get(15)?,
     })
 }
 
@@ -77,9 +81,33 @@ fn component_from_row(row: &Row<'_>) -> rusqlite::Result<Component> {
     })
 }
 
+/// 類別篩選：一個子類別，或一個大類（HW、SW）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassFilter {
+    Code(ClassCode),
+    Major(MajorClass),
+}
+
+impl ClassFilter {
+    /// 子類別代碼（`HW01`）或大類（`HW`、`SW`），不分大小寫；不是兩者之一時為 None。
+    /// 子類別是否已定義不在此檢查（篩選未定義代碼只會得到空結果）。
+    pub fn parse(raw: &str) -> Option<ClassFilter> {
+        MajorClass::parse(raw)
+            .map(ClassFilter::Major)
+            .or_else(|| ClassCode::parse(raw).map(ClassFilter::Code))
+    }
+
+    pub fn matches(&self, code: &ClassCode) -> bool {
+        match self {
+            ClassFilter::Code(c) => c == code,
+            ClassFilter::Major(m) => code.major() == *m,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AssetFilter {
-    pub category: Option<Category>,
+    pub category: Option<ClassFilter>,
     pub include_retired: bool,
 }
 
@@ -103,20 +131,52 @@ impl<'c> AssetRepo<'c> {
     pub fn list(&self, filter: &AssetFilter) -> Result<Vec<Asset>, CoreError> {
         let sql = format!(
             "SELECT {ASSET_COLUMNS} FROM asset
-             WHERE (?1 IS NULL OR category = ?1) AND (?2 OR status = 'active')
+             WHERE (?1 IS NULL OR category = ?1) AND (?2 IS NULL OR substr(category, 1, 2) = ?2)
+               AND (?3 OR status = 'active')
              ORDER BY asset_tag"
         );
         let mut stmt = self.conn.prepare(&sql)?;
-        let category = filter.category.map(|c| c.as_str());
-        let rows = stmt.query_map(params![category, filter.include_retired], asset_from_row)?;
+        let (code, major) = match &filter.category {
+            Some(ClassFilter::Code(c)) => (Some(c.as_str()), None),
+            Some(ClassFilter::Major(m)) => (None, Some(m.as_str())),
+            None => (None, None),
+        };
+        let rows = stmt.query_map(params![code, major, filter.include_retired], asset_from_row)?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// 已使用此 ISMS 編號的資產（含 retired，不分大小寫）；`exclude` 為不列入的資產 id。
+    pub fn isms_id_in_use(
+        &self,
+        isms_id: &str,
+        exclude: Option<i64>,
+    ) -> Result<Option<(String, AssetStatus)>, CoreError> {
+        let row: Option<(String, String)> = self
+            .conn
+            .query_row(
+                "SELECT asset_tag, status FROM asset
+                 WHERE isms_id = ?1 COLLATE NOCASE AND (?2 IS NULL OR id <> ?2)
+                 ORDER BY id LIMIT 1",
+                params![isms_id.trim(), exclude],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        Ok(row.map(|(t, s)| (t, AssetStatus::parse(&s).unwrap_or(AssetStatus::Active))))
+    }
+
+    /// 清除 ISMS 編號（匯入時先清除會變更的編號，避免互換編號時違反唯一索引）。
+    pub fn clear_isms_id(&self, id: i64) -> Result<(), CoreError> {
+        self.conn
+            .execute("UPDATE asset SET isms_id = NULL WHERE id = ?1", params![id])?;
+        Ok(())
     }
 
     pub fn insert(&self, record: &AssetRecord, now: DateTime<Utc>) -> Result<i64, CoreError> {
         self.conn.execute(
-            "INSERT INTO asset (asset_tag, name, category, location, owner, exposure, criticality,
-                                notes, status, first_seen, last_seen)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'active', ?9, ?9)",
+            "INSERT INTO asset (asset_tag, name, category, location, owner, exposure,
+                                confidentiality, integrity, availability, isms_id, notes, status,
+                                first_seen, last_seen)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12, ?12)",
             params![
                 record.asset_tag,
                 record.name,
@@ -124,7 +184,10 @@ impl<'c> AssetRepo<'c> {
                 record.location,
                 record.owner,
                 record.exposure.as_str(),
-                record.criticality,
+                record.cia.confidentiality,
+                record.cia.integrity,
+                record.cia.availability,
+                record.isms_id,
                 record.notes,
                 ts(now)
             ],
@@ -150,8 +213,8 @@ impl<'c> AssetRepo<'c> {
     ) -> Result<(), CoreError> {
         self.conn.execute(
             "UPDATE asset SET name = ?2, category = ?3, location = ?4, owner = ?5, exposure = ?6,
-                    criticality = ?7, notes = ?8, status = 'active', retired_at = NULL,
-                    last_seen = ?9
+                    confidentiality = ?7, integrity = ?8, availability = ?9, isms_id = ?10,
+                    notes = ?11, status = 'active', retired_at = NULL, last_seen = ?12
              WHERE id = ?1",
             params![
                 id,
@@ -160,7 +223,10 @@ impl<'c> AssetRepo<'c> {
                 record.location,
                 record.owner,
                 record.exposure.as_str(),
-                record.criticality,
+                record.cia.confidentiality,
+                record.cia.integrity,
+                record.cia.availability,
+                record.isms_id,
                 record.notes,
                 ts(now)
             ],

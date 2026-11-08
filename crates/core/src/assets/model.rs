@@ -1,5 +1,7 @@
 //! 資產與元件的資料模型。
 
+use super::classes::{Cia, ClassCode};
+
 string_enum!(
     /// 曝露度
     Exposure {
@@ -18,18 +20,6 @@ impl Default for Exposure {
 }
 
 string_enum!(
-    /// 資產類別
-    Category {
-        Network => "network",
-        Security => "security",
-        Virtualization => "virtualization",
-        Server => "server",
-        Storage => "storage",
-        Host => "host",
-    }
-);
-
-string_enum!(
     AssetStatus {
         Active => "active",
         Retired => "retired",
@@ -46,20 +36,20 @@ string_enum!(
     }
 );
 
-pub const MIN_CRITICALITY: u8 = 1;
-pub const MAX_CRITICALITY: u8 = 3;
-pub const DEFAULT_CRITICALITY: u8 = 2;
-
 /// 由清冊決定的資產欄位。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetRecord {
     pub asset_tag: String,
     pub name: String,
-    pub category: Category,
+    /// ISMS 子類別代碼（可能是設定檔已不再定義的代碼，見 13 design D2）
+    pub category: ClassCode,
     pub location: Option<String>,
     pub owner: Option<String>,
     pub exposure: Exposure,
-    pub criticality: u8,
+    /// 機密性、完整性、可用性；資產價值為 [`Cia::value`]
+    pub cia: Cia,
+    /// ISMS 資產編號（例如 `ALL-HW-001`；不分大小寫唯一）
+    pub isms_id: Option<String>,
     pub notes: Option<String>,
 }
 
@@ -142,7 +132,6 @@ mod tests {
     fn parse_is_case_insensitive_and_trims() {
         assert_eq!(Exposure::parse(" DMZ "), Some(Exposure::Dmz));
         assert_eq!(Exposure::parse("public"), None);
-        assert_eq!(Category::parse("Storage"), Some(Category::Storage));
         assert_eq!(Exposure::default(), Exposure::Internal);
     }
 

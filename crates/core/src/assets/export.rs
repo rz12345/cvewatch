@@ -5,6 +5,7 @@
 //!   未辨識產品寫原文
 //! - 版本寫 `version_raw`，重匯不產生版本變更
 //! - 不含 retired 資產與主機套件元件（套件以 `asset import-packages` 管理）
+//! - category 寫子類別代碼，C/I/A 寫實際值（13 design D4）
 
 use std::path::Path;
 
@@ -93,7 +94,13 @@ fn asset_row(r: &AssetRecord, first: Option<&(String, String)>) -> Vec<String> {
             StandardField::Product => product.clone(),
             StandardField::Version => version.clone(),
             StandardField::Exposure => r.exposure.as_str().to_string(),
-            StandardField::Criticality => r.criticality.to_string(),
+            // 寫出實際值（不留空）：重匯不因範本值改變而變動
+            StandardField::Confidentiality => r.cia.confidentiality.to_string(),
+            StandardField::Integrity => r.cia.integrity.to_string(),
+            StandardField::Availability => r.cia.availability.to_string(),
+            StandardField::IsmsId => text(&r.isms_id),
+            // 停用欄位不在 columns() 中
+            StandardField::Criticality => String::new(),
             StandardField::Location => text(&r.location),
             StandardField::Owner => text(&r.owner),
             StandardField::Notes => text(&r.notes),

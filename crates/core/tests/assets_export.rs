@@ -14,7 +14,7 @@ use cvewatch_core::assets::plan::ImportPlan;
 use cvewatch_core::assets::sheet::read_inventory;
 use cvewatch_core::assets::template::write_template;
 use cvewatch_core::assets::validate::parse_inventory;
-use cvewatch_core::assets::AssetRepo;
+use cvewatch_core::assets::{AssetClasses, AssetRepo};
 use rusqlite::params;
 
 fn fixture(name: &str) -> PathBuf {
@@ -25,7 +25,8 @@ fn fixture(name: &str) -> PathBuf {
 
 fn import(w: &mut World, path: &Path, dry_run: bool) -> ImportPlan {
     let book = read_inventory(path, None).unwrap();
-    let inventory = parse_inventory(&book, &ColumnMap::default()).unwrap();
+    let inventory =
+        parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
     import_inventory(
         &mut w.conn,
         &w.catalog,
@@ -55,7 +56,9 @@ fn existing_target_is_not_overwritten() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("inv.xlsx");
     std::fs::write(&path, b"original bytes").unwrap();
-    let template = write_template(&path).unwrap_err().to_string();
+    let template = write_template(&path, &AssetClasses::builtin())
+        .unwrap_err()
+        .to_string();
     let export = export_inventory(&w.conn, &w.catalog, &path)
         .unwrap_err()
         .to_string();
@@ -143,6 +146,21 @@ fn round_trip_without_changes() {
     assert_eq!(again.version_change_count(), 0);
     assert!(again.disappeared.is_empty(), "{:?}", again.disappeared);
     assert_eq!(again.unchanged, first.added.len());
+    assert!(again.notices.is_empty(), "{:?}", again.notices);
+}
+
+/// category 寫子類別代碼、C/I/A 寫實際值（不留空）、ISMS 編號原樣寫出。
+#[test]
+fn export_writes_class_code_and_actual_ratings() {
+    let mut w = world();
+    import(&mut w, &fixture("inventory_basic.xlsx"), false);
+    let rows = inventory_rows(&w.conn, &w.catalog).unwrap();
+    let fw = rows.assets.iter().find(|r| r[0] == "FW-01").unwrap();
+    // asset_tag, name, category, product, version, exposure, C, I, A, isms_id, ...
+    assert_eq!(fw[2], "HW03");
+    assert_eq!(fw[6..10], ["2", "3", "4", "ALL-HW-003"]);
+    let nas = rows.assets.iter().find(|r| r[0] == "NAS-01").unwrap();
+    assert_eq!(nas[2], "HW05", "以名稱匯入的類別匯出為代碼");
 }
 
 #[test]

@@ -193,12 +193,13 @@ fn rename_with_other_edits_saves_together() {
     let mut w = fw_world();
     let input = RecordInput {
         name: "fw11",
-        category: "security",
+        category: "HW03",
         ..RecordInput::default()
     };
     edit::apply_edits(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         FW,
         &[EditOp::Rename(NEW), EditOp::Fields(input)],
         now(),
@@ -218,12 +219,13 @@ fn failing_rename_with_other_edits_saves_nothing() {
     let mut w = fw_world();
     let input = RecordInput {
         name: "fw11",
-        category: "security",
+        category: "HW03",
         ..RecordInput::default()
     };
     let msg = message(edit::apply_edits(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         FW,
         &[EditOp::Rename("WEB-01"), EditOp::Fields(input)],
         now(),
@@ -239,6 +241,7 @@ fn later_steps_after_rename_use_the_new_tag() {
     let msg = message(edit::apply_edits(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         FW,
         &[EditOp::Rename(NEW), EditOp::RemoveComponent(999_999)],
         now(),
@@ -258,13 +261,16 @@ fn old_inventory() -> Inventory {
         assets: vec![
             IncomingAsset {
                 row,
-                record: validate_record(&RecordInput {
-                    asset_tag: FW,
-                    name: FW,
-                    category: "security",
-                    exposure: "internet",
-                    ..RecordInput::default()
-                })
+                record: validate_record(
+                    &RecordInput {
+                        asset_tag: FW,
+                        name: FW,
+                        category: "HW03",
+                        exposure: "internet",
+                        ..RecordInput::default()
+                    },
+                    &cvewatch_core::assets::AssetClasses::builtin(),
+                )
                 .unwrap(),
                 components: vec![IncomingComponent {
                     row,
@@ -274,17 +280,22 @@ fn old_inventory() -> Inventory {
             },
             IncomingAsset {
                 row: RowRef { number: 3, ..row },
-                record: validate_record(&RecordInput {
-                    asset_tag: "WEB-01",
-                    name: "WEB-01",
-                    category: "server",
-                    exposure: "dmz",
-                    ..RecordInput::default()
-                })
+                record: validate_record(
+                    &RecordInput {
+                        asset_tag: "WEB-01",
+                        name: "WEB-01",
+                        category: "HW01",
+                        exposure: "dmz",
+                        ..RecordInput::default()
+                    },
+                    &cvewatch_core::assets::AssetClasses::builtin(),
+                )
                 .unwrap(),
                 components: vec![],
             },
         ],
+        notices: Vec::new(),
+        keep_isms_ids: false,
     }
 }
 
@@ -352,12 +363,13 @@ fn the_old_tag_can_be_reused_by_a_new_asset() {
     let input = RecordInput {
         asset_tag: FW,
         name: "fw01-new",
-        category: "security",
+        category: "HW03",
         ..RecordInput::default()
     };
     edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &input,
         &[NewComponent {
             product_key: "paloalto-panos".into(),
@@ -375,7 +387,15 @@ fn the_old_tag_can_be_reused_by_a_new_asset() {
 #[test]
 fn apply_edits_with_only_a_rename_does_not_mark_matching_stale() {
     let mut w = fw_world();
-    edit::apply_edits(&mut w.conn, &w.catalog, FW, &[EditOp::Rename(NEW)], now()).unwrap();
+    edit::apply_edits(
+        &mut w.conn,
+        &w.catalog,
+        &w.classes,
+        FW,
+        &[EditOp::Rename(NEW)],
+        now(),
+    )
+    .unwrap();
     assert_eq!(status_of(&w, NEW), AssetStatus::Active);
     assert!(!match_is_stale(&w.conn).unwrap());
     assert!(!EditOp::Rename(NEW).affects_matching());

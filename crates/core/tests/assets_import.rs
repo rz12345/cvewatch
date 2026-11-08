@@ -12,7 +12,8 @@ use cvewatch_core::assets::plan::ImportPlan;
 use cvewatch_core::assets::sheet::read_inventory;
 use cvewatch_core::assets::template::write_template;
 use cvewatch_core::assets::validate::parse_inventory;
-use cvewatch_core::assets::{AssetRepo, AssetStatus, ComponentRepo, Exposure};
+use cvewatch_core::assets::validate::{CRITICALITY_NOTICE, ISMS_KEPT_NOTICE};
+use cvewatch_core::assets::{AssetClasses, AssetRepo, AssetStatus, Cia, ComponentRepo, Exposure};
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::CoreError;
@@ -28,14 +29,28 @@ fn catalog() -> Catalog {
     Catalog::seed().unwrap()
 }
 
+fn classes() -> AssetClasses {
+    AssetClasses::builtin()
+}
+
 fn run(
     conn: &mut Connection,
     file: &str,
     columns: &ColumnMap,
     options: ImportOptions,
 ) -> Result<ImportPlan, CoreError> {
+    run_with(conn, file, columns, &classes(), options)
+}
+
+fn run_with(
+    conn: &mut Connection,
+    file: &str,
+    columns: &ColumnMap,
+    classes: &AssetClasses,
+    options: ImportOptions,
+) -> Result<ImportPlan, CoreError> {
     let book = read_inventory(&fixture(file), None)?;
-    let inventory = parse_inventory(&book, columns)?;
+    let inventory = parse_inventory(&book, columns, classes)?;
     import_inventory(conn, &catalog(), &inventory, options, Utc::now())
 }
 
@@ -114,7 +129,20 @@ fn first_import_creates_assets_components_and_reports() {
         .unwrap()
         .unwrap();
     assert_eq!(nas02.record.exposure, Exposure::Internal);
-    assert_eq!(nas02.record.criticality, 2);
+    assert_eq!(nas02.record.cia, Cia::new(2, 3, 4), "HW05 範本值");
+    // 子類別名稱「儲存設備」、小寫代碼 hw05；有填的 C/I/A 覆寫範本值
+    let tags = |tag: &str| AssetRepo::new(&conn).find_by_tag(tag).unwrap().unwrap();
+    assert_eq!(tags("NAS-01").record.category.as_str(), "HW05");
+    assert_eq!(tags("NAS-03").record.category.as_str(), "HW05");
+    assert_eq!(tags("NAS-03").record.cia, Cia::new(2, 3, 2));
+    assert_eq!(tags("R6515-01").record.cia, Cia::new(3, 3, 4));
+    let fw01 = tags("FW-01");
+    assert_eq!(fw01.record.isms_id.as_deref(), Some("ALL-HW-003"));
+    assert!(
+        plan.notices.is_empty(),
+        "新格式清冊沒有 notice：{:?}",
+        plan.notices
+    );
 }
 
 #[test]
@@ -241,7 +269,7 @@ fn chinese_headers_with_column_mapping() {
         ("產品", "product"),
         ("版本", "version"),
         ("曝露度", "exposure"),
-        ("重要性", "criticality"),
+        ("機密性", "confidentiality"),
         ("放置地點", "location"),
     ]
     .into_iter()
@@ -258,6 +286,8 @@ fn chinese_headers_with_column_mapping() {
     assert_eq!(plan.added, vec!["FW-01".to_string()]);
     let fw = AssetRepo::new(&conn).find_by_tag("FW-01").unwrap().unwrap();
     assert_eq!(fw.record.location.as_deref(), Some("機房 A"));
+    assert_eq!(fw.record.category.as_str(), "HW03", "類別以子類別名稱填寫");
+    assert_eq!(fw.record.cia, Cia::new(3, 3, 4));
 
     // 沒有對應時視為缺欄
     let err = run(
@@ -317,7 +347,7 @@ fn csv_with_separate_components_file() {
         Some(&fixture("inventory_components.csv")),
     )
     .unwrap();
-    let inventory = parse_inventory(&book, &ColumnMap::default()).unwrap();
+    let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
     let plan = import_inventory(
         &mut conn,
         &catalog(),
@@ -337,12 +367,14 @@ fn csv_with_separate_components_file() {
 fn template_roundtrips_through_importer() {
     let env = common::initialized();
     let path = env.dir.path().join("inv.xlsx");
-    write_template(&path).unwrap();
-    assert!(write_template(&path).is_err(), "不覆蓋既有檔案");
+    write_template(&path, &classes()).unwrap();
+    assert!(write_template(&path, &classes()).is_err(), "不覆蓋既有檔案");
     let book = read_inventory(&path, None).unwrap();
     assert_eq!(book.assets.headers[0], "asset_tag");
+    assert!(!book.assets.headers.iter().any(|h| h == "criticality"));
     assert_eq!(book.components.as_ref().unwrap().headers[0], "asset_tag");
-    let inventory = parse_inventory(&book, &ColumnMap::default()).unwrap();
+    let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
+    assert!(inventory.notices.is_empty(), "{:?}", inventory.notices);
     let mut conn = open_working_db(&env.paths, &env.store).unwrap();
     let plan = import_inventory(
         &mut conn,
@@ -375,7 +407,7 @@ fn invalid_category_aborts_with_row_number() {
         },
         components: None,
     };
-    let err = parse_inventory(&book, &ColumnMap::default()).unwrap_err();
+    let err = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap_err();
     let msg = err.to_string();
     assert!(
         msg.contains("第 2 列：category「printer」不是允許的值"),
@@ -394,7 +426,7 @@ fn plan_reports_whether_matching_is_affected() {
     assert!(!ImportPlan::default().affects_matching());
     let owner_only = AssetUpdate {
         asset_tag: "FW-01".into(),
-        changed_fields: vec!["owner", "notes", "criticality"],
+        changed_fields: vec!["owner", "notes", "confidentiality", "isms_id"],
         ..AssetUpdate::default()
     };
     assert!(!with(owner_only).affects_matching());
@@ -411,4 +443,277 @@ fn plan_reports_whether_matching_is_affected() {
         ..AssetUpdate::default()
     };
     assert!(with(reactivated).affects_matching());
+}
+
+/// Scenario: Old inventory with English category / Old inventory with criticality
+#[test]
+fn legacy_inventory_is_converted_with_notices() {
+    let env = common::initialized();
+    let mut conn = open_working_db(&env.paths, &env.store).unwrap();
+    let plan = import(&mut conn, "inventory_legacy.xlsx");
+    assert_eq!(plan.added.len(), 6);
+    let notices: Vec<String> = plan.notices.iter().map(|n| n.to_string()).collect();
+    assert_eq!(notices[0], CRITICALITY_NOTICE, "整批一次：{notices:?}");
+    assert_eq!(
+        notices
+            .iter()
+            .filter(|n| n.as_str() == CRITICALITY_NOTICE)
+            .count(),
+        1
+    );
+    assert!(
+        notices.contains(&"第 2 列 FW-01：security 已轉為 HW03 資安設備".to_string()),
+        "{notices:?}"
+    );
+    assert!(
+        notices.contains(&"第 3 列 R6515-01：virtualization 已轉為 HW01 伺服器".to_string()),
+        "{notices:?}"
+    );
+    let fw = AssetRepo::new(&conn).find_by_tag("FW-01").unwrap().unwrap();
+    assert_eq!(fw.record.category.as_str(), "HW03");
+    assert_eq!(
+        fw.record.cia,
+        Cia::new(2, 3, 4),
+        "criticality 3 被忽略，依範本值"
+    );
+}
+
+/// 匯出前先匯入新格式清冊，再以舊清冊重匯：C/I/A 回到範本值，dry-run 明細列出差異。
+#[test]
+fn legacy_reimport_lists_rating_changes() {
+    let env = common::initialized();
+    let mut conn = open_working_db(&env.paths, &env.store).unwrap();
+    import(&mut conn, "inventory_basic.xlsx");
+    let options = ImportOptions {
+        dry_run: true,
+        prune: false,
+    };
+    let plan = run(
+        &mut conn,
+        "inventory_legacy.xlsx",
+        &ColumnMap::default(),
+        options,
+    )
+    .unwrap();
+    let esx = plan
+        .updated
+        .iter()
+        .find(|u| u.asset_tag == "R6515-01")
+        .expect("R6515-01 的機密性由 3 回到範本值 2");
+    assert!(esx.changed_fields.contains(&"confidentiality"), "{esx:?}");
+    assert!(
+        !plan
+            .updated
+            .iter()
+            .any(|u| u.changed_fields.contains(&"isms_id")),
+        "舊清冊沒有 isms_id 欄，不清除既有編號：{:?}",
+        plan.updated
+    );
+    assert!(
+        plan.notices.iter().any(|n| n.message == ISMS_KEPT_NOTICE),
+        "{:?}",
+        plan.notices
+    );
+}
+
+/// 13 code review：舊清冊（沒有 isms_id 欄）重匯時保留既有資產的 ISMS 編號；
+/// 有 isms_id 欄但留空時才表示沒有 ISMS 編號。
+#[test]
+fn legacy_reimport_keeps_isms_ids() {
+    let env = common::initialized();
+    let mut conn = open_working_db(&env.paths, &env.store).unwrap();
+    import(&mut conn, "inventory_basic.xlsx");
+    let isms = |conn: &Connection| {
+        AssetRepo::new(conn)
+            .find_by_tag("FW-01")
+            .unwrap()
+            .unwrap()
+            .record
+            .isms_id
+    };
+    let plan = import(&mut conn, "inventory_legacy.xlsx");
+    assert_eq!(isms(&conn).as_deref(), Some("ALL-HW-003"));
+    assert!(plan.notices.iter().any(|n| n.message == ISMS_KEPT_NOTICE));
+    // 新格式清冊的 isms_id 欄留空：清除
+    let path = env.dir.path().join("blank.csv");
+    std::fs::write(
+        &path,
+        "asset_tag,name,category,product,version,isms_id
+FW-01,fw01,HW03,PAN-OS,11.1.4-h7,
+",
+    )
+    .unwrap();
+    let book = read_inventory(&path, None).unwrap();
+    let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
+    assert!(!inventory.keep_isms_ids);
+    import_inventory(
+        &mut conn,
+        &catalog(),
+        &inventory,
+        ImportOptions::default(),
+        Utc::now(),
+    )
+    .unwrap();
+    assert_eq!(isms(&conn), None);
+}
+
+/// Scenario: Raising a template value — 設定檔調高 HW05 的機密性範本值，只影響之後
+/// 留空匯入的資產；資料庫中既有資產的 C/I/A 不會自動改變。
+#[test]
+fn raising_a_template_value_affects_only_new_imports() {
+    use cvewatch_core::assets::classes::AssetClassConfig;
+    let env = common::initialized();
+    let mut conn = open_working_db(&env.paths, &env.store).unwrap();
+    import(&mut conn, "inventory_basic.xlsx");
+    let raised = AssetClasses::from_config(&BTreeMap::from([(
+        "HW05".to_string(),
+        AssetClassConfig {
+            confidentiality: Some(3),
+            ..AssetClassConfig::default()
+        },
+    )]))
+    .unwrap();
+    let nas02 = |conn: &Connection| {
+        AssetRepo::new(conn)
+            .find_by_tag("NAS-02")
+            .unwrap()
+            .unwrap()
+            .record
+            .cia
+    };
+    assert_eq!(nas02(&conn), Cia::new(2, 3, 4), "設定變更不改既有資產");
+    run_with(
+        &mut conn,
+        "inventory_basic.xlsx",
+        &ColumnMap::default(),
+        &raised,
+        ImportOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(nas02(&conn), Cia::new(3, 3, 4), "留空重匯時採用新的範本值");
+}
+
+/// Scenario: Duplicate ISMS ID — retired 的 NAS-02 已使用 ALL-HW-005。
+#[test]
+fn duplicate_isms_id_with_a_retired_asset_is_rejected() {
+    use cvewatch_core::assets::edit;
+    let env = common::initialized();
+    let mut conn = open_working_db(&env.paths, &env.store).unwrap();
+    import(&mut conn, "inventory_basic.xlsx");
+    conn.execute(
+        "UPDATE asset SET isms_id = 'ALL-HW-005' WHERE asset_tag = 'NAS-02'",
+        [],
+    )
+    .unwrap();
+    edit::retire_asset(&mut conn, "NAS-02", Utc::now()).unwrap();
+    let input = cvewatch_core::assets::validate::RecordInput {
+        name: "nas01",
+        category: "HW05",
+        isms_id: "all-hw-005",
+        ..Default::default()
+    };
+    let err = edit::update_asset(&mut conn, &classes(), "NAS-01", &input, Utc::now())
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("已被 NAS-02 使用（該資產已退役）"), "{err}");
+    let nas01 = AssetRepo::new(&conn)
+        .find_by_tag("NAS-01")
+        .unwrap()
+        .unwrap();
+    assert_eq!(nas01.record.isms_id, None, "資產不變");
+
+    // 清冊匯入同樣拒絕，資料庫不變
+    let dir = env.dir.path().join("dup.csv");
+    std::fs::write(
+        &dir,
+        "asset_tag,name,category,product,version,isms_id\n\
+         NAS-01,nas01,HW05,Synology DSM,7.2.1-69057,all-hw-005\n",
+    )
+    .unwrap();
+    let book = read_inventory(&dir, None).unwrap();
+    let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
+    let err = import_inventory(
+        &mut conn,
+        &catalog(),
+        &inventory,
+        ImportOptions::default(),
+        Utc::now(),
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("第 2 列：ISMS 編號 all-hw-005 已被 NAS-02 使用（該資產已退役）"),
+        "{err}"
+    );
+}
+
+/// 兩個資產互換 ISMS 編號：重複檢查以匯入後的狀態判斷，寫入不違反唯一索引。
+#[test]
+fn swapping_isms_ids_in_one_import() {
+    let env = common::initialized();
+    let mut conn = open_working_db(&env.paths, &env.store).unwrap();
+    let write = |name: &str, a: &str, b: &str| {
+        let path = env.dir.path().join(name);
+        std::fs::write(
+            &path,
+            format!(
+                "asset_tag,name,category,product,version,isms_id\n\
+                 FW-01,fw01,HW03,PAN-OS,11.1.4-h7,{a}\n\
+                 FW-02,fw02,HW03,PAN-OS,11.1.4-h7,{b}\n"
+            ),
+        )
+        .unwrap();
+        path
+    };
+    let first = write("a.csv", "ALL-HW-001", "ALL-HW-002");
+    let second = write("b.csv", "ALL-HW-002", "ALL-HW-001");
+    for path in [first, second] {
+        let book = read_inventory(&path, None).unwrap();
+        let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
+        import_inventory(
+            &mut conn,
+            &catalog(),
+            &inventory,
+            ImportOptions::default(),
+            Utc::now(),
+        )
+        .unwrap();
+    }
+    let fw01 = AssetRepo::new(&conn).find_by_tag("FW-01").unwrap().unwrap();
+    assert_eq!(fw01.record.isms_id.as_deref(), Some("ALL-HW-002"));
+}
+
+/// Scenario: Generating a template / Class sheet follows configuration
+#[test]
+fn template_has_class_sheet_following_configuration() {
+    use calamine::{open_workbook_auto, Reader};
+    use cvewatch_core::assets::classes::AssetClassConfig;
+    let env = common::initialized();
+    let path = env.dir.path().join("t.xlsx");
+    let classes = AssetClasses::from_config(&BTreeMap::from([(
+        "HW12".to_string(),
+        AssetClassConfig {
+            name: Some("實驗儀器".into()),
+            confidentiality: Some(2),
+            integrity: Some(3),
+            availability: Some(3),
+            ..AssetClassConfig::default()
+        },
+    )]))
+    .unwrap();
+    write_template(&path, &classes).unwrap();
+    let mut book = open_workbook_auto(&path).unwrap();
+    assert_eq!(book.sheet_names(), vec!["assets", "components", "classes"]);
+    let range = book.worksheet_range("classes").unwrap();
+    let rows: Vec<Vec<String>> = range
+        .rows()
+        .map(|r| r.iter().map(|c| c.to_string()).collect())
+        .collect();
+    assert_eq!(rows[0][0], "code");
+    let hw12 = rows.iter().find(|r| r[0] == "HW12").expect("HW12");
+    assert_eq!(hw12[1], "實驗儀器");
+    assert_eq!(&hw12[3..6], ["2", "3", "3"]);
+    let sw01 = rows.iter().find(|r| r[0] == "SW01").unwrap();
+    assert_eq!(&sw01[3..6], ["", "", ""], "無範本值時留空");
+    assert_eq!(rows.len(), 1 + 19);
 }

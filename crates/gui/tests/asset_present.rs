@@ -43,7 +43,7 @@ fn asset_detail_uses_display_names_and_bilingual_values() {
     select_asset(&mut h, "PVE-01");
     assert!(shows(&h, "Proxmox VE 8.2.2"));
     assert!(!shows(&h, "proxmox-ve 8.2.2"), "產品 key 不是主要文字");
-    assert!(shows(&h, "server（伺服器）"));
+    assert!(shows(&h, "HW01 伺服器"));
     assert!(shows(&h, "internal（內部網路）"));
     assert!(h.query_by_label("沒有命中").is_some());
     // 標題只顯示一次編號（名稱同編號）
@@ -148,4 +148,52 @@ fn asset_list_keys_are_ignored_while_typing_or_for_retired() {
         h.state().asset_dialog.is_none(),
         "已退役資產不回應 Enter／Delete"
     );
+}
+
+/// Scenario: Bilingual category value — 詳情與類別下拉選單顯示「HW01 伺服器」，儲存後仍為 `HW01`。
+#[test]
+fn asset_detail_bilingual_category_value() {
+    let (mut h, _f) = gui(seeded_world());
+    select_asset(&mut h, "PVE-01");
+    assert!(shows(&h, "類別 HW01 伺服器"));
+    click(&mut h, "編輯");
+    let combo = h.get_by_label("類別 *");
+    assert_eq!(
+        combo.value().as_deref(),
+        Some("HW01 伺服器"),
+        "下拉選單顯示代碼與名稱"
+    );
+    replace_text(&mut h, "名稱 *", "pve01");
+    click(&mut h, "儲存");
+    assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
+    let category: String = h
+        .state()
+        .ws
+        .conn
+        .query_row(
+            "SELECT category FROM asset WHERE asset_tag = 'PVE-01'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert_eq!(category, "HW01");
+}
+
+/// Scenario: Ratings in the detail pane
+#[test]
+fn asset_detail_ratings_in_the_detail_pane() {
+    let w = seeded_world();
+    w.conn
+        .execute(
+            "UPDATE asset SET category = 'HW03', confidentiality = 2, integrity = 3,
+                              availability = 4, isms_id = 'ALL-HW-003'
+             WHERE asset_tag = 'PA-460'",
+            [],
+        )
+        .unwrap();
+    let (mut h, _f) = gui(w);
+    select_asset(&mut h, "PA-460");
+    assert!(shows(&h, "機密性 2｜完整性 3｜可用性 4｜資產價值 4"));
+    assert!(shows(&h, "ISMS 編號 ALL-HW-003"));
+    assert!(shows(&h, "類別 HW03 資安設備"));
 }

@@ -22,6 +22,7 @@ fn open(w: World) -> (Workspace, Recorder) {
         conn: w.conn,
         settings: Settings {
             catalog: w.catalog,
+            classes: w.classes,
             scoring: w.settings.scoring.clone(),
             stale_days: w.settings.stale_days,
         },

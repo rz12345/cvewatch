@@ -85,11 +85,11 @@ fn exposure_bump_list_is_configurable() {
 
 // ── Requirement: Ordering within a tier ─────────────────────
 
-fn key(kev: Option<&str>, epss: Option<f64>, cvss: Option<f64>, criticality: u8) -> RankKey {
+fn key(kev: Option<&str>, epss: Option<f64>, cvss: Option<f64>, asset_value: u8) -> RankKey {
     RankKey {
         priority: Priority::P2,
         inputs: inputs(kev, epss, cvss),
-        criticality,
+        asset_value,
     }
 }
 
@@ -133,7 +133,7 @@ fn ordering_keys_in_sequence() {
         ),
         Ordering::Greater
     );
-    // 其餘相同 → 重要性高者在前
+    // 其餘相同 → 資產價值高者在前
     assert_eq!(
         rank_cmp(&key(None, None, None, 3), &key(None, None, None, 1)),
         Ordering::Less
@@ -196,7 +196,7 @@ fn finding_list_uses_risk_order() {
     let mut w = world();
     w.asset("FW-01", "internal", &[("paloalto-panos", "11.1.4")]);
     w.asset("FW-02", "internal", &[("paloalto-panos", "11.1.3")]);
-    w.set_criticality("FW-02", 3);
+    w.set_asset_value("FW-02", 3);
     for cve in [CVE_A, CVE_B] {
         w.cve(
             cve,
@@ -223,4 +223,33 @@ fn finding_list_uses_risk_order() {
         ]
     );
     assert_eq!(rows[2].scores.cvss, Some(9.8));
+}
+
+/// Scenario: Same scores on different assets — 同一個 CVE 在 FW-01（資產價值 4）與
+/// PC-01（資產價值 3）各有一筆 P2 命中，KEV、EPSS、CVSS 都相同時 FW-01 排在前面。
+#[test]
+fn same_scores_on_different_assets_order_by_asset_value() {
+    let mut w = world();
+    w.asset("PC-01", "internal", &[("paloalto-panos", "11.1.4")]);
+    w.asset("FW-01", "internal", &[("paloalto-panos", "11.1.3")]);
+    w.set_asset_value("PC-01", 3);
+    w.set_asset_value("FW-01", 4);
+    w.cve(
+        CVE_A,
+        panos(json!([{"version": "11.1.0", "lessThan": "11.1.6", "status": "affected"}])),
+        json!([]),
+    );
+    w.epss(CVE_A, 0.4);
+    w.run();
+    let rows = query::list(&w.conn, &FindingFilter::default()).unwrap();
+    let order: Vec<(&str, Priority)> = rows
+        .iter()
+        .map(|r| (r.asset_tag.as_str(), r.priority))
+        .collect();
+    assert_eq!(
+        order,
+        vec![("FW-01", Priority::P2), ("PC-01", Priority::P2)]
+    );
+    assert_eq!(rows[0].asset_value, 4);
+    assert_eq!(rows[1].asset_value, 3);
 }

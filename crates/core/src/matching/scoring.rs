@@ -188,8 +188,8 @@ pub fn priority(inputs: &ScoreInputs, exposure: Exposure, cfg: &ScoringConfig) -
 pub struct RankKey {
     pub priority: Priority,
     pub inputs: ScoreInputs,
-    /// 資產重要性 1–3，數字越大越重要
-    pub criticality: u8,
+    /// 資產價值 MAX(C, I, A) 1–4，數字越大越重要
+    pub asset_value: u8,
 }
 
 fn desc_f64(a: Option<f64>, b: Option<f64>) -> Ordering {
@@ -201,7 +201,7 @@ fn desc_f64(a: Option<f64>, b: Option<f64>) -> Ordering {
     }
 }
 
-/// 等級 → KEV 加入日期新到舊（不在 KEV 最後）→ EPSS → CVSS → 重要性。
+/// 等級 → KEV 加入日期新到舊（不在 KEV 最後）→ EPSS → CVSS → 資產價值。
 pub fn rank_cmp(a: &RankKey, b: &RankKey) -> Ordering {
     let kev = match (&a.inputs.kev_date, &b.inputs.kev_date) {
         (Some(x), Some(y)) => y.cmp(x),
@@ -214,5 +214,5 @@ pub fn rank_cmp(a: &RankKey, b: &RankKey) -> Ordering {
         .then(kev)
         .then_with(|| desc_f64(a.inputs.epss, b.inputs.epss))
         .then_with(|| desc_f64(a.inputs.cvss, b.inputs.cvss))
-        .then_with(|| b.criticality.cmp(&a.criticality))
+        .then_with(|| b.asset_value.cmp(&a.asset_value))
 }

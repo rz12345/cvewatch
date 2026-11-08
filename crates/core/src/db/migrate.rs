@@ -43,6 +43,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0006_vex",
         sql: include_str!("migrations/0006_vex.sql"),
     },
+    Migration {
+        version: 7,
+        name: "0007_isms_class",
+        sql: include_str!("migrations/0007_isms_class.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {

@@ -223,14 +223,12 @@ pub enum DbAction {
     },
 }
 
-const CATEGORIES: [&str; 6] = [
-    "network",
-    "security",
-    "virtualization",
-    "server",
-    "storage",
-    "host",
-];
+/// `asset list --category`：子類別代碼（`HW01`）或大類（`HW`、`SW`），不分大小寫。
+fn class_filter(raw: &str) -> Result<String, String> {
+    cvewatch_core::assets::ClassFilter::parse(raw)
+        .map(|_| raw.trim().to_string())
+        .ok_or_else(|| format!("「{raw}」不是子類別代碼（例如 HW01、SW02）或大類（HW、SW）"))
+}
 
 #[derive(Debug, Subcommand)]
 pub enum AssetAction {
@@ -263,8 +261,8 @@ pub enum AssetAction {
     },
     /// 列出資產
     List {
-        /// 只列出指定類別
-        #[arg(long, value_parser = CATEGORIES)]
+        /// 只列出指定類別：子類別代碼（例如 HW01）或大類（HW 實體、SW 軟體）
+        #[arg(long, value_parser = class_filter, value_name = "CODE|HW|SW")]
         category: Option<String>,
         /// 只列出含未辨識產品的資產
         #[arg(long)]
@@ -287,7 +285,7 @@ pub enum AssetAction {
         /// 輸出路徑（.xlsx，不可已存在）
         path: PathBuf,
     },
-    /// 匯出空白 Excel 範本（assets、components 工作表）
+    /// 匯出空白 Excel 範本（assets、components 工作表與 classes 子類別說明）
     Template {
         /// 輸出路徑（.xlsx，不可已存在）
         path: PathBuf,

@@ -1,21 +1,24 @@
-//! 「新增資產」與「編輯」共用的對話框（design D11）：上半部資產欄位（category、曝露度、重要性為
-//! 下拉選單；編輯時資產編號可修改＝更名，與原編號不同時欄位下方提示影響，12 design D4），
-//! 下半部元件與未辨識產品（[`super::asset_components`]）。
+//! 「新增資產」與「編輯」共用的對話框（design D11）：上半部資產欄位（類別、曝露度、機密性、
+//! 完整性、可用性為下拉選單，即時顯示資產價值，13 design D8；編輯時資產編號可修改＝更名，
+//! 與原編號不同時欄位下方提示影響，12 design D4），下半部元件與未辨識產品
+//! （[`super::asset_components`]）。
 //!
-//! 每個欄位只有左側一個標籤，必填欄位標「*」；類別與曝露度的選項雙語（design 11 D3）。
+//! 每個欄位只有左側一個標籤，必填欄位標「*」；類別以「代碼 名稱」、曝露度以雙語呈現
+//! （design 11 D3）。C/I/A 的第一項「依類別（N）」= 空白（儲存時帶入子類別範本值）。
 //! 驗證錯誤以介面用語紅字顯示在欄位下方，失敗時保留對話框與輸入內容；本地驗證失敗不寫狀態列，
 //! 以「取消」或 Esc 關閉時清除對話框留在狀態列的寫入失敗訊息（design 11 D5）。
 
 use std::sync::LazyLock;
 
+use cvewatch_core::assets::classes::{MAX_RATING, MIN_RATING};
 use cvewatch_core::assets::columns::StandardField;
-use cvewatch_core::assets::validate::REQUIRED_FIELDS;
-use cvewatch_core::assets::{Category, Exposure, MAX_CRITICALITY, MIN_CRITICALITY};
+use cvewatch_core::assets::validate::{RATING_FIELDS, REQUIRED_FIELDS};
+use cvewatch_core::assets::{AssetClasses, Exposure};
 use cvewatch_core::catalog::Catalog;
 use cvewatch_frontend::asset_form::{
     field_label, product_choices, search_products, AssetForm, FormErrors, FormMode, ProductChoice,
 };
-use cvewatch_frontend::display::{category_label, exposure_label};
+use cvewatch_frontend::display::{class_label, exposure_label};
 use cvewatch_frontend::Level;
 use eframe::egui;
 
@@ -39,6 +42,8 @@ pub fn rename_note(old_tag: &str) -> String {
 pub const FIX_FIELDS: &str = "請修正標示的欄位";
 
 const FIELD_WIDTH: f32 = 260.0;
+/// 下拉選單的最大高度：內建 18 個子類別不必捲動即可看到全部。
+const COMBO_HEIGHT: f32 = 480.0;
 
 /// 對話框狀態。
 pub struct AssetEdit {
@@ -54,11 +59,14 @@ pub struct AssetEdit {
     pub picker_open: bool,
     /// 下一幀讓這個元件列的版本欄取得焦點（剛加入的元件）
     pub focus_version: Option<usize>,
+    /// 子類別選單（開啟時依設定檔建立一次，不在每一幀重新組字）
+    class_options: Vec<Choice>,
 }
 
 impl AssetEdit {
-    pub fn new(form: AssetForm) -> AssetEdit {
+    pub fn new(form: AssetForm, classes: &AssetClasses) -> AssetEdit {
         AssetEdit {
+            class_options: class_choices(classes, &form.category),
             initial: form.clone(),
             form,
             errors: FormErrors::default(),
@@ -89,9 +97,10 @@ struct Products {
 impl GuiApp {
     /// 「新增資產」。
     pub fn start_new_asset(&mut self) {
-        self.asset_dialog = Some(AssetDialog::Edit(Box::new(
-            AssetEdit::new(AssetForm::new()),
-        )));
+        self.asset_dialog = Some(AssetDialog::Edit(Box::new(AssetEdit::new(
+            AssetForm::new(),
+            &self.ws.settings.classes,
+        ))));
     }
 
     /// 編輯所選的使用中資產。
@@ -99,7 +108,8 @@ impl GuiApp {
         match self.ws.data.asset(tag) {
             Some(entry) => {
                 let form = AssetForm::from_entry(entry);
-                self.asset_dialog = Some(AssetDialog::Edit(Box::new(AssetEdit::new(form))));
+                let edit = AssetEdit::new(form, &self.ws.settings.classes);
+                self.asset_dialog = Some(AssetDialog::Edit(Box::new(edit)));
             }
             None => self.report(cvewatch_frontend::Report::warning(format!(
                 "找不到使用中的資產 {tag}，請重新載入"
@@ -109,6 +119,7 @@ impl GuiApp {
 
     pub(super) fn show_asset_edit(&mut self, ctx: &egui::Context, mut edit: Box<AssetEdit>) {
         let catalog = &self.ws.settings.catalog;
+        let classes = &self.ws.settings.classes;
         let products = Products {
             matching: search_products(catalog, &edit.search),
             all: product_choices(catalog),
@@ -117,7 +128,7 @@ impl GuiApp {
         let popup_open = egui::Popup::is_any_open(ctx);
         let mut action = None;
         egui::Modal::new(egui::Id::unique("dialog-asset-edit")).show(ctx, |ui| {
-            action = body(ui, &mut edit, &products, catalog);
+            action = body(ui, &mut edit, &products, catalog, classes);
         });
         if action.is_none() && !popup_open && !edit.dirty() && escape_pressed(ctx) {
             action = Some(Action::Cancel);
@@ -171,6 +182,7 @@ fn body(
     edit: &mut AssetEdit,
     products: &Products,
     catalog: &Catalog,
+    classes: &AssetClasses,
 ) -> Option<Action> {
     let title = match &edit.form.mode {
         FormMode::New => "新增資產".to_string(),
@@ -180,7 +192,7 @@ fn body(
     egui::ScrollArea::vertical()
         .max_height(560.0)
         .show(ui, |ui| {
-            fields(ui, edit);
+            fields(ui, edit, classes);
             ui.separator();
             components(ui, edit, catalog);
             unresolved(ui, edit, &products.all, catalog);
@@ -251,10 +263,29 @@ fn choice_field(
         None if value.trim().is_empty() => "（請選擇）".to_string(),
         None => one_line(value),
     };
+    combo_field(ui, l.id, value, None, options, field, shown);
+    if errors.field(field).is_some() {
+        ui.label("");
+        field_error(ui, errors, field);
+        ui.end_row();
+    }
+}
+
+/// 下拉選單本體（選項的 `value` 寫回 `value`）；`first` 列在 `options` 之前。
+fn combo_field(
+    ui: &mut egui::Ui,
+    label: egui::Id,
+    value: &mut String,
+    first: Option<&Choice>,
+    options: &[Choice],
+    field: StandardField,
+    shown: String,
+) {
     let combo = egui::ComboBox::from_id_salt(("asset-field", field.as_str()))
         .selected_text(shown)
+        .height(COMBO_HEIGHT)
         .show_ui(ui, |ui| {
-            for o in options {
+            for o in first.into_iter().chain(options) {
                 if ui
                     .selectable_label(value.as_str() == o.value, &o.text)
                     .clicked()
@@ -263,13 +294,70 @@ fn choice_field(
                 }
             }
         });
-    combo.response.labelled_by(l.id);
+    combo.response.labelled_by(label);
     ui.end_row();
+}
+
+/// 「依類別（2）」；子類別沒有範本值或類別未選時為「依類別（無預設）」。
+fn template_text(template: Option<u8>) -> String {
+    match template {
+        Some(n) => format!("依類別（{n}）"),
+        None => "依類別（無預設）".to_string(),
+    }
+}
+
+/// C/I/A 下拉選單：第一項「依類別（N）」（空白），其後 1–4。
+fn rating_field(
+    ui: &mut egui::Ui,
+    form: &mut AssetForm,
+    field: StandardField,
+    template: Option<u8>,
+    errors: &FormErrors,
+) {
+    let l = ui.label(label_text(field));
+    let by_class = Choice {
+        value: String::new(),
+        text: template_text(template),
+    };
+    let ratings = &FIELD_OPTIONS.ratings;
+    let Some(value) = form.rating_mut(field) else {
+        return;
+    };
+    let shown = match std::iter::once(&by_class)
+        .chain(ratings)
+        .find(|o| o.value == value.trim())
+    {
+        Some(o) => o.text.clone(),
+        None => one_line(value),
+    };
+    combo_field(ui, l.id, value, Some(&by_class), ratings, field, shown);
     if errors.field(field).is_some() {
         ui.label("");
         field_error(ui, errors, field);
         ui.end_row();
     }
+}
+
+/// 子類別選單：已定義子類別依代碼排序，以「代碼 名稱」呈現；目前值未定義時另列「HW12（未定義）」。
+fn class_choices(classes: &AssetClasses, current: &str) -> Vec<Choice> {
+    let mut out: Vec<Choice> = classes
+        .all()
+        .iter()
+        .map(|c| Choice {
+            value: c.code.to_string(),
+            text: c.label(),
+        })
+        .collect();
+    let current = current.trim();
+    if let Some(code) = cvewatch_core::assets::ClassCode::parse(current) {
+        if classes.get(&code).is_none() {
+            out.push(Choice {
+                value: current.to_string(),
+                text: class_label(&code, classes),
+            });
+        }
+    }
+    out
 }
 
 /// 下拉選單的一個選項：儲存的值（英文）與顯示文字。
@@ -281,11 +369,10 @@ struct Choice {
 /// 選項內容固定，只建立一次（不在每一幀重新組字）。
 static FIELD_OPTIONS: LazyLock<FieldOptions> = LazyLock::new(FieldOptions::new);
 
-/// 下拉選單的選項：類別、曝露度（雙語）、重要性。
+/// 固定的下拉選單選項：曝露度（雙語）、C/I/A 1–4（子類別選項依設定檔，於開啟對話框時建立）。
 struct FieldOptions {
-    categories: Vec<Choice>,
     exposures: Vec<Choice>,
-    levels: Vec<Choice>,
+    ratings: Vec<Choice>,
 }
 
 impl FieldOptions {
@@ -295,24 +382,26 @@ impl FieldOptions {
             text,
         };
         FieldOptions {
-            categories: Category::ALL
-                .iter()
-                .map(|c| choice(c.as_str(), category_label(*c)))
-                .collect(),
             exposures: Exposure::ALL
                 .iter()
                 .map(|e| choice(e.as_str(), exposure_label(*e)))
                 .collect(),
-            levels: (MIN_CRITICALITY..=MAX_CRITICALITY)
+            ratings: (MIN_RATING..=MAX_RATING)
                 .map(|n| choice(&n.to_string(), n.to_string()))
                 .collect(),
         }
     }
 }
 
-fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit) {
+/// 即時資產價值的標籤（缺任何一項時為「—」）。
+pub fn asset_value_text(value: Option<u8>) -> String {
+    value.map_or_else(|| "—".to_string(), |v| v.to_string())
+}
+
+fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit, classes: &AssetClasses) {
     let errors = edit.errors.clone();
     let options = &*FIELD_OPTIONS;
+    let categories = &edit.class_options;
     let f = &mut edit.form;
     egui::Grid::new("asset-fields")
         .num_columns(2)
@@ -329,13 +418,7 @@ fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit) {
                 ui.end_row();
             }
             text_field(ui, &mut f.name, &errors, F::Name);
-            choice_field(
-                ui,
-                &mut f.category,
-                &options.categories,
-                &errors,
-                F::Category,
-            );
+            choice_field(ui, &mut f.category, categories, &errors, F::Category);
             choice_field(
                 ui,
                 &mut f.exposure,
@@ -343,13 +426,16 @@ fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit) {
                 &errors,
                 F::Exposure,
             );
-            choice_field(
-                ui,
-                &mut f.criticality,
-                &options.levels,
-                &errors,
-                F::Criticality,
-            );
+            // 每一幀只解析一次目前的子類別
+            let template = f.class(classes).and_then(|c| c.template);
+            for (field, _) in RATING_FIELDS {
+                let t = template.and_then(|t| t.rating(field));
+                rating_field(ui, f, field, t, &errors);
+            }
+            ui.label("資產價值");
+            ui.label(asset_value_text(f.asset_value_with(template)));
+            ui.end_row();
+            text_field(ui, &mut f.isms_id, &errors, F::IsmsId);
             text_field(ui, &mut f.location, &errors, F::Location);
             text_field(ui, &mut f.owner, &errors, F::Owner);
             text_field(ui, &mut f.notes, &errors, F::Notes);

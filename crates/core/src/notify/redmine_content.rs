@@ -303,7 +303,7 @@ mod tests {
             status: Status::Open,
             still_vulnerable: false,
             scores: ScoreInputs::default(),
-            criticality: 2,
+            asset_value: 2,
             component_removed: false,
             manual: false,
             asset_name: asset.into(),

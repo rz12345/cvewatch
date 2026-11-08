@@ -5,8 +5,8 @@ use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
 use cvewatch_core::assets::{
-    Asset, AssetFilter, AssetRepo, AssetStatus, Component, ComponentRepo, HistoryEntry,
-    UnresolvedEntry,
+    Asset, AssetClasses, AssetFilter, AssetRepo, AssetStatus, ClassFilter, Component,
+    ComponentRepo, HistoryEntry, UnresolvedEntry,
 };
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::ingest::runlog::{self, RunRow};
@@ -28,15 +28,19 @@ pub const SYNC_LOG_LIMIT: u32 = 50;
 /// 寫入操作需要的設定（與 CLI 相同）。
 pub struct Settings {
     pub catalog: Catalog,
+    /// 目前生效的 ISMS 子類別（內建 + 設定檔）
+    pub classes: AssetClasses,
     pub scoring: ScoringConfig,
     pub stale_days: u32,
 }
 
 /// 資產畫面清單的篩選。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AssetListFilter {
     /// 含已退役資產
     pub include_retired: bool,
+    /// 子類別或大類（None = 全部；選項見 [`crate::filter::class_filter_choices`]）
+    pub class: Option<ClassFilter>,
 }
 
 #[derive(Debug, Clone)]
@@ -105,12 +109,15 @@ impl Snapshot {
         })
     }
 
-    /// 資產畫面的清單（依 asset_tag 排序）；`include_retired` 時含已退役資產。
+    /// 資產畫面的清單（依 asset_tag 排序）；`include_retired` 時含已退役資產，`class` 篩選子類別或大類。
     pub fn asset_list(&self, filter: &AssetListFilter) -> Vec<&AssetEntry> {
         let mut list: Vec<&AssetEntry> = self.assets.iter().collect();
         if filter.include_retired {
             list.extend(self.retired_assets.iter());
             list.sort_by(|a, b| a.asset.record.asset_tag.cmp(&b.asset.record.asset_tag));
+        }
+        if let Some(class) = &filter.class {
+            list.retain(|a| class.matches(&a.asset.record.category));
         }
         list
     }

@@ -218,7 +218,7 @@ mod tests {
                 epss: None,
                 cvss: Some(7.5),
             },
-            criticality: 2,
+            asset_value: 2,
             component_removed: false,
             manual: false,
             asset_name: "FW-01".into(),

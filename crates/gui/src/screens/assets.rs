@@ -8,7 +8,7 @@ use cvewatch_core::catalog::Catalog;
 use cvewatch_core::matching::query::FindingRow;
 use cvewatch_frontend::data::AssetEntry;
 use cvewatch_frontend::display::{
-    category_label, component_name, exposure_label, product_name, shown_name,
+    class_label, component_name, exposure_label, product_name, shown_name,
 };
 use cvewatch_frontend::Report;
 use eframe::egui;
@@ -109,10 +109,20 @@ impl GuiApp {
                 heading(ui, detail_title(a));
                 action = detail_buttons(ui, &r.asset_tag, retired);
                 ui.label(format!(
-                    "類別 {}｜曝露度 {}｜重要性 {}",
-                    category_label(r.category),
-                    exposure_label(r.exposure),
-                    r.criticality
+                    "類別 {}｜曝露度 {}",
+                    class_label(&r.category, &self.ws.settings.classes),
+                    exposure_label(r.exposure)
+                ));
+                ui.label(format!(
+                    "機密性 {}｜完整性 {}｜可用性 {}｜資產價值 {}",
+                    r.cia.confidentiality,
+                    r.cia.integrity,
+                    r.cia.availability,
+                    r.cia.value()
+                ));
+                ui.label(format!(
+                    "ISMS 編號 {}",
+                    r.isms_id.as_deref().map_or("—".to_string(), one_line)
                 ));
                 ui.label(format!(
                     "未處理命中 {} 筆｜全部命中 {} 筆",

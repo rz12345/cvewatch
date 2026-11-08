@@ -45,7 +45,7 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
         AssetAction::Show { asset_tag } => asset_view::show(app, &asset_tag),
         AssetAction::Rename { asset_tag, new_tag } => rename(app, &asset_tag, &new_tag),
         AssetAction::Export { path } => export(app, &path),
-        AssetAction::Template { path } => template(&path),
+        AssetAction::Template { path } => template(app, &path),
         AssetAction::Catalog { unresolved, action } => match (unresolved, action) {
             (true, _) => asset_view::catalog_unresolved(app),
             (false, None | Some(CatalogAction::List)) => asset_view::catalog_list(app),
@@ -61,8 +61,9 @@ fn import(
     options: ImportOptions,
 ) -> Result<ExitCode, CoreError> {
     let columns = ColumnMap::from_config(&app.loaded.config.import.columns)?;
+    let classes = app.loaded.config.asset_classes()?;
     let book = read_inventory(file, components)?;
-    let inventory = parse_inventory(&book, &columns)?;
+    let inventory = parse_inventory(&book, &columns, &classes)?;
     let catalog = app.load_catalog()?;
     let mut conn = open_working_db(&app.paths, &app.store)?;
     let plan = import_inventory(&mut conn, &catalog, &inventory, options, chrono::Utc::now())?;
@@ -209,9 +210,12 @@ fn rename(app: &App, tag: &str, new_tag: &str) -> Result<ExitCode, CoreError> {
     Ok(ExitCode::Success)
 }
 
-fn template(path: &Path) -> Result<ExitCode, CoreError> {
-    write_template(path)?;
+fn template(app: &App, path: &Path) -> Result<ExitCode, CoreError> {
+    write_template(path, &app.loaded.config.asset_classes()?)?;
     println!("已產生範本：{}", path.display());
-    println!("工作表 assets：一列一台設備；components：同一台設備的其他元件（選填）。");
+    println!(
+        "工作表 assets：一列一台設備；components：同一台設備的其他元件（選填）；\
+         classes：子類別代碼與 C/I/A 範本值（匯入時不讀）。"
+    );
     Ok(ExitCode::Success)
 }

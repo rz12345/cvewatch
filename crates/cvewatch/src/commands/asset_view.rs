@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 
 use cvewatch_core::assets::plan::ImportPlan;
-use cvewatch_core::assets::{AssetFilter, AssetRepo, Category, ComponentRepo};
+use cvewatch_core::assets::{AssetFilter, AssetRepo, ClassFilter, ComponentRepo};
 use cvewatch_core::catalog::Product;
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::{CoreError, ExitCode};
@@ -11,18 +11,27 @@ use cvewatch_core::{CoreError, ExitCode};
 use crate::app::App;
 
 pub fn print_plan_details(plan: &ImportPlan) {
+    for line in plan_detail_lines(plan) {
+        println!("{line}");
+    }
+}
+
+/// 匯入差異的明細（GUI 匯入預覽顯示同一份輸出）：新增、更新、未辨識產品、版本警告，
+/// 之後是 notice（舊版 category 值、停用欄位；13 design D3），最後是清冊中消失的資產。
+pub fn plan_detail_lines(plan: &ImportPlan) -> Vec<String> {
+    let mut out = Vec::new();
     if !plan.added.is_empty() {
-        println!("新增：{}", plan.added.join("、"));
+        out.push(format!("新增：{}", plan.added.join("、")));
     }
     if !plan.updated.is_empty() {
-        println!("更新：");
+        out.push("更新：".to_string());
     }
     for u in &plan.updated {
         for v in &u.version_changes {
-            println!(
+            out.push(format!(
                 "  {} 版本 {} → {}（{}）",
                 u.asset_tag, v.from, v.to, v.product_key
-            );
+            ));
         }
         let mut notes = Vec::new();
         if !u.changed_fields.is_empty() {
@@ -38,11 +47,11 @@ pub fn print_plan_details(plan: &ImportPlan) {
             notes.push("重新啟用（先前已退役）".to_string());
         }
         if !notes.is_empty() {
-            println!("  {} {}", u.asset_tag, notes.join("；"));
+            out.push(format!("  {} {}", u.asset_tag, notes.join("；")));
         }
     }
     if !plan.unresolved.is_empty() {
-        println!("未辨識產品（不建立元件，可在 catalog.d 補別名）：");
+        out.push("未辨識產品（不建立元件，可在 catalog.d 補別名）：".to_string());
     }
     for item in &plan.unresolved {
         let hint = if item.suggestions.is_empty() {
@@ -50,23 +59,28 @@ pub fn print_plan_details(plan: &ImportPlan) {
         } else {
             format!("建議：{}", item.suggestions.join("、"))
         };
-        println!(
+        out.push(format!(
             "  {} {}「{}」→ {hint}",
             item.row, item.asset_tag, item.product_raw
-        );
+        ));
     }
     if !plan.warnings.is_empty() {
-        println!("版本無法解析（仍保存原始字串）：");
+        out.push("版本無法解析（仍保存原始字串）：".to_string());
     }
     for w in &plan.warnings {
-        match w.row {
-            Some(row) => println!("  {row} {}", w.describe()),
-            None => println!("  {}", w.describe()),
-        }
+        out.push(match w.row {
+            Some(row) => format!("  {row} {}", w.describe()),
+            None => format!("  {}", w.describe()),
+        });
     }
+    if !plan.notices.is_empty() {
+        out.push("提醒：".to_string());
+    }
+    out.extend(plan.notices.iter().map(|n| format!("  {n}")));
     if !plan.disappeared.is_empty() {
-        println!("清冊中消失：{}", plan.disappeared.join("、"));
+        out.push(format!("清冊中消失：{}", plan.disappeared.join("、")));
     }
+    out
 }
 
 pub fn list(
@@ -77,7 +91,7 @@ pub fn list(
     let conn = open_working_db(&app.paths, &app.store)?;
     let repo = AssetRepo::new(&conn);
     let filter = AssetFilter {
-        category: category.and_then(Category::parse),
+        category: category.and_then(ClassFilter::parse),
         include_retired: false,
     };
     let unresolved: BTreeMap<String, usize> =
@@ -89,8 +103,8 @@ pub fn list(
             });
     let components = ComponentRepo::new(&conn);
     println!(
-        "{:<14} {:<16} {:<15} {:<9} {:>4} {:>5}  未辨識",
-        "asset_tag", "name", "category", "exposure", "重要", "元件"
+        "{:<14} {:<16} {:<9} {:<9} {:>4} {:>5}  未辨識",
+        "asset_tag", "name", "category", "exposure", "價值", "元件"
     );
     let mut shown = 0;
     for asset in repo.list(&filter)? {
@@ -103,12 +117,12 @@ pub fn list(
         }
         let r = &asset.record;
         println!(
-            "{:<14} {:<16} {:<15} {:<9} {:>4} {:>5}  {}",
+            "{:<14} {:<16} {:<9} {:<9} {:>4} {:>5}  {}",
             r.asset_tag,
             r.name,
             r.category.as_str(),
             r.exposure.as_str(),
-            r.criticality,
+            r.cia.value(),
             components.for_asset(asset.id)?.len(),
             if pending > 0 {
                 pending.to_string()
@@ -128,11 +142,18 @@ pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
         .find_by_tag(tag)?
         .ok_or_else(|| CoreError::Invalid(format!("找不到資產「{tag}」")))?;
     let r = &asset.record;
+    let classes = app.loaded.config.asset_classes()?;
     println!("{}（{}）", r.asset_tag, r.name);
     println!(
-        "  類別 {}、曝露度 {}、重要性 {}、狀態 {}",
-        r.category, r.exposure, r.criticality, asset.status
+        "  類別 {}、曝露度 {}、狀態 {}",
+        classes.label(&r.category),
+        r.exposure,
+        asset.status
     );
+    println!("  C/I/A {}（價值 {}）", r.cia, r.cia.value());
+    if let Some(id) = &r.isms_id {
+        println!("  ISMS 編號 {id}");
+    }
     for (label, value) in [
         ("地點", &r.location),
         ("負責人", &r.owner),
@@ -276,4 +297,54 @@ pub fn catalog_unresolved(app: &App) -> Result<ExitCode, CoreError> {
         app.paths.catalog_dir.display()
     );
     Ok(ExitCode::Success)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use cvewatch_core::assets::columns::ColumnMap;
+    use cvewatch_core::assets::import::{import_inventory, ImportOptions};
+    use cvewatch_core::assets::sheet::read_inventory;
+    use cvewatch_core::assets::validate::parse_inventory;
+    use cvewatch_core::assets::AssetClasses;
+    use cvewatch_core::catalog::Catalog;
+    use cvewatch_core::db::migrate::migrate;
+
+    use super::*;
+
+    /// 13 任務 5.4：舊清冊的預覽在版本警告之後列出舊值轉換與 criticality 停用的提醒。
+    #[test]
+    fn legacy_inventory_preview_lists_notices_after_version_warnings() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/inventory_legacy.xlsx");
+        let book = read_inventory(&path, None).unwrap();
+        let inventory =
+            parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let options = ImportOptions {
+            dry_run: true,
+            prune: false,
+        };
+        let plan = import_inventory(
+            &mut conn,
+            &Catalog::seed().unwrap(),
+            &inventory,
+            options,
+            chrono::Utc::now(),
+        )
+        .unwrap();
+        let lines = plan_detail_lines(&plan);
+        let at = |needle: &str| {
+            lines
+                .iter()
+                .position(|l| l.contains(needle))
+                .unwrap_or_else(|| panic!("缺少「{needle}」：{lines:#?}"))
+        };
+        assert!(at("版本無法解析") < at("提醒："), "{lines:#?}");
+        assert!(at("提醒：") < at("security 已轉為 HW03 資安設備"));
+        assert!(at("第 2 列 FW-01：security 已轉為 HW03 資安設備") > 0);
+        at("criticality 欄已停用");
+    }
 }

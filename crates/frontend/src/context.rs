@@ -55,6 +55,7 @@ pub fn build(runtime: &Runtime, options: ContextOptions) -> Result<Context, Core
         conn,
         settings: Settings {
             catalog,
+            classes: config.asset_classes()?,
             scoring: config.scoring.clone(),
             stale_days: config.pending.stale_days,
         },

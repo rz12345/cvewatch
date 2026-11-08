@@ -1,15 +1,19 @@
-//! 列驗證：必填欄位、category / exposure / criticality 範圍、重複 asset_tag。
-//! 所有錯誤彙整後一次回報，匯入整批中止。
+//! 清冊驗證：逐列驗證資產欄位（[`super::record`]）、重複 asset_tag 與 ISMS 編號、元件工作表。
+//! 所有錯誤彙整後一次回報，匯入整批中止；舊版 category 值與停用欄位只產生 notice。
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 
+use super::classes::AssetClasses;
 use super::columns::{ColumnMap, SheetKind, StandardField};
-use super::model::{
-    AssetRecord, Category, Exposure, DEFAULT_CRITICALITY, MAX_CRITICALITY, MIN_CRITICALITY,
-};
+use super::model::AssetRecord;
 use super::sheet::{Sheet, SheetRow, Workbook};
 use crate::error::CoreError;
+
+pub use super::record::{
+    validate_import_record, validate_record, FieldError, FieldErrorKind, RecordInput, ValidRecord,
+    RATING_FIELDS, REQUIRED_FIELDS,
+};
 
 /// 錯誤訊息中的列位置。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -42,9 +46,39 @@ pub struct IncomingAsset {
     pub components: Vec<IncomingComponent>,
 }
 
+/// 不中止匯入的提醒（13 design D3）：舊版 category 值的轉換、停用欄位。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportNotice {
+    /// 整批的提醒（例如停用欄位）為 None
+    pub row: Option<RowRef>,
+    pub asset_tag: Option<String>,
+    pub message: String,
+}
+
+impl fmt::Display for ImportNotice {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match (&self.row, &self.asset_tag) {
+            (Some(row), Some(tag)) => write!(f, "{row} {tag}：{}", self.message),
+            (Some(row), None) => write!(f, "{row}：{}", self.message),
+            (None, Some(tag)) => write!(f, "{tag}：{}", self.message),
+            (None, None) => f.write_str(&self.message),
+        }
+    }
+}
+
+/// 停用的 `criticality` 欄（整批一次）。
+pub const CRITICALITY_NOTICE: &str =
+    "清冊的 criticality 欄已停用，改用 confidentiality、integrity、availability";
+
+/// 清冊沒有 `isms_id` 欄（例如 13 之前的舊清冊）時保留既有資產的 ISMS 編號（整批一次）。
+pub const ISMS_KEPT_NOTICE: &str = "清冊沒有 isms_id 欄，保留資料庫中既有資產的 ISMS 編號";
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Inventory {
     pub assets: Vec<IncomingAsset>,
+    pub notices: Vec<ImportNotice>,
+    /// assets 工作表沒有 `isms_id` 欄：既有資產沿用資料庫中的 ISMS 編號（不視為清空）
+    pub keep_isms_ids: bool,
 }
 
 struct RowReader<'a> {
@@ -71,10 +105,29 @@ impl RowReader<'_> {
 }
 
 /// 驗證整份清冊並轉成匯入資料；有任何錯誤時回傳 [`CoreError::ImportRejected`]。
-pub fn parse_inventory(book: &Workbook, columns: &ColumnMap) -> Result<Inventory, CoreError> {
+pub fn parse_inventory(
+    book: &Workbook,
+    columns: &ColumnMap,
+    classes: &AssetClasses,
+) -> Result<Inventory, CoreError> {
     let mut errors = Vec::new();
     let asset_cols = columns.locate(&book.assets.headers, SheetKind::Assets)?;
-    let mut assets = parse_assets(&book.assets, &asset_cols, &mut errors);
+    let mut notices: Vec<ImportNotice> = columns
+        .deprecated_in(&book.assets.headers)
+        .into_iter()
+        .map(|_| ImportNotice {
+            row: None,
+            asset_tag: None,
+            message: CRITICALITY_NOTICE.to_string(),
+        })
+        .collect();
+    let mut assets = parse_assets(
+        &book.assets,
+        &asset_cols,
+        classes,
+        &mut notices,
+        &mut errors,
+    );
     if let Some(sheet) = &book.components {
         let comp_cols = columns.locate(&sheet.headers, SheetKind::Components)?;
         let known = column_values(&book.assets, &asset_cols, StandardField::AssetTag);
@@ -83,15 +136,46 @@ pub fn parse_inventory(book: &Workbook, columns: &ColumnMap) -> Result<Inventory
     if !errors.is_empty() {
         return Err(CoreError::ImportRejected(errors));
     }
-    Ok(Inventory { assets })
+    Ok(Inventory {
+        assets,
+        notices,
+        keep_isms_ids: !asset_cols.contains_key(&StandardField::IsmsId),
+    })
+}
+
+/// 同一份清冊內重複的值（asset_tag 區分大小寫，ISMS 編號不分大小寫）；含驗證失敗的列。
+#[derive(Default)]
+struct SeenValues {
+    tags: HashMap<String, usize>,
+    isms: HashMap<String, usize>,
+}
+
+impl SeenValues {
+    fn check(&mut self, r: &RowReader<'_>, errors: &mut Vec<String>) {
+        let at = r.at;
+        let tag = r.get(StandardField::AssetTag);
+        if !tag.is_empty() {
+            if let Some(first) = self.tags.insert(tag.to_string(), r.row.number) {
+                errors.push(format!("{at}：asset_tag「{tag}」與第 {first} 列重複"));
+            }
+        }
+        let isms = r.get(StandardField::IsmsId);
+        if !isms.is_empty() {
+            if let Some(first) = self.isms.insert(isms.to_ascii_lowercase(), r.row.number) {
+                errors.push(format!("{at}：ISMS 編號「{isms}」與第 {first} 列重複"));
+            }
+        }
+    }
 }
 
 fn parse_assets(
     sheet: &Sheet,
     columns: &HashMap<StandardField, usize>,
+    classes: &AssetClasses,
+    notices: &mut Vec<ImportNotice>,
     errors: &mut Vec<String>,
 ) -> Vec<IncomingAsset> {
-    let mut seen: HashMap<String, usize> = HashMap::new();
+    let mut seen = SeenValues::default();
     let mut out = Vec::new();
     for row in &sheet.rows {
         let at = RowRef {
@@ -100,218 +184,82 @@ fn parse_assets(
         };
         let reader = RowReader { row, at, columns };
         let before = errors.len();
-        let parsed = parse_asset_row(&reader, errors);
-        let tag = parsed.record.asset_tag.clone();
-        if !tag.is_empty() {
-            if let Some(first) = seen.insert(tag.clone(), row.number) {
-                errors.push(format!("{at}：asset_tag「{tag}」與第 {first} 列重複"));
-            }
-        }
-        if errors.len() == before {
+        let parsed = parse_asset_row(&reader, classes, notices, errors);
+        seen.check(&reader, errors);
+        if let (Some(parsed), true) = (parsed, errors.len() == before) {
             out.push(parsed);
         }
     }
     out
 }
 
-fn parse_asset_row(r: &RowReader<'_>, errors: &mut Vec<String>) -> IncomingAsset {
-    let input = RecordInput {
+/// 一列的原始輸入（停用欄位不讀）。
+fn row_input<'a>(r: &'a RowReader<'_>) -> RecordInput<'a> {
+    RecordInput {
         asset_tag: r.get(StandardField::AssetTag),
         name: r.get(StandardField::Name),
         category: r.get(StandardField::Category),
         exposure: r.get(StandardField::Exposure),
-        criticality: r.get(StandardField::Criticality),
+        confidentiality: r.get(StandardField::Confidentiality),
+        integrity: r.get(StandardField::Integrity),
+        availability: r.get(StandardField::Availability),
+        isms_id: r.get(StandardField::IsmsId),
         location: r.get(StandardField::Location),
         owner: r.get(StandardField::Owner),
         notes: r.get(StandardField::Notes),
+    }
+}
+
+fn parse_asset_row(
+    r: &RowReader<'_>,
+    classes: &AssetClasses,
+    notices: &mut Vec<ImportNotice>,
+    errors: &mut Vec<String>,
+) -> Option<IncomingAsset> {
+    let valid = match validate_import_record(&row_input(r), classes) {
+        Ok(v) => Some(v),
+        Err(field_errors) => {
+            // 沒有範本值的子類別：每個空白的 C/I/A 各一筆錯誤但訊息相同，清冊只列一次
+            let mut lines: Vec<String> = Vec::new();
+            for e in field_errors {
+                let line = format!("{}：{}", r.at, e.message);
+                if !lines.contains(&line) {
+                    lines.push(line);
+                }
+            }
+            errors.extend(lines);
+            None
+        }
     };
-    let record = validate_record(&input).unwrap_or_else(|field_errors| {
-        errors.extend(
-            field_errors
-                .iter()
-                .map(|e| format!("{}：{}", r.at, e.message)),
-        );
-        fallback_record(&input)
-    });
     let product_raw = r.required(StandardField::Product, errors);
     let version_raw = r.required(StandardField::Version, errors);
-    IncomingAsset {
+    let valid = valid?;
+    if let Some(old) = &valid.legacy {
+        notices.push(legacy_notice(r.at, &valid.record, old, classes));
+    }
+    Some(IncomingAsset {
         row: r.at,
-        record,
+        record: valid.record,
         components: vec![IncomingComponent {
             row: r.at,
             product_raw,
             version_raw,
         }],
-    }
-}
-
-/// 單筆資產欄位的原始輸入（清冊儲存格或畫面輸入框）；前後空白在驗證時去除。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct RecordInput<'a> {
-    pub asset_tag: &'a str,
-    pub name: &'a str,
-    pub category: &'a str,
-    /// 空白時為預設 internal
-    pub exposure: &'a str,
-    /// 空白時為預設 2
-    pub criticality: &'a str,
-    pub location: &'a str,
-    pub owner: &'a str,
-    pub notes: &'a str,
-}
-
-impl RecordInput<'_> {
-    /// 欄位的原始輸入；product、version 不屬於資產欄位，回傳空字串。
-    pub fn value(&self, field: StandardField) -> &str {
-        match field {
-            StandardField::AssetTag => self.asset_tag,
-            StandardField::Name => self.name,
-            StandardField::Category => self.category,
-            StandardField::Exposure => self.exposure,
-            StandardField::Criticality => self.criticality,
-            StandardField::Location => self.location,
-            StandardField::Owner => self.owner,
-            StandardField::Notes => self.notes,
-            StandardField::Product | StandardField::Version => "",
-        }
-    }
-}
-
-/// 資產欄位中的必填欄位（依驗證與錯誤回報的順序）。
-pub const REQUIRED_FIELDS: [StandardField; 3] = [
-    StandardField::AssetTag,
-    StandardField::Name,
-    StandardField::Category,
-];
-
-/// 欄位錯誤的種類（讓畫面以自己的用語呈現，不必解析 `message`）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum FieldErrorKind {
-    /// 必填欄位空白
-    Missing,
-    /// 不是允許的值（category、exposure）
-    NotAllowed,
-    /// 超出範圍或不是數字（criticality）
-    OutOfRange,
-}
-
-/// 單一欄位的驗證錯誤；`message` 不含列位置（匯入時加上「第 N 列：」）。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FieldError {
-    pub field: StandardField,
-    pub kind: FieldErrorKind,
-    pub message: String,
-}
-
-impl FieldError {
-    fn new(field: StandardField, kind: FieldErrorKind, message: String) -> FieldError {
-        FieldError {
-            field,
-            kind,
-            message,
-        }
-    }
-}
-
-fn optional_text(v: &str) -> Option<String> {
-    let v = v.trim();
-    (!v.is_empty()).then(|| v.to_string())
-}
-
-/// 驗證資產欄位（必填、category / exposure / criticality 允許值與預設值）；
-/// 清冊匯入與畫面編修共用，錯誤依欄位順序回報。
-pub fn validate_record(input: &RecordInput<'_>) -> Result<AssetRecord, Vec<FieldError>> {
-    let mut errors = Vec::new();
-    for field in REQUIRED_FIELDS {
-        if input.value(field).trim().is_empty() {
-            errors.push(FieldError::new(
-                field,
-                FieldErrorKind::Missing,
-                format!("缺少 {}", field.as_str()),
-            ));
-        }
-    }
-    let category = parse_enum(
-        input.category.trim(),
-        StandardField::Category,
-        Category::parse,
-        Category::allowed,
-        &mut errors,
-    );
-    let exposure = parse_enum(
-        input.exposure.trim(),
-        StandardField::Exposure,
-        Exposure::parse,
-        Exposure::allowed,
-        &mut errors,
-    );
-    let criticality = parse_criticality(input.criticality.trim(), &mut errors);
-    if !errors.is_empty() {
-        return Err(errors);
-    }
-    Ok(AssetRecord {
-        asset_tag: input.asset_tag.trim().to_string(),
-        name: input.name.trim().to_string(),
-        category: category.unwrap_or(Category::Host),
-        location: optional_text(input.location),
-        owner: optional_text(input.owner),
-        exposure: exposure.unwrap_or_default(),
-        criticality: criticality.unwrap_or(DEFAULT_CRITICALITY),
-        notes: optional_text(input.notes),
     })
 }
 
-/// 驗證失敗的列仍需要 asset_tag 以偵測重複；其餘欄位不會被使用。
-fn fallback_record(input: &RecordInput<'_>) -> AssetRecord {
-    AssetRecord {
-        asset_tag: input.asset_tag.trim().to_string(),
-        name: input.name.trim().to_string(),
-        category: Category::Host,
-        location: None,
-        owner: None,
-        exposure: Exposure::default(),
-        criticality: DEFAULT_CRITICALITY,
-        notes: None,
-    }
-}
-
-/// 空白回傳 None（必填與否由呼叫端判斷）；不是允許值時記錄錯誤。
-fn parse_enum<T>(
-    value: &str,
-    field: StandardField,
-    parse: fn(&str) -> Option<T>,
-    allowed: fn() -> String,
-    errors: &mut Vec<FieldError>,
-) -> Option<T> {
-    if value.is_empty() {
-        return None;
-    }
-    let parsed = parse(value);
-    if parsed.is_none() {
-        errors.push(FieldError::new(
-            field,
-            FieldErrorKind::NotAllowed,
-            format!("{}「{value}」不是允許的值（{}）", field.as_str(), allowed()),
-        ));
-    }
-    parsed
-}
-
-fn parse_criticality(raw: &str, errors: &mut Vec<FieldError>) -> Option<u8> {
-    if raw.is_empty() {
-        return None;
-    }
-    match raw.parse::<u8>() {
-        Ok(n) if (MIN_CRITICALITY..=MAX_CRITICALITY).contains(&n) => Some(n),
-        _ => {
-            errors.push(FieldError::new(
-                StandardField::Criticality,
-                FieldErrorKind::OutOfRange,
-                format!("criticality「{raw}」必須是 {MIN_CRITICALITY}–{MAX_CRITICALITY}"),
-            ));
-            None
-        }
+/// 「security 已轉為 HW03 資安設備」。
+fn legacy_notice(
+    at: RowRef,
+    record: &AssetRecord,
+    old: &str,
+    classes: &AssetClasses,
+) -> ImportNotice {
+    let label = classes.label(&record.category);
+    ImportNotice {
+        row: Some(at),
+        asset_tag: Some(record.asset_tag.clone()),
+        message: format!("{old} 已轉為 {label}"),
     }
 }
 
@@ -374,118 +322,94 @@ fn attach_components(
 mod tests {
     use super::*;
 
-    fn input<'a>() -> RecordInput<'a> {
-        RecordInput {
-            asset_tag: "FW-02",
-            name: "fw02",
-            category: "security",
-            ..RecordInput::default()
+    fn sheet(headers: &[&str], rows: &[&[&str]]) -> Sheet {
+        Sheet {
+            kind: SheetKind::Assets,
+            headers: headers.iter().map(|s| s.to_string()).collect(),
+            rows: rows
+                .iter()
+                .enumerate()
+                .map(|(i, r)| SheetRow {
+                    number: i + 2,
+                    cells: r.iter().map(|s| s.to_string()).collect(),
+                })
+                .collect(),
         }
     }
 
-    fn fields(r: Result<AssetRecord, Vec<FieldError>>) -> Vec<(StandardField, String)> {
-        r.expect_err("應驗證失敗")
-            .into_iter()
-            .map(|e| (e.field, e.message))
-            .collect()
+    fn parse(rows: &[&[&str]]) -> Result<Inventory, CoreError> {
+        let book = Workbook {
+            assets: sheet(&HEADERS, rows),
+            components: None,
+        };
+        parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin())
+    }
+
+    const HEADERS: [&str; 7] = [
+        "asset_tag",
+        "name",
+        "category",
+        "product",
+        "version",
+        "criticality",
+        "isms_id",
+    ];
+
+    fn rejected(r: Result<Inventory, CoreError>) -> Vec<String> {
+        match r {
+            Err(CoreError::ImportRejected(errors)) => errors,
+            other => panic!("應中止：{other:?}"),
+        }
     }
 
     #[test]
-    fn empty_asset_tag_is_reported_on_its_field() {
-        let errors = fields(validate_record(&RecordInput {
-            asset_tag: "  ",
-            ..input()
-        }));
+    fn legacy_category_and_criticality_give_notices() {
+        let inv = parse(&[
+            &["FW-01", "fw01", "security", "PAN-OS", "11.1.4", "3", ""],
+            &["NAS-01", "nas01", "HW05", "DSM", "7.2", "2", ""],
+        ])
+        .unwrap();
+        let notices: Vec<String> = inv.notices.iter().map(|n| n.to_string()).collect();
         assert_eq!(
-            errors,
-            vec![(StandardField::AssetTag, "缺少 asset_tag".to_string())]
-        );
-    }
-
-    #[test]
-    fn errors_carry_their_kind() {
-        let errors = validate_record(&RecordInput {
-            name: "",
-            category: "router",
-            criticality: "9",
-            ..input()
-        })
-        .expect_err("應驗證失敗");
-        let kinds: Vec<_> = errors.iter().map(|e| (e.field, e.kind)).collect();
-        assert_eq!(
-            kinds,
+            notices,
             vec![
-                (StandardField::Name, FieldErrorKind::Missing),
-                (StandardField::Category, FieldErrorKind::NotAllowed),
-                (StandardField::Criticality, FieldErrorKind::OutOfRange),
+                CRITICALITY_NOTICE.to_string(),
+                "第 2 列 FW-01：security 已轉為 HW03 資安設備".to_string(),
             ]
         );
-        let empty = RecordInput::default();
-        assert!(REQUIRED_FIELDS.iter().all(|f| empty.value(*f).is_empty()));
+        assert_eq!(inv.assets[0].record.category.as_str(), "HW03");
+        assert_eq!(inv.assets[0].record.cia.value(), 4);
     }
 
     #[test]
-    fn invalid_exposure_lists_allowed_values() {
-        let errors = fields(validate_record(&RecordInput {
-            exposure: "public",
-            ..input()
-        }));
-        assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0].0, StandardField::Exposure);
-        assert_eq!(
-            errors[0].1,
-            "exposure「public」不是允許的值（internet、dmz、internal、mgmt）"
-        );
-    }
-
-    #[test]
-    fn criticality_out_of_range_is_rejected() {
-        let errors = fields(validate_record(&RecordInput {
-            criticality: "5",
-            ..input()
-        }));
+    fn duplicate_isms_id_lists_both_rows() {
+        let errors = rejected(parse(&[
+            &["NAS-01", "n1", "HW05", "DSM", "7.2", "", "ALL-HW-005"],
+            &["NAS-02", "n2", "HW05", "DSM", "7.2", "", "all-hw-005"],
+        ]));
         assert_eq!(
             errors,
-            vec![(
-                StandardField::Criticality,
-                "criticality「5」必須是 1–3".to_string()
-            )]
+            vec!["第 3 列：ISMS 編號「all-hw-005」與第 2 列重複".to_string()]
         );
     }
 
     #[test]
-    fn defaults_and_trimming() {
-        let record = validate_record(&RecordInput {
-            asset_tag: " FW-02 ",
-            location: "  ",
-            owner: " 網管組 ",
-            ..input()
-        })
-        .expect("valid");
-        assert_eq!(record.asset_tag, "FW-02");
-        assert_eq!(record.exposure, Exposure::Internal);
-        assert_eq!(record.criticality, DEFAULT_CRITICALITY);
-        assert_eq!(record.category, Category::Security);
-        assert_eq!(record.location, None);
-        assert_eq!(record.owner.as_deref(), Some("網管組"));
-    }
-
-    #[test]
-    fn several_errors_are_reported_in_field_order() {
-        let errors = fields(validate_record(&RecordInput {
-            name: "",
-            category: "router",
-            criticality: "x",
-            ..input()
-        }));
-        let order: Vec<StandardField> = errors.iter().map(|e| e.0).collect();
+    fn application_system_message_appears_once_per_row() {
+        let errors = rejected(parse(&[&["APP-01", "app", "SW01", "PAN-OS", "1", "", ""]]));
         assert_eq!(
-            order,
-            vec![
-                StandardField::Name,
-                StandardField::Category,
-                StandardField::Criticality
-            ]
+            errors,
+            vec!["第 2 列：SW01 應用系統必須填寫機密性、完整性與可用性".to_string()]
         );
+    }
+
+    #[test]
+    fn invalid_rows_still_report_tag_duplicates() {
+        let errors = rejected(parse(&[
+            &["FW-01", "fw01", "printer", "PAN-OS", "1", "", ""],
+            &["FW-01", "fw01", "HW03", "PAN-OS", "1", "", ""],
+        ]));
+        assert_eq!(errors.len(), 2, "{errors:?}");
+        assert!(errors[0].contains("printer"), "{errors:?}");
+        assert_eq!(errors[1], "第 3 列：asset_tag「FW-01」與第 2 列重複");
     }
 }

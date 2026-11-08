@@ -12,25 +12,57 @@ pub enum StandardField {
     Product,
     Version,
     Exposure,
-    Criticality,
+    Confidentiality,
+    Integrity,
+    Availability,
+    IsmsId,
     Location,
     Owner,
     Notes,
+    /// 停用欄位（13 design D3）：表頭仍可辨識，匯入時忽略並給出一次 notice
+    Criticality,
 }
 
+/// `assets` 工作表的欄位順序（範本、匯出與表頭解析；不含停用欄位）。
+const ASSET_COLUMNS: [StandardField; 13] = [
+    StandardField::AssetTag,
+    StandardField::Name,
+    StandardField::Category,
+    StandardField::Product,
+    StandardField::Version,
+    StandardField::Exposure,
+    StandardField::Confidentiality,
+    StandardField::Integrity,
+    StandardField::Availability,
+    StandardField::IsmsId,
+    StandardField::Location,
+    StandardField::Owner,
+    StandardField::Notes,
+];
+
 impl StandardField {
-    pub const ALL: [StandardField; 10] = [
+    /// 所有可辨識的欄名（含停用欄位）。
+    pub const ALL: [StandardField; 14] = [
         StandardField::AssetTag,
         StandardField::Name,
         StandardField::Category,
         StandardField::Product,
         StandardField::Version,
         StandardField::Exposure,
-        StandardField::Criticality,
+        StandardField::Confidentiality,
+        StandardField::Integrity,
+        StandardField::Availability,
+        StandardField::IsmsId,
         StandardField::Location,
         StandardField::Owner,
         StandardField::Notes,
+        StandardField::Criticality,
     ];
+
+    /// 已停用、匯入時忽略的欄位。
+    pub fn is_deprecated(self) -> bool {
+        self == StandardField::Criticality
+    }
 
     pub fn as_str(self) -> &'static str {
         match self {
@@ -40,6 +72,10 @@ impl StandardField {
             StandardField::Product => "product",
             StandardField::Version => "version",
             StandardField::Exposure => "exposure",
+            StandardField::Confidentiality => "confidentiality",
+            StandardField::Integrity => "integrity",
+            StandardField::Availability => "availability",
+            StandardField::IsmsId => "isms_id",
             StandardField::Criticality => "criticality",
             StandardField::Location => "location",
             StandardField::Owner => "owner",
@@ -90,7 +126,7 @@ impl SheetKind {
     /// 範本與表頭解析使用的欄位順序。
     pub fn columns(self) -> &'static [StandardField] {
         match self {
-            SheetKind::Assets => &StandardField::ALL,
+            SheetKind::Assets => &ASSET_COLUMNS,
             SheetKind::Components => self.required(),
         }
     }
@@ -127,6 +163,15 @@ impl ColumnMap {
             .get(&header_key(header))
             .copied()
             .or_else(|| StandardField::parse(header))
+    }
+
+    /// 表頭中出現的停用欄位（每個欄位只列一次，依 [`StandardField::ALL`] 順序）。
+    pub fn deprecated_in(&self, headers: &[String]) -> Vec<StandardField> {
+        StandardField::ALL
+            .into_iter()
+            .filter(|f| f.is_deprecated())
+            .filter(|f| headers.iter().any(|h| self.field_for(h) == Some(*f)))
+            .collect()
     }
 
     /// 表頭 → 欄位位置；缺少必要欄位或重複對應時回傳錯誤。
@@ -216,6 +261,32 @@ mod tests {
             )
             .unwrap_err();
         assert!(err.to_string().contains("asset_tag"), "{err}");
+    }
+
+    #[test]
+    fn criticality_is_recognised_but_not_a_column() {
+        let map = ColumnMap::from_config(&BTreeMap::from([(
+            "重要性".to_string(),
+            "criticality".to_string(),
+        )]))
+        .unwrap();
+        let h = headers(&[
+            "asset_tag",
+            "name",
+            "category",
+            "product",
+            "version",
+            "criticality",
+            "重要性",
+        ]);
+        assert_eq!(map.deprecated_in(&h), vec![StandardField::Criticality]);
+        let found = map.locate(&h, SheetKind::Assets).unwrap();
+        assert!(!found.contains_key(&StandardField::Criticality));
+        assert!(!SheetKind::Assets
+            .columns()
+            .contains(&StandardField::Criticality));
+        assert!(SheetKind::Assets.columns().contains(&StandardField::IsmsId));
+        assert!(map.deprecated_in(&headers(&["asset_tag"])).is_empty());
     }
 
     #[test]

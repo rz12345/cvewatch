@@ -56,6 +56,7 @@ pub fn app_with_config(world: World, glyphs: glyphs::Glyphs, config_text: &str) 
         conn: world.conn,
         settings: Settings {
             catalog: world.catalog,
+            classes: world.classes,
             scoring: world.settings.scoring.clone(),
             stale_days: world.settings.stale_days,
         },
@@ -77,7 +78,7 @@ pub fn seeded_world() -> World {
     w.asset("FW-CORE", "internal", &[("paloalto-panos", "11.1.5")]);
     w.conn
         .execute(
-            "UPDATE asset SET name = ?1, criticality = 3 WHERE asset_tag = 'FW-CORE'",
+            "UPDATE asset SET name = ?1, confidentiality = 3 WHERE asset_tag = 'FW-CORE'",
             params![LONG_NAME],
         )
         .expect("name");

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::de::Error as _;
 use serde::{Deserialize, Deserializer};
 
+use crate::assets::classes::{AssetClassConfig, AssetClasses};
 use crate::matching::pending::DEFAULT_STALE_DAYS;
 use crate::matching::scoring::{
     ScoringConfig, DEFAULT_CVSS_HIGH, DEFAULT_CVSS_MEDIUM, DEFAULT_EPSS_HIGH, DEFAULT_EPSS_MEDIUM,
@@ -56,6 +57,9 @@ pub struct Config {
     pub sources: SourcesConfig,
     pub log: LogConfig,
     pub import: ImportConfig,
+    /// ISMS 子類別的覆寫與新增（`[asset_classes.<代碼>]`，13 design D2）
+    #[serde(deserialize_with = "crate::assets::classes::deserialize_config")]
+    pub asset_classes: BTreeMap<String, AssetClassConfig>,
     /// 風險等級門檻
     pub scoring: ScoringConfig,
     /// 等待區
@@ -293,13 +297,24 @@ fn column_targets<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, St
     use crate::assets::columns::StandardField;
     let map = BTreeMap::<String, String>::deserialize(d)?;
     if let Some((header, target)) = map.iter().find(|(_, t)| StandardField::parse(t).is_none()) {
-        let allowed: Vec<&str> = StandardField::ALL.iter().map(|f| f.as_str()).collect();
+        let allowed: Vec<&str> = StandardField::ALL
+            .iter()
+            .filter(|f| !f.is_deprecated())
+            .map(|f| f.as_str())
+            .collect();
         return Err(D::Error::custom(format!(
             "「{header}」對應的 `{target}` 不是標準欄位；可用：{}",
             allowed.join("、")
         )));
     }
     Ok(map)
+}
+
+impl Config {
+    /// 目前生效的子類別表（內建 + 設定檔；載入設定時已驗證）。
+    pub fn asset_classes(&self) -> Result<AssetClasses, crate::CoreError> {
+        AssetClasses::from_config(&self.asset_classes)
+    }
 }
 
 /// 載入結果：設定、未知欄位警告、是否使用內建預設值。
@@ -454,9 +469,23 @@ level = "info"
 
 [import.columns]
 # 現有清冊使用自訂欄名時，在此對應到標準欄位
-# （asset_tag、name、category、product、version、exposure、criticality、location、owner、notes）
+# （asset_tag、name、category、product、version、exposure、confidentiality、integrity、
+#   availability、isms_id、location、owner、notes）
 # "財產編號" = "asset_tag"
 # "設備名稱" = "name"
+
+# ISMS 子類別：內建 HW01–HW11、SW01–SW07（v2.1），可覆寫名稱、描述與 C/I/A 範本值，
+# 或新增子類別（代碼為 HW 或 SW 加兩位數字；新增時 name 必填，C/I/A 三項全寫或全不寫）。
+# 修改範本值不會改變既有資產的 C/I/A。
+# [asset_classes.HW05]
+# confidentiality = 3
+#
+# [asset_classes.HW12]
+# name = "實驗儀器"
+# description = "示波器、量測儀器等具網路功能的設備"
+# confidentiality = 2
+# integrity = 3
+# availability = 3
 
 [scoring]
 # 風險等級：P1 KEV；P2 EPSS ≥ epss_high 或 CVSS ≥ cvss_high；P3 EPSS ≥ epss_medium 或 CVSS ≥ cvss_medium；

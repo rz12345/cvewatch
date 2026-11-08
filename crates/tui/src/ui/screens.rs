@@ -11,6 +11,7 @@ use super::{cut, full_time, scrolling_table, short_time, table, Scroll, TableSpe
 use crate::app::App;
 use crate::width::sanitize;
 use cvewatch_core::matching::dashboard::{is_interrupted, SourceStatus};
+use cvewatch_frontend::display::{class_label, rating_summary};
 
 /// 資產畫面下方「未辨識產品」區塊最多顯示的列數。
 const UNRESOLVED_ROWS: u16 = 6;
@@ -151,7 +152,7 @@ pub fn assets(frame: &mut Frame<'_>, area: Rect, app: &App) {
                 r.name.clone(),
                 r.category.as_str().to_string(),
                 r.exposure.as_str().to_string(),
-                r.criticality.to_string(),
+                r.cia.value().to_string(),
                 a.components.len().to_string(),
                 a.open_findings.to_string(),
                 match a.unresolved.len() {
@@ -164,7 +165,7 @@ pub fn assets(frame: &mut Frame<'_>, area: Rect, app: &App) {
         let cols = [
             Width::Flex(2),
             Width::Flex(3),
-            Width::Fixed(14),
+            Width::Fixed(6),
             Width::Fixed(8),
             Width::Fixed(4),
             Width::Fixed(4),
@@ -176,7 +177,7 @@ pub fn assets(frame: &mut Frame<'_>, area: Rect, app: &App) {
             "名稱",
             "類別",
             "曝露度",
-            "重要",
+            "價值",
             "元件",
             "未處理",
             "未辨識",
@@ -224,10 +225,14 @@ pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cur
     let mut info = vec![
         bold(format!("{}（{}）", r.asset_tag, r.name)),
         Line::raw(format!(
-            "類別 {}  曝露度 {}  重要性 {}  地點 {}  負責人 {}",
-            r.category.as_str(),
+            "類別 {}  曝露度 {}  {}  ISMS 編號 {}",
+            class_label(&r.category, &app.settings.classes),
             r.exposure.as_str(),
-            r.criticality,
+            rating_summary(&r.cia),
+            r.isms_id.as_deref().unwrap_or("-")
+        )),
+        Line::raw(format!(
+            "地點 {}  負責人 {}",
             r.location.as_deref().unwrap_or("-"),
             r.owner.as_deref().unwrap_or("-")
         )),

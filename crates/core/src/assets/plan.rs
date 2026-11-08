@@ -3,7 +3,7 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::model::{AssetRecord, AssetStatus};
-use super::validate::{IncomingAsset, Inventory, RowRef};
+use super::validate::{ImportNotice, IncomingAsset, Inventory, RowRef, ISMS_KEPT_NOTICE};
 use crate::catalog::{Catalog, Product};
 use crate::error::CoreError;
 
@@ -109,11 +109,14 @@ pub struct ImportPlan {
     pub unresolved: Vec<UnresolvedItem>,
     pub disappeared: Vec<String>,
     pub warnings: Vec<VersionWarning>,
+    /// 不中止匯入的提醒（舊版 category 值、停用欄位；13 design D3），在版本警告之後列出
+    pub notices: Vec<ImportNotice>,
 }
 
 impl ImportPlan {
     /// 是否有影響比對的變更：新增資產、版本或元件增減、重新啟用、曝露度（影響風險等級）。
-    /// 名稱、負責人、位置、備註、類別與重要性（只影響排序，查詢時讀取）不需要重新比對。
+    /// 名稱、負責人、位置、備註、類別、C/I/A（資產價值只影響排序，查詢時讀取）與 ISMS 編號
+    /// 不需要重新比對。
     pub fn affects_matching(&self) -> bool {
         !self.added.is_empty()
             || self.updated.iter().any(|u| {
@@ -148,11 +151,25 @@ pub fn plan_import(
     current: &Snapshot,
 ) -> Result<ImportPlan, CoreError> {
     let mut errors = Vec::new();
-    let mut plan = ImportPlan::default();
+    let mut plan = ImportPlan {
+        notices: inventory.notices.clone(),
+        ..ImportPlan::default()
+    };
     let folded = folded_tags(current);
+    let isms_owners = isms_owners(inventory, current);
+    let mut kept_isms = false;
     for incoming in &inventory.assets {
-        let planned = resolve_asset(incoming, catalog, &mut plan, &mut errors);
+        let mut planned = resolve_asset(incoming, catalog, &mut plan, &mut errors);
+        if inventory.keep_isms_ids {
+            if let Some(existing) = current.get(&planned.record.asset_tag) {
+                kept_isms |= existing.record.isms_id.is_some();
+                planned.record.isms_id = existing.record.isms_id.clone();
+            }
+        }
         let tag = &planned.record.asset_tag;
+        if let Some(message) = isms_conflict(&planned.record, &isms_owners) {
+            errors.push(format!("{}：{message}", incoming.row));
+        }
         match current.get(tag) {
             None => match folded.get(&tag.to_ascii_lowercase()) {
                 // 編號在資料庫區分大小寫，但新增與更名不分大小寫檢查重複（12 code review）
@@ -172,6 +189,13 @@ pub fn plan_import(
     if !errors.is_empty() {
         return Err(CoreError::ImportRejected(errors));
     }
+    if kept_isms {
+        plan.notices.push(ImportNotice {
+            row: None,
+            asset_tag: None,
+            message: ISMS_KEPT_NOTICE.to_string(),
+        });
+    }
     let incoming_tags: HashSet<&str> = plan
         .assets
         .iter()
@@ -186,6 +210,44 @@ pub fn plan_import(
     disappeared.sort();
     plan.disappeared = disappeared;
     Ok(plan)
+}
+
+/// 匯入後仍保留 ISMS 編號的既有資產（不在這次清冊中者，含 retired）：
+/// 編號（不分大小寫）→（asset_tag, 是否退役）。清冊中的資產會改用清冊的編號，不列入。
+fn isms_owners(inventory: &Inventory, current: &Snapshot) -> HashMap<String, (String, bool)> {
+    let incoming: HashSet<&str> = inventory
+        .assets
+        .iter()
+        .map(|a| a.record.asset_tag.as_str())
+        .collect();
+    current
+        .values()
+        .filter(|a| !incoming.contains(a.record.asset_tag.as_str()))
+        .filter_map(|a| {
+            let id = a.record.isms_id.as_ref()?;
+            Some((
+                id.to_ascii_lowercase(),
+                (a.record.asset_tag.clone(), a.status == AssetStatus::Retired),
+            ))
+        })
+        .collect()
+}
+
+/// ISMS 編號已被清冊以外的既有資產使用（含 retired，不分大小寫）時的錯誤訊息。
+fn isms_conflict(record: &AssetRecord, owners: &HashMap<String, (String, bool)>) -> Option<String> {
+    let id = record.isms_id.as_ref()?;
+    let (owner, retired) = owners.get(&id.to_ascii_lowercase())?;
+    Some(isms_in_use_message(id, owner, *retired))
+}
+
+/// 「ISMS 編號 all-hw-005 已被 NAS-02 使用（該資產已退役）」（匯入與畫面編修共用）。
+pub fn isms_in_use_message(isms_id: &str, owner: &str, retired: bool) -> String {
+    let status = if retired {
+        "（該資產已退役）"
+    } else {
+        ""
+    };
+    format!("ISMS 編號 {isms_id} 已被 {owner} 使用{status}")
 }
 
 /// 既有資產編號（不分 ASCII 大小寫，與 SQLite `COLLATE NOCASE` 相同）→ 實際寫法。
@@ -246,13 +308,17 @@ fn resolve_asset(
 }
 
 fn changed_fields(old: &AssetRecord, new: &AssetRecord) -> Vec<&'static str> {
-    let checks: [(&'static str, bool); 7] = [
+    let (a, b) = (&old.cia, &new.cia);
+    let checks: [(&'static str, bool); 10] = [
         ("name", old.name != new.name),
         ("category", old.category != new.category),
         ("location", old.location != new.location),
         ("owner", old.owner != new.owner),
         ("exposure", old.exposure != new.exposure),
-        ("criticality", old.criticality != new.criticality),
+        ("confidentiality", a.confidentiality != b.confidentiality),
+        ("integrity", a.integrity != b.integrity),
+        ("availability", a.availability != b.availability),
+        ("isms_id", old.isms_id != new.isms_id),
         ("notes", old.notes != new.notes),
     ];
     checks

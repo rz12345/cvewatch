@@ -1,6 +1,7 @@
 //! 比對測試共用：記憶體資料庫、資產與 CVE 資料建構器、查詢命中與等待區。
 
 use chrono::{DateTime, Utc};
+use cvewatch_core::assets::AssetClasses;
 use cvewatch_core::catalog::store::sync_catalog;
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::ingest::cve5;
@@ -21,6 +22,8 @@ pub fn at(s: &str) -> DateTime<Utc> {
 pub struct World {
     pub conn: Connection,
     pub catalog: Catalog,
+    /// 內建子類別表（畫面編修與匯入使用）
+    pub classes: AssetClasses,
     pub settings: MatchSettings,
     /// 最近一次比對的時間（逾期以此計算）
     pub last_run: String,
@@ -38,6 +41,7 @@ pub fn world_with(extra: Option<&str>) -> World {
     World {
         conn,
         catalog,
+        classes: AssetClasses::builtin(),
         settings: MatchSettings::default(),
         last_run: T0.to_string(),
     }
@@ -71,8 +75,8 @@ impl World {
     pub fn asset(&self, tag: &str, exposure: &str, components: &[(&str, &str)]) -> Vec<i64> {
         self.conn
             .execute(
-                "INSERT INTO asset (asset_tag, name, category, exposure, criticality, first_seen, last_seen)
-                 VALUES (?1, ?1, 'server', ?2, 2, ?3, ?3)",
+                "INSERT INTO asset (asset_tag, name, category, exposure, first_seen, last_seen)
+                 VALUES (?1, ?1, 'HW01', ?2, ?3, ?3)",
                 params![tag, exposure, T0],
             )
             .expect("asset");
@@ -92,13 +96,15 @@ impl World {
             .collect()
     }
 
-    pub fn set_criticality(&self, tag: &str, criticality: u8) {
+    /// 設定資產價值（C/I/A 三項同值，MAX(C, I, A) 即為該值）。
+    pub fn set_asset_value(&self, tag: &str, value: u8) {
         self.conn
             .execute(
-                "UPDATE asset SET criticality = ?2 WHERE asset_tag = ?1",
-                params![tag, criticality],
+                "UPDATE asset SET confidentiality = ?2, integrity = ?2, availability = ?2
+                 WHERE asset_tag = ?1",
+                params![tag, value],
             )
-            .expect("criticality");
+            .expect("asset value");
     }
 
     pub fn package(&self, tag: &str, purl: &str, version: &str, updated_at: &str) -> i64 {

@@ -430,6 +430,6 @@ fn conhost_truncation_uses_ascii_marker() {
     let (mut app, _) = support::app_with_glyphs(seeded_world(), cvewatch_tui::glyphs::ASCII);
     keys(&mut app, "3");
     let out = render_size(&app, 72, 14);
-    assert!(out.contains("資訊所機房~"), "{out}");
+    assert!(out.contains("資訊所機房核心~"), "{out}");
     assert!(!out.contains('…'));
 }

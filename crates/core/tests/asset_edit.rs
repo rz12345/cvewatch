@@ -13,9 +13,7 @@ use cvewatch_core::assets::import::{import_inventory, ImportOptions};
 use cvewatch_core::assets::validate::{
     IncomingAsset, IncomingComponent, Inventory, RecordInput, RowRef,
 };
-use cvewatch_core::assets::{
-    AssetRecord, AssetRepo, AssetStatus, Category, ComponentRepo, Exposure,
-};
+use cvewatch_core::assets::{AssetRecord, AssetRepo, AssetStatus, Cia, ComponentRepo, Exposure};
 use cvewatch_core::config::HttpConfig;
 use cvewatch_core::matching::run::{rematch_state, run_match};
 use cvewatch_core::notify::content::Zone;
@@ -38,7 +36,7 @@ fn firewall<'a>() -> RecordInput<'a> {
     RecordInput {
         asset_tag: "FW-02",
         name: "fw02",
-        category: "security",
+        category: "HW03",
         ..RecordInput::default()
     }
 }
@@ -139,6 +137,7 @@ fn adding_a_new_firewall_uses_import_defaults() {
     let out = edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &firewall(),
         &[comp("paloalto-panos", "11.2.3")],
         now(),
@@ -151,8 +150,9 @@ fn adding_a_new_firewall_uses_import_defaults() {
         .unwrap();
     assert_eq!(asset.status, AssetStatus::Active);
     assert_eq!(asset.record.exposure, Exposure::Internal);
-    assert_eq!(asset.record.criticality, 2);
-    assert_eq!(asset.record.category, Category::Security);
+    assert_eq!(asset.record.cia, Cia::new(2, 3, 4), "HW03 範本值");
+    assert_eq!(asset.record.cia.value(), 4);
+    assert_eq!(asset.record.category.as_str(), "HW03");
     assert_eq!(
         versions(&w, "FW-02"),
         vec![("paloalto-panos".to_string(), "11.2.3".to_string())]
@@ -171,6 +171,7 @@ fn tag_used_by_a_retired_asset_is_refused() {
     let m = message(edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &input,
         &[comp("synology-dsm", "7.2.2-72806")],
         now(),
@@ -184,6 +185,7 @@ fn tag_used_by_a_retired_asset_is_refused() {
     let m = message(edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &input,
         &[comp("paloalto-panos", "11.1.2")],
         now(),
@@ -197,6 +199,7 @@ fn no_component_given_leaves_database_unchanged() {
     let m = message(edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &firewall(),
         &[],
         now(),
@@ -211,6 +214,7 @@ fn no_component_given_leaves_database_unchanged() {
     message(edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &bad,
         &[comp("paloalto-panos", "11.2.3")],
         now(),
@@ -218,6 +222,7 @@ fn no_component_given_leaves_database_unchanged() {
     message(edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &firewall(),
         &[
             comp("paloalto-panos", "11.2.3"),
@@ -228,6 +233,7 @@ fn no_component_given_leaves_database_unchanged() {
     message(edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &firewall(),
         &[comp("no-such-product", "1.0")],
         now(),
@@ -245,12 +251,12 @@ fn raising_exposure_updates_the_asset() {
     let input = RecordInput {
         asset_tag: "ignored",
         name: "nas01",
-        category: "storage",
+        category: "HW05",
         exposure: "internet",
         owner: "系統組",
         ..RecordInput::default()
     };
-    edit::update_asset(&mut w.conn, "NAS-01", &input, now()).unwrap();
+    edit::update_asset(&mut w.conn, &w.classes, "NAS-01", &input, now()).unwrap();
     let r = record(&w, "NAS-01");
     assert_eq!(
         r.asset_tag, "NAS-01",
@@ -261,19 +267,99 @@ fn raising_exposure_updates_the_asset() {
 }
 
 #[test]
-fn invalid_criticality_keeps_the_asset() {
+fn invalid_rating_keeps_the_asset() {
     let mut w = world();
     w.asset("NAS-01", "internal", &[("synology-dsm", "7.2.1-69057")]);
     let before = record(&w, "NAS-01");
     let input = RecordInput {
         name: "nas01",
-        category: "storage",
-        criticality: "5",
+        category: "HW05",
+        confidentiality: "5",
         ..RecordInput::default()
     };
-    let m = message(edit::update_asset(&mut w.conn, "NAS-01", &input, now()));
-    assert!(m.contains("1–3"), "{m}");
+    let m = message(edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "NAS-01",
+        &input,
+        now(),
+    ));
+    assert!(m.contains("機密性") && m.contains("1–4"), "{m}");
     assert_eq!(record(&w, "NAS-01"), before);
+}
+
+/// Scenario: Changing class keeps ratings — 編修時 C/I/A 以已設定的值送出，改類別不改 C/I/A。
+#[test]
+fn changing_class_keeps_ratings() {
+    let mut w = world();
+    w.asset("PVE-01", "internal", &[("proxmox-ve", "8.2.4")]);
+    let set = |category| RecordInput {
+        name: "pve01",
+        category,
+        confidentiality: "3",
+        integrity: "3",
+        availability: "4",
+        ..RecordInput::default()
+    };
+    edit::update_asset(&mut w.conn, &w.classes, "PVE-01", &set("HW01"), now()).unwrap();
+    edit::update_asset(&mut w.conn, &w.classes, "PVE-01", &set("HW05"), now()).unwrap();
+    let r = record(&w, "PVE-01");
+    assert_eq!(r.category.as_str(), "HW05");
+    assert_eq!(r.cia, Cia::new(3, 3, 4));
+}
+
+/// Scenario: Valid ISMS ID / Major class mismatch（編修）。
+#[test]
+fn isms_id_is_validated_on_edit() {
+    let mut w = world();
+    w.asset("FW-01", "internal", &[("paloalto-panos", "11.1.4")]);
+    let input = |isms_id| RecordInput {
+        name: "fw01",
+        category: "HW03",
+        isms_id,
+        ..RecordInput::default()
+    };
+    let m = message(edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "FW-01",
+        &input("ALL-SW-003"),
+        now(),
+    ));
+    assert!(m.contains("大類 SW 與資產類別 HW03 不符"), "{m}");
+    edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "FW-01",
+        &input("ALL-HW-003"),
+        now(),
+    )
+    .unwrap();
+    let r = record(&w, "FW-01");
+    assert_eq!(r.isms_id.as_deref(), Some("ALL-HW-003"));
+    assert_eq!(r.asset_tag, "FW-01");
+    // 同一資產重新儲存（含只改大小寫）不視為重複
+    edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "FW-01",
+        &input("all-hw-003"),
+        now(),
+    )
+    .unwrap();
+    // 其他資產使用同一編號時拒絕
+    let m = message(edit::create_asset(
+        &mut w.conn,
+        &w.catalog,
+        &w.classes,
+        &RecordInput {
+            isms_id: "ALL-HW-003",
+            ..firewall()
+        },
+        &[comp("paloalto-panos", "11.2.3")],
+        now(),
+    ));
+    assert!(m.contains("已被 FW-01 使用"), "{m}");
 }
 
 #[test]
@@ -283,10 +369,16 @@ fn retired_asset_fields_cannot_be_edited() {
     w.retire("NAS-02");
     let input = RecordInput {
         name: "x",
-        category: "storage",
+        category: "HW05",
         ..RecordInput::default()
     };
-    let m = message(edit::update_asset(&mut w.conn, "NAS-02", &input, now()));
+    let m = message(edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "NAS-02",
+        &input,
+        now(),
+    ));
     assert!(m.contains("已退役"), "{m}");
     let m = message(edit::add_component(
         &mut w.conn,
@@ -495,7 +587,7 @@ fn apply_edits_is_all_or_nothing() {
     let before = record(&w, "FW-01");
     let fields = RecordInput {
         name: "邊界防火牆",
-        category: "security",
+        category: "HW03",
         ..RecordInput::default()
     };
     let ops = [
@@ -509,6 +601,7 @@ fn apply_edits_is_all_or_nothing() {
     let m = message(edit::apply_edits(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         "FW-01",
         &ops,
         now(),
@@ -527,7 +620,7 @@ fn apply_edits_can_replace_a_component_with_the_same_product() {
         edit::EditOp::RemoveComponent(id),
         edit::EditOp::AddComponent(comp("paloalto-panos", "11.1.6")),
     ];
-    edit::apply_edits(&mut w.conn, &w.catalog, "FW-01", &ops, now()).unwrap();
+    edit::apply_edits(&mut w.conn, &w.catalog, &w.classes, "FW-01", &ops, now()).unwrap();
     assert_eq!(
         versions(&w, "FW-01"),
         vec![("paloalto-panos".to_string(), "11.1.6".to_string())]
@@ -547,7 +640,7 @@ fn apply_edits_can_replace_a_component_with_the_same_product() {
             product_key: "proxmox-ve".into(),
         },
     ];
-    edit::apply_edits(&mut w.conn, &w.catalog, "PVE-01", &ops, now()).unwrap();
+    edit::apply_edits(&mut w.conn, &w.catalog, &w.classes, "PVE-01", &ops, now()).unwrap();
     assert_eq!(
         versions(&w, "PVE-01"),
         vec![("proxmox-ve".to_string(), "8.2.4".to_string())]
@@ -557,6 +650,7 @@ fn apply_edits_can_replace_a_component_with_the_same_product() {
     let m = message(edit::apply_edits(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         "PVE-01",
         &ops,
         now(),
@@ -575,6 +669,7 @@ fn tags_differing_only_in_case_are_refused() {
     let m = message(edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &input,
         &[comp("paloalto-panos", "11.2.3")],
         now(),
@@ -740,12 +835,15 @@ fn reusing_a_purged_tag_imports_as_new() {
     let inventory = Inventory {
         assets: vec![IncomingAsset {
             row,
-            record: cvewatch_core::assets::validate::validate_record(&RecordInput {
-                asset_tag: "NAS-02",
-                name: "nas02",
-                category: "storage",
-                ..RecordInput::default()
-            })
+            record: cvewatch_core::assets::validate::validate_record(
+                &RecordInput {
+                    asset_tag: "NAS-02",
+                    name: "nas02",
+                    category: "HW05",
+                    ..RecordInput::default()
+                },
+                &cvewatch_core::assets::AssetClasses::builtin(),
+            )
             .unwrap(),
             components: vec![IncomingComponent {
                 row,
@@ -753,6 +851,8 @@ fn reusing_a_purged_tag_imports_as_new() {
                 version_raw: "7.2.2-72806".into(),
             }],
         }],
+        notices: Vec::new(),
+        keep_isms_ids: false,
     };
     let plan = import_inventory(
         &mut w.conn,
@@ -843,6 +943,7 @@ fn every_edit_marks_matching_as_needed() {
             edit::create_asset(
                 &mut w.conn,
                 &w.catalog,
+                &w.classes,
                 &firewall(),
                 &[comp("paloalto-panos", "11.2.3")],
                 now(),
@@ -853,11 +954,11 @@ fn every_edit_marks_matching_as_needed() {
         Box::new(|w| {
             let input = RecordInput {
                 name: "fw01",
-                category: "security",
+                category: "HW03",
                 exposure: "dmz",
                 ..RecordInput::default()
             };
-            edit::update_asset(&mut w.conn, "FW-01", &input, now())
+            edit::update_asset(&mut w.conn, &w.classes, "FW-01", &input, now())
                 .map(drop)
                 .unwrap()
         }),
@@ -938,16 +1039,23 @@ fn failed_edit_does_not_mark_matching() {
     message(edit::create_asset(
         &mut w.conn,
         &w.catalog,
+        &w.classes,
         &firewall(),
         &[],
         now(),
     ));
     let input = RecordInput {
         name: "fw01",
-        category: "security",
-        criticality: "9",
+        category: "HW03",
+        availability: "9",
         ..RecordInput::default()
     };
-    message(edit::update_asset(&mut w.conn, "FW-01", &input, now()));
+    message(edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "FW-01",
+        &input,
+        now(),
+    ));
     assert!(!stale_needed(&w), "拒絕的編修不寫入任何資料");
 }

@@ -110,8 +110,8 @@ fn print_summary(d: &FindingDetail) {
         println!("  {title}");
     }
     println!(
-        "  資產      {}（{}，重要性 {}）",
-        r.asset_tag, r.asset_status, r.criticality
+        "  資產      {}（{}，資產價值 {}）",
+        r.asset_tag, r.asset_status, r.asset_value
     );
     println!("  元件      {} {}", r.component, r.version);
     println!("  狀態      {}", r.status.label());

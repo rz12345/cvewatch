@@ -213,3 +213,22 @@ fn failed_import_still_reloads_database_state() {
         "改名"
     );
 }
+
+/// 13 任務 5.4：預覽顯示 `asset import --dry-run` 的輸出，舊清冊的轉換提醒列在版本警告之後。
+#[test]
+fn legacy_inventory_preview_shows_conversion_notice() {
+    let (mut h, f) = gui(seeded_world());
+    f.companion.output.lock().unwrap().stdout = "匯入預覽（--dry-run，未寫入資料庫）\n\
+         版本無法解析（仍保存原始字串）：\n  第 7 列 FW-02 paloalto-panos「11.1 latest」不符合 panos 格式\n\
+         提醒：\n  清冊的 criticality 欄已停用，改用 confidentiality、integrity、availability\n\
+         \x20 第 2 列 FW-01：security 已轉為 HW03 資安設備"
+        .into();
+    let file = f.rec.dir.path().join("inventory_legacy.xlsx");
+    drop_files(&mut h, &[&file]);
+    assert!(has(&f.companion.calls()[0], "--dry-run"));
+    assert!(
+        shows(&h, "security 已轉為 HW03 資安設備"),
+        "預覽列出舊值轉換"
+    );
+    assert!(shows(&h, "criticality 欄已停用"));
+}

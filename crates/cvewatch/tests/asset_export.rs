@@ -68,7 +68,12 @@ fn memory_db() -> Connection {
 /// 與 `asset import` 相同：讀檔 → 驗證 → 計算差異（`dry_run` 時不寫入）。
 fn import(conn: &mut Connection, path: &Path, dry_run: bool) -> ImportPlan {
     let book = read_inventory(path, None).unwrap();
-    let inventory = parse_inventory(&book, &ColumnMap::default()).unwrap();
+    let inventory = parse_inventory(
+        &book,
+        &ColumnMap::default(),
+        &cvewatch_core::assets::AssetClasses::builtin(),
+    )
+    .unwrap();
     let options = ImportOptions {
         dry_run,
         prune: false,
