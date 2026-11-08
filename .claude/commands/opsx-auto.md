@@ -1,6 +1,6 @@
 ---
 name: "OPSX: Auto"
-description: "自動完成一個 change：apply（決策依建議）→ code-review 三輪 → commit → archive（同步主 spec）→ commit"
+description: "自動完成一個 change：apply（決策依建議）→ code-review 一輪 → commit → archive（同步主 spec）→ commit"
 category: "Workflow"
 tags: ["workflow", "apply", "review", "archive"]
 ---
@@ -17,16 +17,16 @@ tags: ["workflow", "apply", "review", "archive"]
 - 每完成一個任務群組：`cargo fmt`、`cargo clippy --all-targets -- -D warnings`、`cargo test`，全部通過才勾選 tasks.md。
 - 全部任務完成後執行 `openspec validate <change> --strict`，必須通過。
 
-## 2. Code review（三輪）
+## 2. Code review（一輪）
 
-重複以下步驟最多三次（第 1、2、3 輪）。某一輪 review 沒有任何發現時提前結束，不硬跑滿三輪，直接進入第 3 節：
+執行以下步驟一次。review 沒有任何發現時直接進入第 3 節：
 
 1. 以 Skill 工具執行 `code-review`。
 2. 修正全部發現；需要取捨時依建議處理（不提問）。
 3. 行為有變更時更新 design.md 與 spec delta，並補上對應測試。
 4. `cargo fmt`、`cargo clippy --all-targets -- -D warnings`、`cargo test`、`openspec validate <change> --strict` 全部通過。
 
-三輪後仍有未處理的發現時，不再繼續 review，列入最後的回報。
+修正後不再重跑 review；仍有未處理的發現時列入最後的回報。
 
 ## 3. Commit 實作
 
@@ -48,7 +48,7 @@ tags: ["workflow", "apply", "review", "archive"]
 ## 最後回報（繁體中文）
 
 - 兩個 commit 的雜湊、封存位置、同步的主 spec
-- 三輪 review 各修了什麼
+- review 修了什麼
 - 依建議自行決定的事項（含理由），以及留下未處理的項目
 - 不 push
 
