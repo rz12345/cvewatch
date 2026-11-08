@@ -6,7 +6,7 @@
 
 - [x] 1.1 新增 `crates/gui`（套件名 `cvewatch-gui`，lib + `src/bin/cvewatch-gui.rs`，`#![cfg_attr(windows, windows_subsystem = "windows")]`），相依 `eframe` 0.37（關閉預設功能，啟用 `accesskit`、`default_fonts`、`wgpu`、`glow`）、`egui_extras` 0.37、`rfd` 0.17.x；dev-dependency `egui_kittest` 0.37。完成條件：`cargo build --release` 產生 `target\release\cvewatch-gui.exe`，雙擊開啟空白視窗且沒有主控台視窗
 - [x] 1.2 `startup.rs`：解析 `--config`，呼叫 `core::runtime::start(location, "gui")` 與 `frontend::context::build`；失敗時顯示錯誤畫面（design D7），`Runtime.warnings` 在主畫面頂端顯示黃色訊息列。完成條件：kittest 以「資料庫不存在」與「金鑰遺失」兩種 `CoreError` 建立錯誤畫面，斷言畫面含 `cvewatch init`／`cvewatch db import-key`；以含未知欄位的設定斷言警告文字
-- [ ] 1.3 繪製後端 wgpu → glow → `rfd::MessageDialog` 的退回流程（design D6）。完成條件：以環境變數 `WGPU_BACKEND=invalid` 手動啟動時改用 glow 開啟視窗；在遠端桌面工作階段手動開啟一次並記錄結果於 design.md
+- [x] 1.3 繪製後端 wgpu → glow → `rfd::MessageDialog` 的退回流程（design D6）。完成條件：以環境變數 `WGPU_BACKEND=invalid` 手動啟動時改用 glow 開啟視窗；在遠端桌面工作階段手動開啟一次並記錄結果於 design.md
 - [x] 1.4 `fonts.rs`：依序嘗試 `msjh.ttc`、`msjhl.ttc`、`mingliu.ttc` 並加入字族後備；找不到時回傳警告。完成條件：單元測試以暫存資料夾驗證「第一個存在的檔案被採用」與「全部不存在時回傳警告且不 panic」；手動確認視窗中「資訊所機房核心防火牆主機」正常顯示
 - [x] 1.5 `companion.rs`：計算同資料夾 `cvewatch.exe` 並傳入 `ContextOptions`；提供隱藏視窗執行子程序並擷取 stdout／stderr 與結束碼的 trait 與實作。完成條件：單元測試以暫存資料夾驗證「存在 → Some(path)、不存在 → None」；fake companion 可記錄參數
 
@@ -40,11 +40,11 @@
 
 - [x] 6.1 「匯出 VEX」：以檔案對話框 trait（正式實作為 `rfd::FileDialog`，預設文件資料夾、預設檔名）取得路徑，呼叫 `Workspace` 匯出目前篩選；不覆蓋既有檔案。完成條件：kittest 以對話框替身重現 spec 的 Exporting filtered findings 與 Target file already exists 情境（暫存資料夾）
 - [x] 6.2 `dialogs/import.rs`：「匯入清冊」按鈕（開啟檔案對話框）與拖放（只接受單一 .xlsx／.csv）；以 companion 執行 `asset import ... --dry-run` 顯示預覽，「將消失的資產標為退役」勾選、CSV 的「選擇元件檔」；按「匯入」以相同參數去掉 `--dry-run` 執行，完成後 `Workspace::reload`（design D8）。完成條件：kittest 以 fake companion 斷言拖放 `assets.xlsx` 時先只執行含 `--dry-run` 的命令、確認後才執行不含 `--dry-run` 的命令且帶 `--prune`（有勾選時）與 `--config`（有指定時）；取消後不執行第二次；拖放 `report.pdf` 顯示只支援 .xlsx／.csv 的說明
-- [ ] 6.3 手動整合測試：以 `cargo build --release` 的實際執行檔，把 `cvewatch asset template` 產生並填好的清冊拖進視窗，確認預覽、匯入、自動比對與重新載入正常，過程中沒有主控台視窗閃現；記錄結果於 design.md
+- [x] 6.3 手動整合測試：以 `cargo build --release` 的實際執行檔，把 `cvewatch asset template` 產生並填好的清冊拖進視窗，確認預覽、匯入、自動比對與重新載入正常，過程中沒有主控台視窗閃現；記錄結果於 design.md
 
 ## 7. 中文輸入、文件與整合檢查
 
-- [ ] 7.1 手動測試中文輸入法：以注音輸入法在搜尋框、備註、收件者欄位輸入中文，確認組字與候選字可用、內容正確寫入；結果（含任何限制）記錄於 design.md
+- [x] 7.1 手動測試中文輸入法：以注音輸入法在搜尋框、備註、收件者欄位輸入中文，確認組字與候選字可用、內容正確寫入；結果（含任何限制）記錄於 design.md
 - [x] 7.2 README 新增「視窗版（cvewatch-gui）」段落：三個執行檔需放在同一資料夾、`--config`、與 TUI 的對照（畫面、快捷鍵）、拖放匯入清冊、啟動錯誤的處理方式、仍只在 CLI 提供的功能清單；並更新 README 開頭「本 repo 目前只有 OpenSpec 規格」的過時敘述。完成條件：README 中的指令照抄可執行
 - [x] 7.3 `cargo fmt --check`、`cargo clippy --all-targets -- -D warnings`、`cargo test` 全過；`cargo tree -p cvewatch-gui` 不含 ratatui、crossterm；`crates/gui/src` 每個檔案不超過 800 行
 
