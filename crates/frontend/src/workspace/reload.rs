@@ -27,6 +27,8 @@ pub enum DetailRefresh {
 pub struct Refreshed {
     pub report: Report,
     pub details: Vec<DetailRefresh>,
+    /// 資產編修已寫入資料庫，需要比對（由前端決定如何執行，例如背景 `cvewatch match`）
+    pub needs_match: bool,
 }
 
 impl Refreshed {
@@ -35,6 +37,7 @@ impl Refreshed {
         Refreshed {
             report,
             details: kept(open),
+            needs_match: false,
         }
     }
 }
@@ -48,7 +51,11 @@ impl<V: ListView> Workspace<V> {
             Ok(Some(note)) => Report::info(format!("已重新載入；{note}")),
             Err(e) => Report::failure("重新載入失敗", &e),
         };
-        Refreshed { report, details }
+        Refreshed {
+            report,
+            details,
+            needs_match: false,
+        }
     }
 
     /// 寫入成功後重新載入；重新載入失敗時一併提示，避免畫面顯示過時的狀態卻無警示。
@@ -63,7 +70,11 @@ impl<V: ListView> Workspace<V> {
                     .with_hint(Hint::StaleAfterWrite)
             }
         };
-        Refreshed { report, details }
+        Refreshed {
+            report,
+            details,
+            needs_match: false,
+        }
     }
 
     /// 重新載入資料、修正多選與可見列，再重新讀取開啟中的詳情；清單載入失敗時保留舊資料。

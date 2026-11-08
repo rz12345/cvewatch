@@ -38,6 +38,9 @@ impl ImportFlow {
     }
 }
 
+/// 匯入預覽的覆寫提醒（gui-console：GUI import overwrite reminder）。
+pub const OVERWRITE_REMINDER: &str = "注意：匯入會以檔案內容覆寫資產欄位與清冊元件（檔案中沒有的清冊元件會被移除）。     在視窗中修改過資產時，建議先「匯出清冊」再編輯該檔後匯入。";
+
 /// 不支援的檔案或一次多個檔案時的說明。
 pub const UNSUPPORTED: &str = "只支援 .xlsx 與 .csv 清冊";
 
@@ -258,6 +261,10 @@ enum Action {
 
 fn body(ui: &mut egui::Ui, flow: &mut ImportFlow) -> Option<Action> {
     ui.heading("匯入資產清冊");
+    ui.colored_label(
+        egui::Color32::from_rgb(0xc0, 0x80, 0x00),
+        OVERWRITE_REMINDER,
+    );
     ui.label(format!("檔案：{}", flow.args.file.display()));
     let mut action = None;
     let idle = !flow.running();

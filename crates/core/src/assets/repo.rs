@@ -188,6 +188,17 @@ impl<'c> AssetRepo<'c> {
         Ok(())
     }
 
+    /// 恢復已退役資產：重新啟用、清除退役時間並更新 `last_seen`（元件由呼叫端另行
+    /// [`Self::mark_components_updated`]）。
+    pub fn restore(&self, id: i64, now: DateTime<Utc>) -> Result<(), CoreError> {
+        self.conn.execute(
+            "UPDATE asset SET status = 'active', retired_at = NULL, last_seen = ?2
+             WHERE id = ?1 AND status = 'retired'",
+            params![id, ts(now)],
+        )?;
+        Ok(())
+    }
+
     /// 以新清單取代該資產的未辨識產品紀錄。
     pub fn replace_unresolved(
         &self,
@@ -212,16 +223,17 @@ impl<'c> AssetRepo<'c> {
     /// 所有 active 資產的未辨識產品。
     pub fn unresolved(&self) -> Result<Vec<UnresolvedEntry>, CoreError> {
         let mut stmt = self.conn.prepare(
-            "SELECT a.asset_tag, u.product_raw, u.version_raw
+            "SELECT u.id, a.asset_tag, u.product_raw, u.version_raw
              FROM asset_unresolved u JOIN asset a ON a.id = u.asset_id
              WHERE a.status = 'active'
-             ORDER BY u.product_raw, a.asset_tag",
+             ORDER BY u.product_raw, a.asset_tag, u.id",
         )?;
         let rows = stmt.query_map([], |r| {
             Ok(UnresolvedEntry {
-                asset_tag: r.get(0)?,
-                product_raw: r.get(1)?,
-                version_raw: r.get(2)?,
+                id: r.get(0)?,
+                asset_tag: r.get(1)?,
+                product_raw: r.get(2)?,
+                version_raw: r.get(3)?,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -285,6 +297,32 @@ impl<'c> ComponentRepo<'c> {
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// 全部元件的版本歷史（依元件分組，新到舊；畫面載入用的一次查詢）。
+    pub fn history_by_component(
+        &self,
+    ) -> Result<std::collections::HashMap<i64, Vec<HistoryEntry>>, CoreError> {
+        let mut stmt = self.conn.prepare(
+            "SELECT component_id, version_raw, changed_at FROM component_history
+             ORDER BY component_id, changed_at DESC, id DESC",
+        )?;
+        let rows = stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                HistoryEntry {
+                    version_raw: r.get(1)?,
+                    changed_at: r.get(2)?,
+                },
+            ))
+        })?;
+        let mut out: std::collections::HashMap<i64, Vec<HistoryEntry>> =
+            std::collections::HashMap::new();
+        for row in rows {
+            let (id, entry) = row?;
+            out.entry(id).or_default().push(entry);
+        }
+        Ok(out)
     }
 
     /// 產品元件 upsert；版本變更時把舊版本寫入 history。

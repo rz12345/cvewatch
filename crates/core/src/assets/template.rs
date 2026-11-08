@@ -1,4 +1,4 @@
-//! 空白範本匯出（`cvewatch asset template`）。
+//! 空白範本（`cvewatch asset template`）與共用的 xlsx 寫出（清冊匯出也使用）。
 
 use std::path::Path;
 
@@ -69,7 +69,8 @@ fn example_components() -> Vec<Vec<String>> {
     ]]
 }
 
-fn headers(kind: SheetKind) -> Vec<String> {
+/// 標準欄名表頭。
+pub(crate) fn headers(kind: SheetKind) -> Vec<String> {
     kind.columns()
         .iter()
         .map(|f| f.as_str().to_string())
@@ -78,12 +79,6 @@ fn headers(kind: SheetKind) -> Vec<String> {
 
 /// 寫出含 `assets` 與 `components` 工作表、標準欄名與範例列的範本；目的檔已存在時拒絕。
 pub fn write_template(path: &Path) -> Result<(), CoreError> {
-    if path.exists() {
-        return Err(CoreError::Invalid(format!(
-            "目的檔已存在，不覆蓋：{}",
-            path.display()
-        )));
-    }
     write_sheets(
         path,
         &[
@@ -101,7 +96,18 @@ pub fn write_template(path: &Path) -> Result<(), CoreError> {
     )
 }
 
-/// 寫出 xlsx；`version` 欄設為文字格式，避免 Excel 把 `7.10` 轉成數字 `7.1`。
+/// 目的檔已存在（範本與清冊匯出共用的訊息）。
+fn already_exists(path: &Path) -> CoreError {
+    CoreError::Invalid(format!("目的檔已存在，不覆蓋：{}", path.display()))
+}
+
+/// 目的檔已存在時回報錯誤（例如開啟資料庫之前先檢查）；實際寫入仍以 `create_new` 保證不覆蓋。
+pub fn ensure_absent(path: &Path) -> Result<(), CoreError> {
+    crate::files::ensure_absent(path, already_exists)
+}
+
+/// 寫出 xlsx（design D6）：先在記憶體中產生，再以 `create_new` 寫檔，目的檔已存在時不覆蓋。
+/// `version` 欄設為文字格式，避免 Excel 把 `7.10` 轉成數字 `7.1`。
 pub fn write_sheets(path: &Path, sheets: &[SheetData<'_>]) -> Result<(), CoreError> {
     let xlsx_error = |e: rust_xlsxwriter::XlsxError| {
         CoreError::Invalid(format!("無法寫出 {}：{e}", path.display()))
@@ -132,5 +138,6 @@ pub fn write_sheets(path: &Path, sheets: &[SheetData<'_>]) -> Result<(), CoreErr
             }
         }
     }
-    book.save(path).map_err(xlsx_error)
+    let bytes = book.save_to_buffer().map_err(xlsx_error)?;
+    crate::files::write_new(path, &bytes, already_exists)
 }

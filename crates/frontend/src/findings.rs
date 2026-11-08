@@ -143,6 +143,7 @@ mod tests {
             search_keys: rows.iter().map(filter::search_key).collect(),
             findings: rows,
             assets: Vec::new(),
+            retired_assets: Vec::new(),
             unresolved: Vec::new(),
             pending: Vec::new(),
             sync_runs: Vec::new(),

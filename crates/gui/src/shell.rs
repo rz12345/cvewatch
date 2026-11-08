@@ -45,7 +45,10 @@ impl GuiApp {
     }
 
     pub(crate) fn modal_open(&self) -> bool {
-        self.dialog.is_some() || self.import.is_some() || self.leave.is_some()
+        self.dialog.is_some()
+            || self.import.is_some()
+            || self.leave.is_some()
+            || self.asset_dialog.is_some()
     }
 
     fn handle_shortcuts(&mut self, ctx: &egui::Context) {

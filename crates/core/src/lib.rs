@@ -11,6 +11,7 @@ pub mod config;
 pub mod cpe;
 pub mod db;
 pub mod error;
+pub mod files;
 mod hash;
 pub mod http;
 pub mod ingest;

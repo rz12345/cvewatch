@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::model::{AssetRecord, AssetStatus};
 use super::validate::{IncomingAsset, Inventory, RowRef};
-use crate::catalog::Catalog;
+use crate::catalog::{Catalog, Product};
 use crate::error::CoreError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -24,13 +24,48 @@ pub struct UnresolvedItem {
     pub suggestions: Vec<String>,
 }
 
+/// 版本字串不符合產品的版本格式（仍保存原始字串）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionWarning {
-    pub row: RowRef,
+    /// 清冊匯入時的列位置；畫面編修時為 None
+    pub row: Option<RowRef>,
     pub asset_tag: String,
     pub product_key: String,
     pub version_raw: String,
     pub scheme: String,
+}
+
+impl VersionWarning {
+    /// 不含列位置的說明（匯入與畫面編修相同）。
+    pub fn describe(&self) -> String {
+        format!(
+            "{} {}「{}」不符合 {} 格式",
+            self.asset_tag, self.product_key, self.version_raw, self.scheme
+        )
+    }
+}
+
+/// 以目錄產品的版本格式解析版本字串：回傳 `version_norm` 與無法解析時的警告。
+/// 清冊匯入與畫面編修共用，確保兩者正規化結果一致。
+pub fn resolve_version(
+    product: &Product,
+    version_raw: &str,
+    asset_tag: &str,
+    row: Option<RowRef>,
+) -> (Option<String>, Option<VersionWarning>) {
+    match product.scheme().parse(version_raw) {
+        Some(parsed) => (Some(parsed.normalized), None),
+        None => (
+            None,
+            Some(VersionWarning {
+                row,
+                asset_tag: asset_tag.to_string(),
+                product_key: product.key.clone(),
+                version_raw: version_raw.to_string(),
+                scheme: product.version_scheme.clone(),
+            }),
+        ),
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -173,21 +208,13 @@ fn resolve_asset(
             ));
             continue;
         }
-        let parsed = product.scheme().parse(&c.version_raw);
-        if parsed.is_none() {
-            plan.warnings.push(VersionWarning {
-                row: c.row,
-                asset_tag: tag.clone(),
-                product_key: product.key.clone(),
-                version_raw: c.version_raw.clone(),
-                scheme: product.version_scheme.clone(),
-            });
-        }
+        let (version_norm, warning) = resolve_version(product, &c.version_raw, tag, Some(c.row));
+        plan.warnings.extend(warning);
         components.push(ResolvedComponent {
             row: c.row,
             product_key: product.key.clone(),
             version_raw: c.version_raw.clone(),
-            version_norm: parsed.map(|p| p.normalized),
+            version_norm,
         });
     }
     PlannedAsset {
@@ -255,4 +282,32 @@ fn diff_asset(existing: &CurrentAsset, planned: &PlannedAsset) -> Option<AssetUp
         || !update.components_removed.is_empty()
         || update.reactivated;
     changed.then_some(update)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::assets::columns::SheetKind;
+
+    #[test]
+    fn resolve_version_warns_like_import() {
+        let catalog = Catalog::seed().unwrap();
+        let esxi = catalog.get("vmware-esxi").unwrap();
+        let (norm, warning) = resolve_version(esxi, "8.0 latest", "R6515-01", None);
+        assert_eq!(norm, None);
+        let w = warning.expect("warning");
+        assert_eq!(w.row, None);
+        assert_eq!(
+            w.describe(),
+            "R6515-01 vmware-esxi「8.0 latest」不符合 esxi 格式"
+        );
+
+        let row = RowRef {
+            sheet: SheetKind::Assets,
+            number: 3,
+        };
+        let (norm, warning) = resolve_version(esxi, "8.0 U3c", "R6515-01", Some(row));
+        assert!(norm.is_some());
+        assert!(warning.is_none());
+    }
 }

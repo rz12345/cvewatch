@@ -159,6 +159,27 @@ cvewatch schedule install                        # 建立 cvewatch\sync 與 cvew
 - 機構內部 CA 簽發的 SMTP / Redmine 憑證：在設定檔 `[notify] ca_file` 指定 CA 的 PEM 檔。無加密 SMTP 或 http Redmine 只能手動設定
   `allow_insecure_transport = true`（TUI 頂端會顯示紅色警示），且仍不會以明文送出密碼或 API key
 
+## 資產清冊
+
+資產以 Excel／CSV 清冊匯入，也可以在視窗版直接新增與修改；**資料庫是目前狀態，清冊是交換格式**。
+
+```powershell
+cvewatch asset template assets.xlsx              # 空白範本（assets、components 工作表與範例列）
+cvewatch asset import assets.xlsx --dry-run      # 預覽差異（新增、更新、版本變更、清冊中消失），不寫入
+cvewatch asset import assets.xlsx                # 匯入並自動比對
+cvewatch asset export inventory.xlsx             # 匯出目前使用中的資產（格式與匯入相同）
+```
+
+- `asset export`：每個資產一列 `assets`（第一個元件寫在該列的 product / version），其餘元件與未辨識產品列在 `components`；產品寫目錄的顯示名稱、版本寫原始字串，因此匯出後直接重匯為「新增 0、更新 0」。不含已退役資產與主機套件（套件仍以 `asset import-packages` 管理）；目的檔已存在時不覆蓋；匯出檔未加密，含資產清單，請妥善保管
+- 匯入會以檔案內容**覆寫**資產欄位與清冊元件（檔案中沒有的清冊元件會被移除）。在視窗版修改過資產後，請依「**先匯出、再編輯、再匯入**」的順序，避免舊清冊蓋掉畫面上的修改：
+
+```powershell
+cvewatch asset export inventory-new.xlsx         # 1. 匯出目前狀態
+#                                                  2. 用 Excel 編輯 inventory-new.xlsx
+cvewatch asset import inventory-new.xlsx --dry-run   # 3. 確認差異只有剛才的編輯
+cvewatch asset import inventory-new.xlsx
+```
+
 ## 視窗版（cvewatch-gui）
 
 `cvewatch-gui.exe` 是與 TUI 功能同等的 Windows 視窗介面（不開主控台視窗），與 CLI、TUI 共用同一個加密資料庫與設定檔，可以同時開啟。
@@ -180,7 +201,7 @@ cvewatch schedule install                        # 建立 cvewatch\sync 與 cvew
 |---|---|---|
 | Dashboard | `1` | 側邊導覽或 `Ctrl+1`；點選 P1–P4 或 KEV 數字直接開啟套用篩選的命中畫面 |
 | 命中 | `2` | `Ctrl+2`；點欄位標題（等級、資產、CVSS、EPSS、首次發現）排序，`Ctrl+F` 搜尋，「篩選…」開啟篩選面板 |
-| 資產 | `3` | `Ctrl+3`；「匯入清冊」或把檔案拖進視窗 |
+| 資產 | `3` | `Ctrl+3`；「新增資產」「編輯」「刪除」、「匯入清冊」（或把檔案拖進視窗）、「下載範本」「匯出清冊」、「顯示已退役」 |
 | 等待區 | `4` | `Ctrl+4` |
 | 同步紀錄 | `5` | `Ctrl+5` |
 | 設定 | `6` | `Ctrl+6`；「儲存」按鈕取代 `Ctrl+S`，「測試寄信」「測試 Redmine」「從 Redmine 載入」「重新安裝排程」為按鈕 |
@@ -200,6 +221,16 @@ cvewatch schedule install                        # 建立 cvewatch\sync 與 cvew
 1. 先顯示預覽（等同 `cvewatch asset import <檔案> --dry-run`），資料庫尚未變更
 2. 可勾選「將清冊中消失的資產標為退役」（`--prune`）；CSV 清冊可「選擇元件檔」（`--components`）
 3. 按「匯入」才寫入，之後自動比對並重新載入畫面；一次只接受一個 .xlsx 或 .csv
+
+匯入預覽頂端會提醒：匯入以檔案內容覆寫資產欄位與清冊元件。在視窗中修改過資產後，請先「匯出清冊」、編輯匯出的檔案，再匯入（見「資產清冊」）。
+
+資產編修（資產畫面）：
+
+- **新增資產／編輯**：對話框編輯資產欄位（類別、曝露度、重要性為下拉選單；資產編號建立後不可修改）與元件（「加入元件」可搜尋產品目錄；只能選既有目錄產品）。驗證規則與清冊匯入相同，錯誤以紅字顯示在欄位下方，對話框不關閉；按「取消」不寫入。主機套件元件唯讀（由 `cvewatch asset import-packages` 管理）；未辨識產品可「改為目錄產品」（沿用原版本字串）或刪除
+- **刪除**＝標為退役：命中與處理紀錄保留、不再參與比對。勾選「顯示已退役」後，已退役資產以灰字與「（已退役）」列出，可「恢復」或「永久刪除」
+- **永久刪除**會一併移除該資產的元件、版本歷史、命中與處理紀錄，**無法復原**；需輸入完全相同的資產編號才能確認。請先執行 `cvewatch db backup` 備份資料庫
+- 每次編修後在背景執行 `cvewatch match`（狀態列顯示「比對中…」，視窗仍可操作），完成後重新載入；找不到 `cvewatch.exe` 或比對失敗時編修仍保留，請手動執行 `cvewatch match`
+- **下載範本**、**匯出清冊**：另存新檔對話框（預設「文件」資料夾，檔名 `cvewatch-inventory-template.xlsx`、`cvewatch-inventory-YYYYMMDD.xlsx`），不覆蓋既有檔案；匯出內容與 `cvewatch asset export` 相同，檔案未加密
 
 啟動錯誤：資料庫尚未建立、Credential Manager 中沒有資料庫金鑰或設定檔有誤時，視窗會顯示原因與對應的指令（例如 `cvewatch init`、`cvewatch db import-key`），按「關閉」後結束。設定檔有未知欄位時照常開啟，頂端以黃色警告列顯示。
 

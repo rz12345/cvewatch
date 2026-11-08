@@ -3,8 +3,6 @@
 //! 匯出檔含資產清單與處理狀態，與資料庫同等敏感：未加密時由呼叫端提示，`--encrypt` 時只寫出
 //! `<檔名>.age`，不產生明文檔。
 
-use std::fs::OpenOptions;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use age::secrecy::SecretString;
@@ -51,41 +49,18 @@ pub fn is_encrypted(bytes: &[u8]) -> bool {
     trimmed.starts_with(AGE_MAGIC) || trimmed.starts_with(AGE_ARMOR)
 }
 
-fn file_error(path: &Path, e: impl std::fmt::Display) -> CoreError {
-    CoreError::Invalid(format!("無法寫入 {}：{e}", path.display()))
-}
-
 fn already_exists(path: &Path) -> CoreError {
     CoreError::Invalid(format!("{} 已存在，未覆蓋；請指定其他檔名", path.display()))
 }
 
 /// 檔案已存在時回報錯誤（例如要求口令之前先檢查）；實際寫入仍以 [`write_new`] 保證不覆蓋。
 pub fn ensure_absent(path: &Path) -> Result<(), CoreError> {
-    if path.exists() {
-        return Err(already_exists(path));
-    }
-    Ok(())
+    crate::files::ensure_absent(path, already_exists)
 }
 
 /// 寫入新檔案；檔案已存在時不覆蓋。寫入失敗時移除不完整的檔案。
 pub fn write_new(path: &Path, bytes: &[u8]) -> Result<(), CoreError> {
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(path)
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::AlreadyExists => already_exists(path),
-            _ => file_error(path, e),
-        })?;
-    let written = file.write_all(bytes).and_then(|()| file.sync_all());
-    if let Err(e) = written {
-        drop(file);
-        if let Err(rm) = std::fs::remove_file(path) {
-            tracing::warn!(path = %path.display(), error = %rm, "無法移除寫入失敗的 VEX 檔");
-        }
-        return Err(file_error(path, e));
-    }
-    Ok(())
+    crate::files::write_new(path, bytes, already_exists)
 }
 
 /// 以口令加密（age scrypt）。

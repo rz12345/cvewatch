@@ -61,11 +61,6 @@ impl RowReader<'_> {
             .map_or("", |s| s.trim())
     }
 
-    fn optional(&self, field: StandardField) -> Option<String> {
-        let v = self.get(field);
-        (!v.is_empty()).then(|| v.to_string())
-    }
-
     fn required(&self, field: StandardField, errors: &mut Vec<String>) -> String {
         let v = self.get(field);
         if v.is_empty() {
@@ -120,45 +115,29 @@ fn parse_assets(
 }
 
 fn parse_asset_row(r: &RowReader<'_>, errors: &mut Vec<String>) -> IncomingAsset {
-    let asset_tag = r.required(StandardField::AssetTag, errors);
-    let name = r.required(StandardField::Name, errors);
-    let category_raw = r.required(StandardField::Category, errors);
+    let input = RecordInput {
+        asset_tag: r.get(StandardField::AssetTag),
+        name: r.get(StandardField::Name),
+        category: r.get(StandardField::Category),
+        exposure: r.get(StandardField::Exposure),
+        criticality: r.get(StandardField::Criticality),
+        location: r.get(StandardField::Location),
+        owner: r.get(StandardField::Owner),
+        notes: r.get(StandardField::Notes),
+    };
+    let record = validate_record(&input).unwrap_or_else(|field_errors| {
+        errors.extend(
+            field_errors
+                .iter()
+                .map(|e| format!("{}：{}", r.at, e.message)),
+        );
+        fallback_record(&input)
+    });
     let product_raw = r.required(StandardField::Product, errors);
     let version_raw = r.required(StandardField::Version, errors);
-    let category = parse_enum(
-        &category_raw,
-        "category",
-        r.at,
-        Category::parse,
-        Category::allowed,
-        errors,
-    )
-    .unwrap_or(Category::Host);
-    let exposure = match r.optional(StandardField::Exposure) {
-        None => Exposure::default(),
-        Some(v) => parse_enum(
-            &v,
-            "exposure",
-            r.at,
-            Exposure::parse,
-            Exposure::allowed,
-            errors,
-        )
-        .unwrap_or_default(),
-    };
-    let criticality = parse_criticality(r, errors);
     IncomingAsset {
         row: r.at,
-        record: AssetRecord {
-            asset_tag,
-            name,
-            category,
-            location: r.optional(StandardField::Location),
-            owner: r.optional(StandardField::Owner),
-            exposure,
-            criticality,
-            notes: r.optional(StandardField::Notes),
-        },
+        record,
         components: vec![IncomingComponent {
             row: r.at,
             product_raw,
@@ -167,39 +146,129 @@ fn parse_asset_row(r: &RowReader<'_>, errors: &mut Vec<String>) -> IncomingAsset
     }
 }
 
+/// 單筆資產欄位的原始輸入（清冊儲存格或畫面輸入框）；前後空白在驗證時去除。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct RecordInput<'a> {
+    pub asset_tag: &'a str,
+    pub name: &'a str,
+    pub category: &'a str,
+    /// 空白時為預設 internal
+    pub exposure: &'a str,
+    /// 空白時為預設 2
+    pub criticality: &'a str,
+    pub location: &'a str,
+    pub owner: &'a str,
+    pub notes: &'a str,
+}
+
+/// 單一欄位的驗證錯誤；`message` 不含列位置（匯入時加上「第 N 列：」）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldError {
+    pub field: StandardField,
+    pub message: String,
+}
+
+impl FieldError {
+    fn new(field: StandardField, message: String) -> FieldError {
+        FieldError { field, message }
+    }
+}
+
+fn optional_text(v: &str) -> Option<String> {
+    let v = v.trim();
+    (!v.is_empty()).then(|| v.to_string())
+}
+
+/// 驗證資產欄位（必填、category / exposure / criticality 允許值與預設值）；
+/// 清冊匯入與畫面編修共用，錯誤依欄位順序回報。
+pub fn validate_record(input: &RecordInput<'_>) -> Result<AssetRecord, Vec<FieldError>> {
+    let mut errors = Vec::new();
+    for (field, value) in [
+        (StandardField::AssetTag, input.asset_tag),
+        (StandardField::Name, input.name),
+        (StandardField::Category, input.category),
+    ] {
+        if value.trim().is_empty() {
+            errors.push(FieldError::new(field, format!("缺少 {}", field.as_str())));
+        }
+    }
+    let category = parse_enum(
+        input.category.trim(),
+        StandardField::Category,
+        Category::parse,
+        Category::allowed,
+        &mut errors,
+    );
+    let exposure = parse_enum(
+        input.exposure.trim(),
+        StandardField::Exposure,
+        Exposure::parse,
+        Exposure::allowed,
+        &mut errors,
+    );
+    let criticality = parse_criticality(input.criticality.trim(), &mut errors);
+    if !errors.is_empty() {
+        return Err(errors);
+    }
+    Ok(AssetRecord {
+        asset_tag: input.asset_tag.trim().to_string(),
+        name: input.name.trim().to_string(),
+        category: category.unwrap_or(Category::Host),
+        location: optional_text(input.location),
+        owner: optional_text(input.owner),
+        exposure: exposure.unwrap_or_default(),
+        criticality: criticality.unwrap_or(DEFAULT_CRITICALITY),
+        notes: optional_text(input.notes),
+    })
+}
+
+/// 驗證失敗的列仍需要 asset_tag 以偵測重複；其餘欄位不會被使用。
+fn fallback_record(input: &RecordInput<'_>) -> AssetRecord {
+    AssetRecord {
+        asset_tag: input.asset_tag.trim().to_string(),
+        name: input.name.trim().to_string(),
+        category: Category::Host,
+        location: None,
+        owner: None,
+        exposure: Exposure::default(),
+        criticality: DEFAULT_CRITICALITY,
+        notes: None,
+    }
+}
+
+/// 空白回傳 None（必填與否由呼叫端判斷）；不是允許值時記錄錯誤。
 fn parse_enum<T>(
     value: &str,
-    field: &str,
-    at: RowRef,
+    field: StandardField,
     parse: fn(&str) -> Option<T>,
     allowed: fn() -> String,
-    errors: &mut Vec<String>,
+    errors: &mut Vec<FieldError>,
 ) -> Option<T> {
     if value.is_empty() {
         return None;
     }
     let parsed = parse(value);
     if parsed.is_none() {
-        errors.push(format!(
-            "{at}：{field}「{value}」不是允許的值（{}）",
-            allowed()
+        errors.push(FieldError::new(
+            field,
+            format!("{}「{value}」不是允許的值（{}）", field.as_str(), allowed()),
         ));
     }
     parsed
 }
 
-fn parse_criticality(r: &RowReader<'_>, errors: &mut Vec<String>) -> u8 {
-    let Some(raw) = r.optional(StandardField::Criticality) else {
-        return DEFAULT_CRITICALITY;
-    };
+fn parse_criticality(raw: &str, errors: &mut Vec<FieldError>) -> Option<u8> {
+    if raw.is_empty() {
+        return None;
+    }
     match raw.parse::<u8>() {
-        Ok(n) if (MIN_CRITICALITY..=MAX_CRITICALITY).contains(&n) => n,
+        Ok(n) if (MIN_CRITICALITY..=MAX_CRITICALITY).contains(&n) => Some(n),
         _ => {
-            errors.push(format!(
-                "{}：criticality「{raw}」必須是 {MIN_CRITICALITY}–{MAX_CRITICALITY}",
-                r.at
+            errors.push(FieldError::new(
+                StandardField::Criticality,
+                format!("criticality「{raw}」必須是 {MIN_CRITICALITY}–{MAX_CRITICALITY}"),
             ));
-            DEFAULT_CRITICALITY
+            None
         }
     }
 }
@@ -256,5 +325,103 @@ fn attach_components(
             None if known_tags.contains(&tag) => {}
             None => errors.push(format!("{at}：asset_tag「{tag}」不在 assets 工作表中")),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn input<'a>() -> RecordInput<'a> {
+        RecordInput {
+            asset_tag: "FW-02",
+            name: "fw02",
+            category: "security",
+            ..RecordInput::default()
+        }
+    }
+
+    fn fields(r: Result<AssetRecord, Vec<FieldError>>) -> Vec<(StandardField, String)> {
+        r.expect_err("應驗證失敗")
+            .into_iter()
+            .map(|e| (e.field, e.message))
+            .collect()
+    }
+
+    #[test]
+    fn empty_asset_tag_is_reported_on_its_field() {
+        let errors = fields(validate_record(&RecordInput {
+            asset_tag: "  ",
+            ..input()
+        }));
+        assert_eq!(
+            errors,
+            vec![(StandardField::AssetTag, "缺少 asset_tag".to_string())]
+        );
+    }
+
+    #[test]
+    fn invalid_exposure_lists_allowed_values() {
+        let errors = fields(validate_record(&RecordInput {
+            exposure: "public",
+            ..input()
+        }));
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].0, StandardField::Exposure);
+        assert_eq!(
+            errors[0].1,
+            "exposure「public」不是允許的值（internet、dmz、internal、mgmt）"
+        );
+    }
+
+    #[test]
+    fn criticality_out_of_range_is_rejected() {
+        let errors = fields(validate_record(&RecordInput {
+            criticality: "5",
+            ..input()
+        }));
+        assert_eq!(
+            errors,
+            vec![(
+                StandardField::Criticality,
+                "criticality「5」必須是 1–3".to_string()
+            )]
+        );
+    }
+
+    #[test]
+    fn defaults_and_trimming() {
+        let record = validate_record(&RecordInput {
+            asset_tag: " FW-02 ",
+            location: "  ",
+            owner: " 網管組 ",
+            ..input()
+        })
+        .expect("valid");
+        assert_eq!(record.asset_tag, "FW-02");
+        assert_eq!(record.exposure, Exposure::Internal);
+        assert_eq!(record.criticality, DEFAULT_CRITICALITY);
+        assert_eq!(record.category, Category::Security);
+        assert_eq!(record.location, None);
+        assert_eq!(record.owner.as_deref(), Some("網管組"));
+    }
+
+    #[test]
+    fn several_errors_are_reported_in_field_order() {
+        let errors = fields(validate_record(&RecordInput {
+            name: "",
+            category: "router",
+            criticality: "x",
+            ..input()
+        }));
+        let order: Vec<StandardField> = errors.iter().map(|e| e.0).collect();
+        assert_eq!(
+            order,
+            vec![
+                StandardField::Name,
+                StandardField::Category,
+                StandardField::Criticality
+            ]
+        );
     }
 }

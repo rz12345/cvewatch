@@ -275,6 +275,11 @@ pub enum AssetAction {
         /// 資產編號
         asset_tag: String,
     },
+    /// 匯出使用中資產為 Excel 清冊（與匯入相同格式；不含已退役資產與主機套件）
+    Export {
+        /// 輸出路徑（.xlsx，不可已存在）
+        path: PathBuf,
+    },
     /// 匯出空白 Excel 範本（assets、components 工作表）
     Template {
         /// 輸出路徑（.xlsx，不可已存在）

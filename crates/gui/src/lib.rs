@@ -9,6 +9,7 @@ pub mod companion;
 pub mod dialogs;
 pub mod files;
 pub mod fonts;
+pub mod matching;
 pub mod screens;
 pub mod settings;
 pub mod shell;

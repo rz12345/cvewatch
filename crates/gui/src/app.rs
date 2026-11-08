@@ -16,8 +16,9 @@ use eframe::egui;
 
 use crate::companion::Companion;
 use crate::dialogs::import::ImportFlow;
-use crate::dialogs::{Dialog, NotePurpose, TriageDraft};
+use crate::dialogs::{AssetDialog, Dialog, NotePurpose, TriageDraft};
 use crate::files::FileDialogs;
+use crate::matching::Matching;
 use crate::settings::SettingsPage;
 
 /// 六個畫面（側邊導覽與 `Ctrl+1`～`Ctrl+6`）。
@@ -135,6 +136,12 @@ pub struct GuiApp {
     pub dialog: Option<Dialog>,
     pub settings: SettingsPage,
     pub assets_selected: Option<String>,
+    /// 資產清單含已退役資產
+    pub assets_show_retired: bool,
+    /// 資產編輯、退役與永久刪除確認
+    pub asset_dialog: Option<AssetDialog>,
+    /// 資產編修後的背景比對
+    pub matching: Matching,
     pub pending_selected: Option<String>,
     pub pending_links: Option<crate::screens::pending::PendingLinks>,
     pub import: Option<ImportFlow>,
@@ -167,6 +174,9 @@ impl GuiApp {
             dialog: None,
             settings,
             assets_selected: None,
+            assets_show_retired: false,
+            asset_dialog: None,
+            matching: Matching::default(),
             pending_selected: None,
             pending_links: None,
             import: None,
@@ -254,9 +264,11 @@ impl GuiApp {
         }
     }
 
-    /// 有未儲存的設定或未送出的備註（關閉視窗前需確認）。
+    /// 有未儲存的設定、未送出的備註或未儲存的資產編輯（關閉視窗前需確認）。
     pub fn has_unsaved(&self) -> bool {
-        self.settings.dirty() || self.dialog.as_ref().is_some_and(Dialog::has_unsaved_note)
+        self.settings.dirty()
+            || self.dialog.as_ref().is_some_and(Dialog::has_unsaved_note)
+            || matches!(&self.asset_dialog, Some(AssetDialog::Edit(e)) if e.dirty())
     }
 
     pub fn start_sync(&mut self) {
@@ -268,14 +280,16 @@ impl GuiApp {
         self.report(r);
     }
 
-    /// 有背景工作（sync、設定連線、清冊匯入）時較頻繁地喚醒。
+    /// 有背景工作（sync、設定連線、清冊匯入、編修後比對）時較頻繁地喚醒。
     pub fn busy(&self) -> bool {
         self.ws.sync.is_some()
             || !self.settings.jobs.is_empty()
             || self.import.as_ref().is_some_and(ImportFlow::running)
+            || self.matching.running()
     }
 
-    /// 每一幀：背景 sync 結束與新資料（`Workspace::tick` 自行節流）、設定的背景工作、匯入子程序。
+    /// 每一幀：背景 sync 結束與新資料（`Workspace::tick` 自行節流）、設定的背景工作、匯入子程序、
+    /// 編修後的比對。
     pub fn poll(&mut self) {
         let now = (self.instant)();
         if let Some(r) = self.ws.tick(now) {
@@ -283,6 +297,7 @@ impl GuiApp {
         }
         self.poll_settings_jobs();
         self.poll_import();
+        self.poll_match();
     }
 
     // ---- 命中處理 ----

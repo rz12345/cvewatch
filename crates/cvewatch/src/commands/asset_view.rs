@@ -59,10 +59,10 @@ pub fn print_plan_details(plan: &ImportPlan) {
         println!("版本無法解析（仍保存原始字串）：");
     }
     for w in &plan.warnings {
-        println!(
-            "  {} {} {}「{}」不符合 {} 格式",
-            w.row, w.asset_tag, w.product_key, w.version_raw, w.scheme
-        );
+        match w.row {
+            Some(row) => println!("  {row} {}", w.describe()),
+            None => println!("  {}", w.describe()),
+        }
     }
     if !plan.disappeared.is_empty() {
         println!("清冊中消失：{}", plan.disappeared.join("、"));

@@ -96,6 +96,11 @@ pub struct Component {
 }
 
 impl Component {
+    /// 清冊管理的目錄產品元件（可在畫面編修；主機套件元件由套件清單管理）。
+    pub fn is_inventory_product(&self) -> bool {
+        self.source == ComponentSource::Excel && matches!(self.kind, ComponentKind::Product { .. })
+    }
+
     /// 產品 key 或套件 purl，用於顯示。
     pub fn label(&self) -> &str {
         match &self.kind {
@@ -114,6 +119,8 @@ pub struct HistoryEntry {
 /// 清冊中無法辨識的產品寫法。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UnresolvedEntry {
+    /// `asset_unresolved.id`（同一資產可有多筆相同寫法，編修以 id 指定）
+    pub id: i64,
     pub asset_tag: String,
     pub product_raw: String,
     pub version_raw: String,

@@ -1,12 +1,15 @@
 //! 對話框：忽略原因與理由（[`reason`]）、備註（[`note`]）、等待區套用目標（[`pending_target`]）、
-//! 未儲存變更確認（[`confirm_leave`]）、清冊匯入（[`import`]）。
+//! 未儲存變更確認（[`confirm_leave`]）、清冊匯入（[`import`]）、資產編輯（[`asset_edit`]）、
+//! 退役與永久刪除確認（[`purge`]）。
 //!
 //! 對話框只回傳 [`Outcome`]；寫入由 `GuiApp` 經 `Workspace` 執行。
 
+pub mod asset_edit;
 pub mod confirm_leave;
 pub mod import;
 pub mod note;
 pub mod pending_target;
+pub mod purge;
 pub mod reason;
 
 use cvewatch_core::matching::pending_ops::Action;
@@ -50,6 +53,16 @@ pub enum Dialog {
         cve: String,
         options: Vec<String>,
     },
+}
+
+/// 資產畫面的對話框（寫入由對話框確認後經 `Workspace` 執行）。
+pub enum AssetDialog {
+    Edit(Box<asset_edit::AssetEdit>),
+    /// 「刪除」確認（標為退役）
+    Retire {
+        tag: String,
+    },
+    Purge(purge::PurgeConfirm),
 }
 
 /// 對話框這一幀的結果。
@@ -117,6 +130,13 @@ impl GuiApp {
                         });
                     }
                 }
+            }
+        }
+        if let Some(dialog) = self.asset_dialog.take() {
+            match dialog {
+                AssetDialog::Edit(edit) => self.show_asset_edit(ctx, edit),
+                AssetDialog::Retire { tag } => self.show_retire_confirm(ctx, tag),
+                AssetDialog::Purge(p) => self.show_purge_confirm(ctx, p),
             }
         }
         self.show_import(ctx);

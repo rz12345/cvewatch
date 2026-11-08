@@ -1,10 +1,12 @@
-//! Windows 檔案對話框（另存 VEX、選擇清冊與元件檔）。以 trait 抽象，測試以替身取代。
+//! Windows 檔案對話框（另存 VEX、範本與清冊、選擇清冊與元件檔）。以 trait 抽象，測試以替身取代。
 
 use std::path::{Path, PathBuf};
 
 pub trait FileDialogs {
     /// 另存新檔：預設資料夾與檔名。取消時為 None。
     fn save_vex(&self, dir: &Path, file_name: &str) -> Option<PathBuf>;
+    /// 另存 Excel（.xlsx）：對話框標題、預設資料夾與檔名。取消時為 None。
+    fn save_xlsx(&self, title: &str, dir: &Path, file_name: &str) -> Option<PathBuf>;
     /// 開啟資產清冊（.xlsx／.csv）。
     fn open_inventory(&self) -> Option<PathBuf>;
     /// 開啟 CSV 清冊的元件檔。
@@ -21,6 +23,15 @@ impl FileDialogs for NativeDialogs {
             .set_directory(dir)
             .set_file_name(file_name)
             .add_filter("CycloneDX VEX（JSON）", &["json"])
+            .save_file()
+    }
+
+    fn save_xlsx(&self, title: &str, dir: &Path, file_name: &str) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .set_title(title)
+            .set_directory(dir)
+            .set_file_name(file_name)
+            .add_filter("Excel 活頁簿（.xlsx）", &["xlsx"])
             .save_file()
     }
 

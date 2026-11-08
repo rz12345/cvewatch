@@ -85,6 +85,8 @@ pub struct FakeDialogs {
     /// None 表示使用者取消；`Some(None)` 表示照預設資料夾與檔名確認
     pub save: Rc<RefCell<Option<Option<PathBuf>>>>,
     pub save_asked: Rc<RefCell<Vec<(PathBuf, String)>>>,
+    /// 另存 Excel 對話框的標題
+    pub xlsx_titles: Rc<RefCell<Vec<String>>>,
     pub inventory: Rc<RefCell<Option<PathBuf>>>,
     pub components: Rc<RefCell<Option<PathBuf>>>,
 }
@@ -99,6 +101,11 @@ impl FileDialogs for FakeDialogs {
             Some(None) => Some(dir.join(file_name)),
             Some(Some(p)) => Some(p),
         }
+    }
+
+    fn save_xlsx(&self, title: &str, dir: &Path, file_name: &str) -> Option<PathBuf> {
+        self.xlsx_titles.borrow_mut().push(title.to_string());
+        self.save_vex(dir, file_name)
     }
 
     fn open_inventory(&self) -> Option<PathBuf> {
@@ -193,6 +200,8 @@ pub fn harness(app: GuiApp) -> Harness<'static, GuiApp> {
         .with_size([1400.0, 900.0])
         // 每步 0.05 秒：兩次點選落在按兩下的 0.3 秒內
         .with_step_dt(0.05)
+        // 新增的表格列（Grid）第一次排版需要多繪製幾幀
+        .with_max_steps(8)
         .allow_missing_glyphs()
         .build_ui_state(|ui, app: &mut GuiApp| app.show(ui), app);
     h.run();
@@ -426,4 +435,78 @@ pub fn click_option(h: &mut Harness<'_, GuiApp>, label: &str) {
 pub fn click_last(h: &mut Harness<'_, GuiApp>, label: &str) {
     h.get_all_by_label(label).last().expect(label).click();
     h.run();
+}
+
+/// 排入的背景工作。
+pub type Jobs = Arc<Mutex<Vec<Box<dyn FnOnce() + Send>>>>;
+
+/// 背景工作延後執行的 spawner（模擬子程序尚未回應；`run_all` 時才執行）。
+#[derive(Clone, Default)]
+pub struct DeferredSpawner {
+    pub jobs: Jobs,
+}
+
+impl cvewatch_frontend::settings::Spawner for DeferredSpawner {
+    fn spawn(&self, job: Box<dyn FnOnce() + Send>) {
+        self.jobs.lock().expect("jobs").push(job);
+    }
+}
+
+impl DeferredSpawner {
+    /// 執行目前排入的工作，回傳執行數。
+    pub fn run_all(&self) -> usize {
+        let jobs: Vec<_> = std::mem::take(&mut *self.jobs.lock().expect("jobs"));
+        let n = jobs.len();
+        for job in jobs {
+            job();
+        }
+        n
+    }
+
+    pub fn pending(&self) -> usize {
+        self.jobs.lock().expect("jobs").len()
+    }
+}
+
+/// 狀態列目前的訊息。
+pub fn status(h: &Harness<'_, GuiApp>) -> String {
+    h.state()
+        .status
+        .as_ref()
+        .map(|r| r.message.clone())
+        .unwrap_or_default()
+}
+
+/// 取代文字欄位的內容（取得焦點 → 全選 → 輸入）。
+pub fn replace_text(h: &mut Harness<'_, GuiApp>, label: &str, text: &str) {
+    h.get_by_label(label).focus();
+    h.run();
+    h.key_press_modifiers(egui::Modifiers::COMMAND, egui::Key::A);
+    h.run();
+    h.get_by_label(label).type_text(text);
+    h.run();
+}
+
+/// 進入資產畫面並選取資產。
+pub fn select_asset(h: &mut Harness<'_, GuiApp>, tag: &str) {
+    ctrl(h, egui::Key::Num3);
+    h.state_mut().assets_selected = Some(tag.to_string());
+    h.run();
+}
+
+/// 以編輯對話框修改元件版本並儲存。
+pub fn edit_version(h: &mut Harness<'_, GuiApp>, tag: &str, key: &str, version: &str) {
+    select_asset(h, tag);
+    click(h, "編輯");
+    replace_text(h, &format!("{key} 版本"), version);
+    click(h, "儲存");
+}
+
+/// fake companion 收到的 `match` 子命令次數。
+pub fn match_calls(f: &Fakes) -> usize {
+    f.companion
+        .calls()
+        .iter()
+        .filter(|c| c.last().map(String::as_str) == Some("match"))
+        .count()
 }

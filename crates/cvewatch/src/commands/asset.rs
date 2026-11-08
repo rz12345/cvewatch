@@ -1,14 +1,15 @@
-//! `cvewatch asset import | import-packages | list | show | template | catalog`
+//! `cvewatch asset import | import-packages | list | show | export | template | catalog`
 
 use std::path::Path;
 
 use cvewatch_core::assets::columns::ColumnMap;
+use cvewatch_core::assets::export::export_inventory;
 use cvewatch_core::assets::import::{import_inventory, ImportOptions};
 use cvewatch_core::assets::packages::import::{import_packages, PackageImportReport};
 use cvewatch_core::assets::packages::{parse_packages, Distro, PackageFormat, ParsedPackages};
 use cvewatch_core::assets::plan::ImportPlan;
 use cvewatch_core::assets::sheet::read_inventory;
-use cvewatch_core::assets::template::write_template;
+use cvewatch_core::assets::template::{ensure_absent, write_template};
 use cvewatch_core::assets::validate::parse_inventory;
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::{CoreError, ExitCode};
@@ -41,6 +42,7 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
             unresolved,
         } => asset_view::list(app, category.as_deref(), unresolved),
         AssetAction::Show { asset_tag } => asset_view::show(app, &asset_tag),
+        AssetAction::Export { path } => export(app, &path),
         AssetAction::Template { path } => template(&path),
         AssetAction::Catalog { unresolved, action } => match (unresolved, action) {
             (true, _) => asset_view::catalog_unresolved(app),
@@ -172,6 +174,26 @@ fn print_skipped(parsed: &ParsedPackages) {
             eprintln!("提醒：略過 {count} 筆{reason}的項目");
         }
     }
+}
+
+/// 未加密匯出後的提示（與 VEX 匯出相同的語意）。
+const UNENCRYPTED_NOTICE: &str = "注意：此檔未加密，含資產清單，請妥善保管。";
+
+fn export(app: &App, path: &Path) -> Result<ExitCode, CoreError> {
+    // 先檢查目的檔，避免開啟資料庫（要求金鑰）後才失敗
+    ensure_absent(path)?;
+    let catalog = app.load_catalog()?;
+    let conn = open_working_db(&app.paths, &app.store)?;
+    let summary = export_inventory(&conn, &catalog, path)?;
+    println!("已匯出 {} 個資產：{}", summary.assets, path.display());
+    for w in &summary.warnings {
+        println!("警告：{w}");
+    }
+    println!("{UNENCRYPTED_NOTICE}");
+    println!(
+        "編輯此檔後可用 `cvewatch asset import` 匯入；匯入會以檔案內容覆寫資產欄位與清冊元件。"
+    );
+    Ok(ExitCode::Success)
 }
 
 fn template(path: &Path) -> Result<ExitCode, CoreError> {
