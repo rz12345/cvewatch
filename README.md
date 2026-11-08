@@ -126,6 +126,23 @@ cvewatch pending resolve CVE-2099-0001 --apply PVE-01   # 或 --dismiss；資產
 - 風險等級門檻在設定檔 `[scoring]`、等待區逾期天數在 `[pending] stale_days`；修改後下次比對重算
 - 清冊只填 ESXi build 編號時，需要種子目錄或 `catalog.d` 的 `[[esxi_build]]` 對照表才能與 Update 名稱比較；對照不到時判定為未知
 
+### 風險等級（P1–P4）
+
+每筆命中依下表由上而下判定基本等級，符合第一條即停（括號內為預設門檻）：
+
+| 等級 | 條件 |
+|---|---|
+| P1 | CVE 列入 CISA KEV（已知遭利用） |
+| P2 | EPSS ≥ `epss_high`（0.10）或 CVSS ≥ `cvss_high`（9.0） |
+| P3 | EPSS ≥ `epss_medium`（0.01）或 CVSS ≥ `cvss_medium`（7.0） |
+| P4 | 其他，含沒有 EPSS 與 CVSS 的 CVE |
+
+- 資產曝露度在 `exposure_bump`（預設 `internet`、`dmz`）內時再上調一級，例如對外防火牆的 P3 命中成為 P2；P1 維持不變
+- 同一等級內依 KEV 加入日期（新到舊）、EPSS、CVSS、資產重要性（皆由高到低）排序
+- 門檻與上調清單在設定檔 `[scoring]` 調整，下次 `cvewatch match` 重算全部等級
+- 緊急通知（立即寄信、Redmine 開案）另以「KEV 或 CVSS ≥ `[notify] urgent_cvss`」判定，與 P1–P4 無關
+- 正式規格見 [openspec/specs/risk-scoring/spec.md](openspec/specs/risk-scoring/spec.md)
+
 ## 首次設定流程
 
 ```powershell
