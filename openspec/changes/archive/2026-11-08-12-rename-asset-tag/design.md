@@ -116,3 +116,7 @@
 7. **`text_field` 的 `enabled` 參數已無用途**：移除，改用 `ui.add`
 8. **更名衝突沒有標在欄位上**：改為在前端先檢查，見 D3
 
+## 封存時的調整
+
+- 同步主 spec 後，`openspec validate --specs --strict` 指出 `gui-console` 的「GUI asset editing」需求描述超過 500 字。原因是更名規則併入了該需求。處理方式：把更名規則與兩個更名 scenario 拆成新需求「GUI asset renaming」，原需求維持原文；delta spec 也同步改為只 ADDED。行為沒有改變
+

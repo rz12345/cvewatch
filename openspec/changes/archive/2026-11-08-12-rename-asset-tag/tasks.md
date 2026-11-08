@@ -33,5 +33,5 @@
 
 ## Workflow follow-up
 
-- archive 時同步主 spec：`asset-inventory`（修改 Editing asset fields，新增 Renaming an asset、Old asset tag is not remembered、Renaming from the command line）、`gui-console`（修改 GUI asset editing）
+- archive 時同步主 spec：`asset-inventory`（修改 Editing asset fields，新增 Renaming an asset、Old asset tag is not remembered、Import rejects tags differing only in letter case、Renaming from the command line）、`gui-console`（新增 GUI asset renaming；原規劃為修改 GUI asset editing，封存時拆出以符合需求描述 500 字上限）
 - archive 後執行 `openspec validate --all --strict` 確認通過

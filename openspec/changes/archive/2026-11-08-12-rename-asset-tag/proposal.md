@@ -27,7 +27,7 @@
 ### Modified Capabilities
 
 - `asset-inventory`：「Editing asset fields」不再禁止修改 `asset_tag`；新增「Renaming an asset」規則（驗證、保留紀錄、不留舊編號、對清冊與 VEX 的影響）
-- `gui-console`：「GUI asset editing」的編輯對話框可修改資產編號，並提示更名的影響
+- `gui-console`：新增「GUI asset renaming」：編輯對話框可修改資產編號，提示更名的影響，衝突標在欄位旁（封存時由修改「GUI asset editing」改為獨立需求，因為原需求加入後超過 500 字）
 
 ## Out of scope
 
