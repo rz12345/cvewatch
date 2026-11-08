@@ -1,15 +1,12 @@
 //! 設定畫面的按鍵與動作（儲存、測試、載入清單、重新安裝排程、未儲存確認）。
 
-use std::sync::mpsc;
-
-use cvewatch_core::secrets::SecretKey;
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tui_input::Input;
 use zeroize::Zeroizing;
 
-use super::form::{self, FieldId, Kind, Row, Secret, Tab};
-use super::jobs::{JobKind, JobResult, Running};
-use super::{save, Confirm, Editing, Leave, Picker, CONFIRM_CHOICES};
+use super::form::{FieldId, Kind, Row, Secret, Tab};
+use super::jobs::JobKind;
+use super::{ActionWords, Confirm, Editing, Finished, Leave, Picker, Refused, CONFIRM_CHOICES};
 use crate::app::{App, Screen};
 use crate::dialog::{edit, moved};
 
@@ -229,121 +226,40 @@ impl App {
         };
     }
 
-    /// Ctrl+S：驗證 → 寫回設定檔 → 寫入秘密。成功時回傳 true。
+    /// Ctrl+S：驗證 → 寫入秘密 → 寫回設定檔（`SettingsState::save`）。成功時回傳 true。
     pub(crate) fn save_settings(&mut self) -> bool {
         self.page.editing = None;
-        let errors = self.page.errors();
-        if !errors.is_empty() {
-            self.message = Some(format!(
-                "有 {} 個欄位錯誤（標示紅色），設定未儲存",
-                errors.len()
-            ));
-            return false;
-        }
-        if !self.page.dirty() {
-            self.message = Some("設定沒有變更".into());
-            return true;
-        }
-        // 先寫入憑證庫：失敗時什麼都沒寫；成功後秘密即成為比較基準，設定檔寫入失敗時只剩一般欄位未儲存
-        if let Err(e) = save::apply_secrets(self.ws.services.secrets.as_ref(), &self.page.form) {
-            tracing::warn!(error = %e, "寫入憑證庫失敗");
-            self.message = Some(format!("無法寫入 Credential Manager，設定未儲存：{e}"));
-            return false;
-        }
-        self.page.secrets_saved();
-        let page = &self.page;
-        if let Err(e) = save::write_config(&self.ws.config_path, &page.original, &page.form) {
-            tracing::warn!(error = %e, "儲存設定失敗");
-            self.message = Some(format!("密碼／API key 已存入 Credential Manager，但{e}"));
-            return false;
-        }
-        let schedule_changed = page.form.schedule_changed(&page.original);
-        self.ws.config = form::apply(&page.form, &self.ws.config);
-        self.page.saved();
-        tracing::info!("已儲存通知與排程設定");
-        self.page.schedule_pending |= schedule_changed;
-        self.message = Some(if self.page.schedule_pending {
-            "已儲存設定；排程已變更，按 i 重新安裝排程".into()
-        } else {
-            "已儲存設定".into()
-        });
-        true
+        let ws = &mut self.ws;
+        let outcome = self
+            .page
+            .state
+            .save(&ws.services, &mut ws.config, &ws.config_path);
+        self.message = Some(outcome.message(&WORDS));
+        outcome.ok()
     }
 
-    fn spawn_job(&mut self, kind: JobKind, job: impl FnOnce() -> JobResult + Send + 'static) {
-        self.spawn_tagged(kind, None, job);
-    }
-
-    fn spawn_tagged(
-        &mut self,
-        kind: JobKind,
-        project: Option<String>,
-        job: impl FnOnce() -> JobResult + Send + 'static,
-    ) {
-        let (tx, rx) = mpsc::channel();
-        self.ws.services.spawner.spawn(Box::new(move || {
-            let _ = tx.send(job());
-        }));
-        self.page.jobs.push(Running { kind, project, rx });
-    }
-
-    fn secret(&self, which: FieldId) -> Result<Option<Zeroizing<String>>, String> {
-        let (secret, key) = match which {
-            FieldId::Password => (&self.page.form.smtp_password, SecretKey::SmtpPassword),
-            _ => (&self.page.form.api_key, SecretKey::RedmineApiKey),
-        };
-        secret.effective(self.ws.services.secrets.as_ref(), key)
+    /// 背景工作沒有啟動的原因（重複按下清單載入或排程安裝時不提示）。
+    fn refused(&mut self, r: Refused) {
+        if let Some(text) = r.message(&WORDS) {
+            self.message = Some(text);
+        }
     }
 
     /// `t`：以目前（含未儲存）的表單值測試。
     fn start_test(&mut self) {
-        let (kind, secret_field, errors) = match self.page.tab {
-            Tab::Email => (
-                JobKind::TestEmail,
-                FieldId::Password,
-                form::email_errors(&self.page.form, &self.rules()),
-            ),
-            Tab::Redmine => (
-                JobKind::TestRedmine,
-                FieldId::ApiKey,
-                form::redmine_errors(&self.page.form, &self.rules()),
-            ),
+        let kind = match self.page.tab {
+            Tab::Email => JobKind::TestEmail,
+            Tab::Redmine => JobKind::TestRedmine,
             Tab::Schedule => {
                 self.message =
                     Some("測試寄信請切到 Email 分頁，測試 Redmine 請切到 Redmine 分頁".into());
                 return;
             }
         };
-        if self.page.running(kind) {
-            self.message = Some(format!("{}仍在執行", kind.label()));
-            return;
-        }
-        if let Some((f, e)) = errors.iter().next() {
-            self.message = Some(format!("{}：{e}（請先修正再測試）", f.label()));
-            return;
-        }
-        let secret = match self.secret(secret_field) {
-            Ok(s) => s,
-            Err(e) => {
-                self.message = Some(format!("無法讀取 Credential Manager：{e}"));
-                return;
-            }
-        };
-        let config = form::apply(&self.page.form, &self.ws.config);
-        let backend = self.ws.services.backend.clone();
-        self.message = Some(format!("{}中…（背景執行）", kind.label()));
-        self.spawn_job(kind, move || {
-            JobResult::Message(match kind {
-                JobKind::TestEmail => backend.test_email(&config, secret),
-                _ => backend.test_redmine(&config, secret),
-            })
-        });
-    }
-
-    fn rules(&self) -> form::Rules<'_> {
-        form::Rules {
-            allow_insecure: self.page.allow_insecure,
-            original: &self.page.original,
+        let ws = &self.ws;
+        match self.page.state.start_test(&ws.services, &ws.config, kind) {
+            Ok(()) => self.message = Some(kind.started()),
+            Err(r) => self.refused(r),
         }
     }
 
@@ -352,105 +268,45 @@ impl App {
         if self.page.tab != Tab::Redmine {
             return;
         }
-        let kind = if project.is_some() {
-            JobKind::LoadProject
-        } else {
-            JobKind::LoadLists
-        };
-        // 專案清單可同時載入多個（使用者連續換專案）；結果回來時只採用目前專案的
-        if kind == JobKind::LoadLists && self.page.running(kind) {
-            return;
-        }
-        let f = &self.page.form;
-        if f.base_url.trim().is_empty()
-            || form::redmine_errors(f, &self.rules()).contains_key(&FieldId::BaseUrl)
+        let ws = &self.ws;
+        match self
+            .page
+            .state
+            .load_lists(&ws.services, &ws.config, project)
         {
-            self.message = Some("請先填寫有效的 Redmine 網址（https）".into());
-            return;
+            Ok(()) => self.message = Some(JobKind::LoadLists.started()),
+            Err(r) => self.refused(r),
         }
-        let key = match self.secret(FieldId::ApiKey) {
-            Ok(Some(k)) => Some(k),
-            Ok(None) => {
-                self.message = Some("請先輸入 API key".into());
-                return;
-            }
-            Err(e) => {
-                self.message = Some(format!("無法讀取 Credential Manager：{e}"));
-                return;
-            }
-        };
-        let config = form::apply(&self.page.form, &self.ws.config);
-        let backend = self.ws.services.backend.clone();
-        self.message = Some("正在載入 Redmine 清單…".into());
-        let tag = project.clone();
-        self.spawn_tagged(kind, tag, move || {
-            JobResult::Lists(backend.redmine_lists(&config, key, project))
-        });
     }
 
     /// `i`：以已儲存的設定重新安裝排程。
     fn reinstall_schedule(&mut self) {
-        if self.page.form.schedule_changed(&self.page.original) {
-            self.message = Some("排程設定尚未儲存，請先按 Ctrl+S".into());
-            return;
+        match self.page.state.reinstall_schedule(&self.ws.services) {
+            Ok(()) => self.message = Some(JobKind::InstallSchedule.started()),
+            Err(r) => self.refused(r),
         }
-        if self.page.running(JobKind::InstallSchedule) {
-            return;
-        }
-        let backend = self.ws.services.backend.clone();
-        self.message = Some("正在重新安裝排程…".into());
-        self.spawn_job(JobKind::InstallSchedule, move || {
-            JobResult::Message(backend.install_schedule())
-        });
     }
 
-    /// 取回已完成的背景工作；有結果時回傳 true（需要重繪）。
+    /// 取回已完成的背景工作；有工作結束時回傳 true（需要重繪，含被捨棄的過時清單結果）。
     pub(crate) fn poll_settings_jobs(&mut self) -> bool {
-        let jobs = std::mem::take(&mut self.page.jobs);
-        let mut changed = false;
-        for job in jobs {
-            match job.poll() {
-                None => self.page.jobs.push(job),
-                Some(result) => {
-                    changed = true;
-                    let stale = job.kind == JobKind::LoadProject
-                        && job.project.as_deref() != Some(self.page.form.project.trim());
-                    if !stale {
-                        self.finish_job(job.kind, result);
-                    }
+        let before = self.page.jobs.len();
+        let finished = self.page.state.poll();
+        let changed = self.page.jobs.len() != before || !finished.is_empty();
+        for f in finished {
+            self.message = Some(f.message(&WORDS));
+            if let Finished::Lists { follow_up } = f {
+                if follow_up.is_some() {
+                    self.load_lists(follow_up);
                 }
             }
         }
         changed
     }
-
-    fn finish_job(&mut self, kind: JobKind, result: JobResult) {
-        match result {
-            JobResult::Message(Ok(text)) => {
-                if kind == JobKind::InstallSchedule {
-                    self.page.schedule_pending = false;
-                }
-                self.message = Some(text.clone());
-                self.page.last_result = Some((true, text));
-            }
-            JobResult::Message(Err(e)) => {
-                let text = format!("{}失敗：{e}", kind.label());
-                self.message = Some(text.clone());
-                self.page.last_result = Some((false, text));
-            }
-            JobResult::Lists(Ok(lists)) => {
-                self.page.lists = self.page.lists.merged(lists);
-                self.page.lists_error = None;
-                self.message = Some("已載入 Redmine 清單，按 Enter 挑選".into());
-                let project = self.page.form.project.trim().to_string();
-                if kind == JobKind::LoadLists && !project.is_empty() {
-                    self.load_lists(Some(project));
-                }
-            }
-            JobResult::Lists(Err(e)) => {
-                self.message = Some(format!("無法載入 Redmine 清單：{e}；可直接輸入數字 ID"));
-                self.page.lists_error = Some(e);
-            }
-        }
-    }
 }
+
+/// TUI 的操作方式（插入共用的說明文字）。
+const WORDS: ActionWords = ActionWords {
+    save: "按 Ctrl+S",
+    reinstall: "按 i 重新安裝排程",
+    pick: "按 Enter 挑選",
+};

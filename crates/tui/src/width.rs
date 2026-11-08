@@ -9,12 +9,8 @@ pub fn display_width(s: &str) -> usize {
     UnicodeWidthStr::width(s)
 }
 
-/// 控制字元（換行、tab 等）換成空白，避免表格儲存格換行破版。
-pub fn sanitize(s: &str) -> String {
-    s.chars()
-        .map(|c| if c.is_control() { ' ' } else { c })
-        .collect()
-}
+/// 控制字元（換行、tab 等）換成空白，避免表格儲存格換行破版（與 GUI 共用）。
+pub use cvewatch_frontend::display::one_line as sanitize;
 
 /// 截斷到顯示寬度 `max` 以內；被截斷時最後一欄為 `…`。全形字放不下時整個略過，不切半個字。
 pub fn truncate(s: &str, max: usize) -> String {

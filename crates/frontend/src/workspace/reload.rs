@@ -85,17 +85,19 @@ impl<V: ListView> Workspace<V> {
         let mut first_error = None;
         let details = open
             .iter()
-            .map(|id| match data::load_detail(&self.conn, *id) {
-                Ok(Some(fresh)) => DetailRefresh::Updated(Box::new(fresh)),
-                Ok(None) => {
-                    gone.push(format!("#{id}"));
-                    DetailRefresh::Gone
-                }
-                Err(e) => {
-                    first_error.get_or_insert(e);
-                    DetailRefresh::Kept
-                }
-            })
+            .map(
+                |id| match data::load_detail(&self.conn, *id, self.services.link_policy) {
+                    Ok(Some(fresh)) => DetailRefresh::Updated(Box::new(fresh)),
+                    Ok(None) => {
+                        gone.push(format!("#{id}"));
+                        DetailRefresh::Gone
+                    }
+                    Err(e) => {
+                        first_error.get_or_insert(e);
+                        DetailRefresh::Kept
+                    }
+                },
+            )
             .collect();
         let result = match first_error {
             Some(e) => Err(e),
@@ -109,7 +111,7 @@ impl<V: ListView> Workspace<V> {
 impl<V> Workspace<V> {
     /// 讀取命中詳情（證據、時間軸、CVE 描述與連結）。
     pub fn detail(&self, id: i64) -> Result<DetailData, Report> {
-        match data::load_detail(&self.conn, id) {
+        match data::load_detail(&self.conn, id, self.services.link_policy) {
             Ok(Some(d)) => Ok(d),
             Ok(None) => Err(Report::warning(format!("找不到命中 {id}")).with_hint(Hint::Reload)),
             Err(e) => Err(Report::failure("讀取命中失敗", &e)),

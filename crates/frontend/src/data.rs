@@ -19,6 +19,7 @@ use cvewatch_core::CoreError;
 use rusqlite::Connection;
 
 use crate::links::{self, Link};
+use crate::services::LinkPolicy;
 
 /// Sync log 顯示的筆數。
 pub const SYNC_LOG_LIMIT: u32 = 50;
@@ -130,12 +131,17 @@ pub struct DetailData {
     pub links: Vec<Link>,
 }
 
-pub fn load_detail(conn: &Connection, id: i64) -> Result<Option<DetailData>, CoreError> {
+/// `policy`：此前端可開啟的連結種類（不符者不列出）。
+pub fn load_detail(
+    conn: &Connection,
+    id: i64,
+    policy: LinkPolicy,
+) -> Result<Option<DetailData>, CoreError> {
     let Some(finding) = query::show(conn, id)? else {
         return Ok(None);
     };
     let cve = show::load(conn, &finding.row.cve_id)?;
-    let links = links::for_cve(&finding.row.cve_id, cve.as_ref());
+    let links = allowed(links::for_cve(&finding.row.cve_id, cve.as_ref()), policy);
     Ok(Some(DetailData {
         finding,
         cve,
@@ -144,7 +150,18 @@ pub fn load_detail(conn: &Connection, id: i64) -> Result<Option<DetailData>, Cor
 }
 
 /// 單一 CVE 的連結（等待區用）。
-pub fn cve_links(conn: &Connection, cve_id: &str) -> Result<Vec<Link>, CoreError> {
+pub fn cve_links(
+    conn: &Connection,
+    cve_id: &str,
+    policy: LinkPolicy,
+) -> Result<Vec<Link>, CoreError> {
     let cve = show::load(conn, cve_id)?;
-    Ok(links::for_cve(cve_id, cve.as_ref()))
+    Ok(allowed(links::for_cve(cve_id, cve.as_ref()), policy))
+}
+
+fn allowed(links: Vec<Link>, policy: LinkPolicy) -> Vec<Link> {
+    links
+        .into_iter()
+        .filter(|l| policy.allows(&l.url))
+        .collect()
 }

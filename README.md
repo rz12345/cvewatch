@@ -1,7 +1,7 @@
 # cvewatch
 
-單人使用的「資產 × CVE」比對工具：匯入 Excel 資產清冊 → 同步相關 CVE → 規則比對 → 風險排序 → TUI 處理 → Email / Redmine 通知。
-本 repo 目前只有 OpenSpec 規格，程式碼由 Claude Code 依 change 逐步實作。
+單人使用的「資產 × CVE」比對工具：匯入 Excel 資產清冊 → 同步相關 CVE → 規則比對 → 風險排序 → TUI 或視窗版處理 → Email / Redmine 通知。
+規格在 `openspec/`，程式碼由 Claude Code 依 change 逐步實作；已實作的 change 封存在 `openspec/changes/archive/`。
 
 ## 需求決策紀錄（2026-11-07 訪談）
 
@@ -42,6 +42,8 @@ NVD 自 2026-04-15 起只優先 enrich KEV、聯邦使用軟體與 EO 14028 crit
 | 05 | `05-add-tui-console` | ratatui 介面 |
 | 06 | `06-add-alerting-and-scheduling` | Email、Redmine、Windows 排程、TUI 設定畫面 |
 | 07 | `07-add-vex-exchange` | CycloneDX VEX 匯出/匯入（處理判斷可移轉到其他工具） |
+| 08 | `08-extract-frontend-model` | 抽出 TUI 與視窗版共用的前端層 `cvewatch-frontend` |
+| 09 | `09-add-gui-console` | Windows 視窗版 `cvewatch-gui.exe`（egui） |
 
 ## 在 VS Code + Claude Code 中使用
 
@@ -60,7 +62,7 @@ openspec validate --all --strict
 
 ### 建置（Windows MSVC）
 
-Workspace 由 `crates/core`（資料、比對、通知與執行環境啟動）、`crates/frontend`（TUI 與 GUI 共用、不相依 UI 框架的前端層：畫面資料、命中清單模型、狀態變更等操作與設定表單）、`crates/tui`（ratatui 繪製與按鍵）與 `crates/cvewatch`（CLI 執行檔）組成。
+Workspace 由 `crates/core`（資料、比對、通知與執行環境啟動）、`crates/frontend`（TUI 與 GUI 共用、不相依 UI 框架的前端層：畫面資料、命中清單模型、狀態變更等操作與設定表單）、`crates/tui`（ratatui 繪製與按鍵）、`crates/gui`（egui 視窗版）與 `crates/cvewatch`（CLI 執行檔）組成。
 
 資料庫使用 rusqlite 的 `bundled-sqlcipher-vendored-openssl`，首次編譯會從原始碼建置 OpenSSL（約 5 分鐘）：
 
@@ -152,6 +154,52 @@ cvewatch schedule install                        # 建立 cvewatch\sync 與 cvew
   錯過時間會在開機後補跑，只在有網路時執行。排程透過與 `cvewatch.exe` 同資料夾的 `cvewatchw.exe` 執行，不會跳出主控台視窗
 - 機構內部 CA 簽發的 SMTP / Redmine 憑證：在設定檔 `[notify] ca_file` 指定 CA 的 PEM 檔。無加密 SMTP 或 http Redmine 只能手動設定
   `allow_insecure_transport = true`（TUI 頂端會顯示紅色警示），且仍不會以明文送出密碼或 API key
+
+## 視窗版（cvewatch-gui）
+
+`cvewatch-gui.exe` 是與 TUI 功能同等的 Windows 視窗介面（不開主控台視窗），與 CLI、TUI 共用同一個加密資料庫與設定檔，可以同時開啟。
+
+- **三個執行檔放在同一資料夾**：`cvewatch.exe`、`cvewatchw.exe`、`cvewatch-gui.exe`。視窗版的同步、匯入清冊與重新安裝排程都是以隱藏視窗執行同資料夾的 `cvewatch.exe`；找不到它時這些按鈕會停用（滑鼠停留時說明原因），其他功能照常
+- 設定檔解析順序與 CLI 相同：`--config` → 環境變數 `CVEWATCH_CONFIG` → 使用者設定目錄。指定設定檔時，由視窗啟動的 sync、清冊匯入與排程重新安裝也使用同一個設定檔：
+
+```powershell
+.\cvewatch-gui.exe
+.\cvewatch-gui.exe --config D:\cvewatch\cvewatch.toml
+```
+
+- 繁體中文使用 Windows 內建的微軟正黑體（找不到時依序改用正黑體 Light、細明體；都沒有時頂端顯示警告）
+- 繪圖預設用 wgpu（DirectX 12），無法使用時自動改用 OpenGL；兩者都不行（部分遠端桌面或虛擬機）時會跳出訊息框，請改用 `cvewatch tui`
+
+與 TUI 的對照：
+
+| 畫面 | TUI | 視窗版 |
+|---|---|---|
+| Dashboard | `1` | 側邊導覽或 `Ctrl+1`；點選 P1–P4 或 KEV 數字直接開啟套用篩選的命中畫面 |
+| 命中 | `2` | `Ctrl+2`；點欄位標題（等級、資產、CVSS、EPSS、首次發現）排序，`Ctrl+F` 搜尋，「篩選…」開啟篩選面板 |
+| 資產 | `3` | `Ctrl+3`；「匯入清冊」或把檔案拖進視窗 |
+| 等待區 | `4` | `Ctrl+4` |
+| 同步紀錄 | `5` | `Ctrl+5` |
+| 設定 | `6` | `Ctrl+6`；「儲存」按鈕取代 `Ctrl+S`，「測試寄信」「測試 Redmine」「從 Redmine 載入」「重新安裝排程」為按鈕 |
+
+| 操作 | TUI | 視窗版 |
+|---|---|---|
+| 多選 | `Space` | `Ctrl`＋點選加選、`Shift`＋點選範圍選取 |
+| 已處理／忽略／未處理 | `r`／`i`／`u` | 相同按鍵（文字欄位沒有焦點時）、工具列按鈕或右鍵選單 |
+| 詳情 | `Enter` | 按兩下或 `Enter`；連結以按鈕開啟（只開 https） |
+| 複製 CVE ID | `y` | `y` 或詳情中的「複製 CVE ID」 |
+| 匯出 VEX | `E` | `Shift+E` 或「匯出 VEX」（另存新檔對話框，預設「文件」資料夾，不覆蓋既有檔案） |
+| 背景同步／重新載入 | `S`／`R` | 「同步」「重新載入」按鈕，或 `Shift+S`／`F5` |
+| 等待區套用／不相關 | `a`／`d` | 相同按鍵或按鈕 |
+
+匯入清冊（拖放 .xlsx 或 .csv）：
+
+1. 先顯示預覽（等同 `cvewatch asset import <檔案> --dry-run`），資料庫尚未變更
+2. 可勾選「將清冊中消失的資產標為退役」（`--prune`）；CSV 清冊可「選擇元件檔」（`--components`）
+3. 按「匯入」才寫入，之後自動比對並重新載入畫面；一次只接受一個 .xlsx 或 .csv
+
+啟動錯誤：資料庫尚未建立、Credential Manager 中沒有資料庫金鑰或設定檔有誤時，視窗會顯示原因與對應的指令（例如 `cvewatch init`、`cvewatch db import-key`），按「關閉」後結束。設定檔有未知欄位時照常開啟，頂端以黃色警告列顯示。
+
+仍只在 CLI 提供：`cvewatch init`、`cvewatch db export-key | import-key | rekey | backup | restore`、`cvewatch schedule status | uninstall`、`cvewatch asset import-packages`（主機套件清單）、`cvewatch vex import`。
 
 ## 實作前請先確認
 

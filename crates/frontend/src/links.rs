@@ -18,6 +18,13 @@ pub fn is_safe_url(url: &str) -> bool {
         && !url.chars().any(|c| c.is_whitespace() || c.is_control())
 }
 
+/// 只允許 https（視窗版）。
+pub fn is_https(url: &str) -> bool {
+    url.get(..8)
+        .is_some_and(|p| p.eq_ignore_ascii_case("https://"))
+        && is_safe_url(url)
+}
+
 /// CVE.org、NVD → 原廠修正公告 → 參考連結；去除重複與不安全的網址。
 pub fn for_cve(cve_id: &str, detail: Option<&CveDetail>) -> Vec<Link> {
     let mut links = vec![
@@ -63,6 +70,18 @@ mod tests {
         assert!(!is_safe_url("file:///C:/Windows/system32/calc.exe"));
         assert!(!is_safe_url("javascript:alert(1)"));
         assert!(!is_safe_url("https://a.com/ x"));
+    }
+
+    #[test]
+    fn https_only() {
+        assert!(is_https(
+            "https://security.paloaltonetworks.com/CVE-2024-3400"
+        ));
+        assert!(is_https("HTTPS://nvd.nist.gov/x"));
+        assert!(!is_https("http://example.com"));
+        assert!(!is_https("file:///C:/x"));
+        assert!(!is_https("https://a.com/ x"));
+        assert!(!is_https("http"));
     }
 
     #[test]

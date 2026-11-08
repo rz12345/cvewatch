@@ -13,7 +13,7 @@ use rusqlite::Connection;
 
 use crate::data::Settings;
 use crate::services::{
-    CliTarget, DisplayTz, ProcessLauncher, Services, SystemClipboard, SystemOpener,
+    CliTarget, DisplayTz, LinkPolicy, ProcessLauncher, Services, SystemClipboard, SystemOpener,
 };
 use crate::settings::{LiveBackend, ThreadSpawner};
 
@@ -78,6 +78,7 @@ pub fn system_services(options: &ContextOptions, store: KeyringStore) -> Service
         backend: Arc::new(backend),
         spawner: Box::new(ThreadSpawner),
         documents_dir: cvewatch_core::paths::documents_dir(),
+        link_policy: LinkPolicy::Web,
     }
 }
 

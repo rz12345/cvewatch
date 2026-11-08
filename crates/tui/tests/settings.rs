@@ -391,6 +391,28 @@ fn switching_project_quickly_ignores_stale_tracker_lists() {
 }
 
 #[test]
+fn discarded_stale_project_lists_still_trigger_redraw() {
+    let (mut app, rec) = open();
+    rec.secrets.set(SecretKey::RedmineApiKey, "k").unwrap();
+    *rec.backend.lists.lock().unwrap() = Some(Ok(RedmineLists {
+        projects: Some(vec![named(7, "A 專案")]),
+        ..RedmineLists::default()
+    }));
+    press(&mut app, KeyCode::Tab);
+    keys(&mut app, "l");
+    tick(&mut app);
+    tick(&mut app);
+    goto(&mut app, Row::Field(FieldId::Project));
+    press(&mut app, KeyCode::Enter);
+    press(&mut app, KeyCode::Enter);
+    assert_eq!(app.page.jobs.len(), 1, "A 的 tracker 清單載入中");
+    // 結果取回前專案已改為別的值：A 的結果被捨棄，但「載入中」的提示消失，仍需重繪
+    app.page.form = app.page.form.with_text(FieldId::Project, "12");
+    assert!(app.on_tick(std::time::Instant::now()));
+    assert!(app.page.jobs.is_empty());
+}
+
+#[test]
 fn credential_store_failure_saves_nothing() {
     let (mut app, rec) = open();
     type_into(

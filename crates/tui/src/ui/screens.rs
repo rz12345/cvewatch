@@ -1,6 +1,5 @@
 //! Dashboard、Assets（含資產詳情）、Pending、Sync log 畫面。
 
-use chrono::DateTime;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::Line;
@@ -315,9 +314,8 @@ pub fn pending(frame: &mut Frame<'_>, area: Rect, app: &App) {
     let now = app.data.loaded_at;
     let row = |i: usize| {
         let p = &app.data.pending[i];
-        let days = DateTime::parse_from_rfc3339(&p.entered_at)
-            .map(|t| format!("{} 天", (now - t.to_utc()).num_days().max(0)))
-            .unwrap_or_else(|_| "-".into());
+        let days = cvewatch_frontend::display::pending_days(p, now)
+            .map_or_else(|| "-".into(), |d| format!("{d} 天"));
         let values = vec![
             p.cve_id.clone(),
             p.kev_date.clone().unwrap_or_else(|| "-".into()),

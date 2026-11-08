@@ -1,0 +1,347 @@
+//! 清冊匯入（design D8）：選檔或拖放 → 以 companion 執行 `asset import … --dry-run` 顯示預覽 →
+//! 按「匯入」以相同參數去掉 `--dry-run` 再執行 → 顯示結果並重新載入。
+
+use std::path::PathBuf;
+use std::sync::mpsc::{self, Receiver, TryRecvError};
+use std::sync::Arc;
+
+use cvewatch_frontend::{Level, Report};
+use eframe::egui;
+
+use crate::app::{GuiApp, NO_COMPANION};
+use crate::companion::{Companion, ImportArgs, Output};
+use crate::files::{inventory_kind, InventoryKind};
+
+/// 子程序結果。
+pub type RunResult = Result<Output, String>;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Stage {
+    /// 預覽中（`--dry-run` 子程序執行中）
+    Previewing,
+    Preview(RunResult),
+    /// 匯入中
+    Importing,
+    Done(RunResult),
+}
+
+pub struct ImportFlow {
+    pub args: ImportArgs,
+    pub kind: InventoryKind,
+    pub stage: Stage,
+    rx: Option<Receiver<RunResult>>,
+}
+
+impl ImportFlow {
+    pub fn running(&self) -> bool {
+        matches!(self.stage, Stage::Previewing | Stage::Importing)
+    }
+}
+
+/// 不支援的檔案或一次多個檔案時的說明。
+pub const UNSUPPORTED: &str = "只支援 .xlsx 與 .csv 清冊";
+
+/// 子程序輸出的顯示文字（stdout，失敗時附 stderr 與結束碼）。
+pub fn output_text(r: &RunResult) -> String {
+    match r {
+        Err(e) => e.clone(),
+        Ok(o) if o.success() => o.stdout.clone(),
+        Ok(o) => {
+            let code = o.code.map_or("無".to_string(), |c| c.to_string());
+            let mut text = format!("結束碼 {code}");
+            for part in [&o.stderr, &o.stdout] {
+                if !part.is_empty() {
+                    text.push_str("\n\n");
+                    text.push_str(part);
+                }
+            }
+            text
+        }
+    }
+}
+
+/// 部分失敗的結束碼：清冊已寫入，但匯入後的自動比對失敗。
+const PARTIAL_FAILURE: i32 = cvewatch_core::ExitCode::PartialFailure as i32;
+
+fn succeeded(r: &RunResult) -> bool {
+    matches!(r, Ok(o) if o.success())
+}
+
+/// 實際匯入已寫入資料庫（成功，或只有自動比對失敗）。
+fn wrote_inventory(r: &RunResult) -> bool {
+    matches!(r, Ok(o) if o.success() || o.code == Some(PARTIAL_FAILURE))
+}
+
+/// 實際匯入的結果。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ImportOutcome {
+    Done,
+    /// 清冊已寫入，自動比對失敗（結束碼 4）
+    MatchFailed,
+    /// 失敗、無法執行或逾時（資料庫是否變更未知）
+    Failed,
+}
+
+impl ImportOutcome {
+    fn of(r: &RunResult) -> ImportOutcome {
+        match r {
+            Ok(o) if o.success() => ImportOutcome::Done,
+            Ok(o) if o.code == Some(PARTIAL_FAILURE) => ImportOutcome::MatchFailed,
+            _ => ImportOutcome::Failed,
+        }
+    }
+}
+
+impl GuiApp {
+    /// 開始匯入 `file`（檔案對話框或拖放）。
+    pub fn begin_import(&mut self, file: PathBuf) {
+        let Some(companion) = self.companion.clone() else {
+            return self.report(Report::warning(NO_COMPANION));
+        };
+        if self.import.as_ref().is_some_and(ImportFlow::running) {
+            return self.report(Report::info("清冊匯入仍在執行"));
+        }
+        let Some(kind) = inventory_kind(&file) else {
+            return self.report(Report::warning(format!(
+                "{UNSUPPORTED}：{}，未匯入",
+                file.display()
+            )));
+        };
+        let args = ImportArgs {
+            file,
+            components: None,
+            prune: false,
+        };
+        let mut flow = ImportFlow {
+            args,
+            kind,
+            stage: Stage::Previewing,
+            rx: None,
+        };
+        self.spawn_import(&mut flow, companion, true);
+        self.import = Some(flow);
+    }
+
+    /// 「匯入清冊」按鈕。
+    pub fn pick_inventory(&mut self) {
+        if let Some(path) = self.dialogs.open_inventory() {
+            self.begin_import(path);
+        }
+    }
+
+    /// 拖放：只接受單一 .xlsx／.csv。
+    pub fn handle_drops(&mut self, ctx: &egui::Context) {
+        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+        if dropped.is_empty() {
+            return;
+        }
+        // 與快捷鍵相同：有對話框開啟時不開始匯入（避免兩層對話框搶輸入）
+        if self.modal_open() {
+            return self.report(Report::info("請先關閉目前的對話框，再拖放清冊"));
+        }
+        let paths: Vec<PathBuf> = dropped.iter().map(|f| f.path().to_path_buf()).collect();
+        match paths.as_slice() {
+            [one] => self.begin_import(one.clone()),
+            _ => self.report(Report::warning(format!(
+                "{UNSUPPORTED}，一次只能匯入一個檔案"
+            ))),
+        }
+    }
+
+    fn spawn_import(&self, flow: &mut ImportFlow, companion: Arc<dyn Companion>, dry_run: bool) {
+        let (tx, rx) = mpsc::channel();
+        let args = flow.args.to_args(dry_run);
+        self.ws.services.spawner.spawn(Box::new(move || {
+            let _ = tx.send(companion.run(&args));
+        }));
+        flow.rx = Some(rx);
+        flow.stage = if dry_run {
+            Stage::Previewing
+        } else {
+            Stage::Importing
+        };
+    }
+
+    /// 重新預覽（勾選退役或換元件檔後）。
+    fn repreview(&mut self, mut flow: ImportFlow) {
+        if let Some(companion) = self.companion.clone() {
+            self.spawn_import(&mut flow, companion, true);
+        }
+        self.import = Some(flow);
+    }
+
+    pub(crate) fn poll_import(&mut self) {
+        let Some(flow) = &mut self.import else {
+            return;
+        };
+        let Some(rx) = &flow.rx else {
+            return;
+        };
+        let result = match rx.try_recv() {
+            Ok(r) => r,
+            Err(TryRecvError::Empty) => return,
+            Err(TryRecvError::Disconnected) => Err("清冊匯入異常結束".into()),
+        };
+        flow.rx = None;
+        if flow.stage != Stage::Importing {
+            flow.stage = Stage::Preview(result);
+            return;
+        }
+        let outcome = ImportOutcome::of(&result);
+        flow.stage = Stage::Done(result);
+        self.after_import(outcome);
+    }
+
+    /// 匯入步驟結束：一律重新載入（失敗或逾時時資料庫仍可能已寫入，例如交易已提交、
+    /// 自動比對仍在執行時被終止），並依結果提示；重新載入失敗時保留其訊息。
+    fn after_import(&mut self, outcome: ImportOutcome) {
+        let open = self.open_ids();
+        let mut refreshed = self.ws.reload(&open);
+        let reloaded = refreshed.report.level == Level::Info;
+        refreshed.report = match (outcome, reloaded) {
+            (ImportOutcome::Done, true) => Report::info("已匯入清冊並重新載入"),
+            (ImportOutcome::MatchFailed, true) => Report::warning(
+                "已匯入清冊並重新載入，但匯入後的自動比對失敗；請執行 `cvewatch match`（詳見匯入視窗）",
+            ),
+            (ImportOutcome::Failed, true) => Report::error(
+                "清冊匯入失敗，詳見匯入視窗；已重新載入以顯示資料庫目前的狀態",
+            ),
+            (ImportOutcome::Failed, false) => Report {
+                message: format!("清冊匯入失敗，詳見匯入視窗；{}", refreshed.report.message),
+                level: Level::Error,
+                ..refreshed.report.clone()
+            },
+            (_, false) => Report {
+                message: format!("已匯入清冊，但{}", refreshed.report.message),
+                ..refreshed.report.clone()
+            },
+        };
+        self.apply_refreshed(refreshed);
+    }
+
+    pub(super) fn show_import(&mut self, ctx: &egui::Context) {
+        let Some(mut flow) = self.import.take() else {
+            return;
+        };
+        let mut action = None;
+        egui::Modal::new(egui::Id::unique("dialog-import")).show(ctx, |ui| {
+            action = body(ui, &mut flow);
+        });
+        match action {
+            None => self.import = Some(flow),
+            Some(Action::Close) => {}
+            Some(Action::Import) => {
+                if let Some(companion) = self.companion.clone() {
+                    self.spawn_import(&mut flow, companion, false);
+                }
+                self.import = Some(flow);
+            }
+            Some(Action::Repreview) => self.repreview(flow),
+            Some(Action::PickComponents) => {
+                if let Some(path) = self.dialogs.open_components() {
+                    flow.args.components = Some(path);
+                    self.repreview(flow);
+                } else {
+                    self.import = Some(flow);
+                }
+            }
+        }
+    }
+}
+
+enum Action {
+    Close,
+    Import,
+    Repreview,
+    PickComponents,
+}
+
+fn body(ui: &mut egui::Ui, flow: &mut ImportFlow) -> Option<Action> {
+    ui.heading("匯入資產清冊");
+    ui.label(format!("檔案：{}", flow.args.file.display()));
+    let mut action = None;
+    let idle = !flow.running();
+    if flow.kind == InventoryKind::Csv {
+        ui.horizontal(|ui| {
+            let comp = flow
+                .args
+                .components
+                .as_ref()
+                .map_or("（未選擇）".to_string(), |p| p.display().to_string());
+            ui.label(format!("元件檔：{comp}"));
+            let can_pick = idle && !matches!(flow.stage, Stage::Done(_));
+            if ui
+                .add_enabled(can_pick, egui::Button::new("選擇元件檔"))
+                .clicked()
+            {
+                action = Some(Action::PickComponents);
+            }
+        });
+    }
+    let can_change = idle && matches!(flow.stage, Stage::Preview(_));
+    let prune = ui.add_enabled(
+        can_change,
+        egui::Checkbox::new(&mut flow.args.prune, "將清冊中消失的資產標為退役"),
+    );
+    if prune.changed() {
+        action = Some(Action::Repreview);
+    }
+    ui.separator();
+    match &flow.stage {
+        Stage::Previewing => {
+            ui.label("預覽中…（資料庫尚未變更）");
+        }
+        Stage::Importing => {
+            ui.label("匯入中…");
+        }
+        Stage::Preview(r) => {
+            ui.label(if succeeded(r) {
+                "預覽（資料庫尚未變更；匯入時會重新讀取檔案）"
+            } else {
+                "無法預覽："
+            });
+            output(ui, r);
+        }
+        Stage::Done(r) => {
+            ui.label(if succeeded(r) {
+                "匯入完成"
+            } else if wrote_inventory(r) {
+                "清冊已匯入，但自動比對失敗："
+            } else {
+                "匯入失敗："
+            });
+            output(ui, r);
+        }
+    }
+    ui.separator();
+    ui.horizontal(|ui| {
+        let ready = matches!(&flow.stage, Stage::Preview(r) if succeeded(r));
+        if !matches!(flow.stage, Stage::Done(_))
+            && ui.add_enabled(ready, egui::Button::new("匯入")).clicked()
+        {
+            action = Some(Action::Import);
+        }
+        let close = if matches!(flow.stage, Stage::Done(_)) {
+            "關閉"
+        } else {
+            "取消"
+        };
+        // 預覽中可以取消（--dry-run 不寫入）；實際匯入中不可取消，由逾時保護
+        let can_close = flow.stage != Stage::Importing;
+        if ui
+            .add_enabled(can_close, egui::Button::new(close))
+            .clicked()
+        {
+            action = Some(Action::Close);
+        }
+    });
+    action
+}
+
+fn output(ui: &mut egui::Ui, r: &RunResult) {
+    egui::ScrollArea::vertical()
+        .max_height(320.0)
+        .show(ui, |ui| {
+            ui.add(egui::Label::new(egui::RichText::new(output_text(r)).monospace()).wrap());
+        });
+}

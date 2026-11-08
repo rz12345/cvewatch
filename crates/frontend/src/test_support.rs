@@ -14,7 +14,9 @@ use cvewatch_core::notify::redmine::Named;
 use cvewatch_core::secrets::{MemoryStore, SecretError, SecretKey, SecretStore};
 use zeroize::Zeroizing;
 
-use crate::services::{ClipboardSink, DisplayTz, Opener, RunningSync, Services, SyncLauncher};
+use crate::services::{
+    ClipboardSink, DisplayTz, LinkPolicy, Opener, RunningSync, Services, SyncLauncher,
+};
 use crate::settings::{NotifyBackend, RedmineLists, Spawner};
 
 /// 設定畫面的連線替身：記錄呼叫（含使用的設定值）並回傳預設結果。
@@ -246,5 +248,6 @@ pub fn services(rec: &Recorder, now: DateTime<Utc>) -> Services {
         backend: rec.backend.clone(),
         spawner: Box::new(InlineSpawner),
         documents_dir: rec.documents_dir(),
+        link_policy: LinkPolicy::Web,
     }
 }

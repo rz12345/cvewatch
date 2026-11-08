@@ -87,6 +87,15 @@ impl JobKind {
             JobKind::InstallSchedule => "重新安裝排程",
         }
     }
+
+    /// 工作開始時的說明。
+    pub fn started(self) -> String {
+        match self {
+            JobKind::TestEmail | JobKind::TestRedmine => format!("{}中…（背景執行）", self.label()),
+            JobKind::LoadLists | JobKind::LoadProject => "正在載入 Redmine 清單…".into(),
+            JobKind::InstallSchedule => "正在重新安裝排程…".into(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

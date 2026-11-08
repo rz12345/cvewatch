@@ -44,6 +44,35 @@ pub struct Services {
     pub spawner: Box<dyn Spawner>,
     /// 匯出 VEX 的預設資料夾（使用者「文件」資料夾）
     pub documents_dir: PathBuf,
+    /// 可開啟的連結（TUI 允許 http(s)，GUI 只允許 https）
+    pub link_policy: LinkPolicy,
+}
+
+/// 可開啟的連結種類。參考連結來自外部資料，一律不開啟其他協定。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum LinkPolicy {
+    /// http 與 https
+    #[default]
+    Web,
+    /// 只允許 https
+    HttpsOnly,
+}
+
+impl LinkPolicy {
+    pub fn allows(self, url: &str) -> bool {
+        match self {
+            LinkPolicy::Web => crate::links::is_safe_url(url),
+            LinkPolicy::HttpsOnly => crate::links::is_https(url),
+        }
+    }
+
+    /// 被拒絕時的說明。
+    pub fn refusal(self, url: &str) -> String {
+        match self {
+            LinkPolicy::Web => format!("拒絕開啟非 http(s) 連結：{url}"),
+            LinkPolicy::HttpsOnly => format!("只開啟 https 連結：{url}"),
+        }
+    }
 }
 
 /// 顯示時區：本機時區逐筆換算（含日光節約時間），或固定位移（測試用）。
@@ -101,7 +130,7 @@ pub struct CliTarget {
 
 impl CliTarget {
     /// `<exe> [--config <path>] <args…>`，不開新視窗、不接標準輸入。
-    pub fn command(&self, args: &[&str]) -> Command {
+    pub fn command<S: AsRef<std::ffi::OsStr>>(&self, args: &[S]) -> Command {
         let mut cmd = Command::new(&self.exe);
         if let Some(config) = &self.config {
             cmd.arg("--config").arg(config);

@@ -3,6 +3,7 @@
 
 pub mod context;
 pub mod data;
+pub mod display;
 pub mod filter;
 pub mod findings;
 pub mod links;

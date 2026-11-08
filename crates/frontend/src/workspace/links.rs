@@ -2,19 +2,25 @@
 
 use super::Workspace;
 use crate::data;
-use crate::links::{self, Link};
+use crate::links::Link;
 use crate::report::Report;
 
 impl<V> Workspace<V> {
-    /// 單一 CVE 的連結（CVE.org、NVD、原廠公告、參考連結）。
+    /// 單一 CVE 的連結（CVE.org、NVD、原廠公告、參考連結；只列出連結規則允許者）。
     pub fn cve_links(&self, cve: &str) -> Result<Vec<Link>, Report> {
-        data::cve_links(&self.conn, cve).map_err(|e| Report::failure("讀取連結失敗", &e))
+        data::cve_links(&self.conn, cve, self.services.link_policy)
+            .map_err(|e| Report::failure("讀取連結失敗", &e))
     }
 
-    /// 以系統瀏覽器開啟；非 http(s) 連結一律拒絕（參考連結來自外部資料）。
+    /// 此前端可開啟的連結（[`crate::services::LinkPolicy`]）。
+    pub fn link_allowed(&self, url: &str) -> bool {
+        self.services.link_policy.allows(url)
+    }
+
+    /// 以系統瀏覽器開啟；不符合連結規則（預設只允許 http(s)）者一律拒絕（參考連結來自外部資料）。
     pub fn open_url(&self, url: &str) -> Report {
-        if !links::is_safe_url(url) {
-            return Report::warning(format!("拒絕開啟非 http(s) 連結：{url}"));
+        if !self.link_allowed(url) {
+            return Report::warning(self.services.link_policy.refusal(url));
         }
         match self.services.opener.open(url) {
             Ok(()) => Report::info(format!("已開啟 {url}")),

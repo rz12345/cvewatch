@@ -6,7 +6,6 @@ mod overlay;
 mod screens;
 mod settings;
 
-use chrono::DateTime;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -18,7 +17,6 @@ use ratatui::Frame;
 
 use crate::app::{App, Screen, View};
 use crate::data::SYNC_LOG_LIMIT;
-use crate::services::DisplayTz;
 use crate::width::{display_width, truncate_with};
 
 /// 欄間距。
@@ -178,19 +176,7 @@ pub fn cut(app: &App, s: &str, width: usize) -> String {
     truncate_with(s, width, app.glyphs.ellipsis)
 }
 
-/// 時間顯示：轉為本機時區 `YYYY-MM-DD HH:MM`；無法解析時顯示原字串前 16 字元。
-pub fn full_time(raw: &str, tz: DisplayTz) -> String {
-    DateTime::parse_from_rfc3339(raw).map_or_else(
-        |_| raw.get(..16).unwrap_or(raw).to_string(),
-        |t| tz.format(t, "%Y-%m-%d %H:%M"),
-    )
-}
-
-/// `MM-DD HH:MM`。
-pub fn short_time(raw: &str, tz: DisplayTz) -> String {
-    let full = full_time(raw, tz);
-    full.get(5..).unwrap_or(&full).to_string()
-}
+pub use cvewatch_frontend::display::{full_time, short_time};
 
 /// 欄寬：固定或彈性（權重）。
 #[derive(Debug, Clone, Copy)]
@@ -356,16 +342,5 @@ mod tests {
         assert_eq!(window(&off, 89, 100, 10), 89..99);
         assert_eq!(window(&off, 3, 5, 10), 0..5, "清單變短時回到頂端");
         assert_eq!(window(&off, 0, 0, 10), 0..0);
-    }
-
-    #[test]
-    fn times_use_display_timezone() {
-        let tz = DisplayTz::Fixed(chrono::FixedOffset::east_opt(8 * 3600).unwrap());
-        assert_eq!(
-            full_time("2026-11-01T06:05:00+00:00", tz),
-            "2026-11-01 14:05"
-        );
-        assert_eq!(short_time("2026-11-01T06:05:00+00:00", tz), "11-01 14:05");
-        assert_eq!(full_time("not a time", tz), "not a time");
     }
 }
