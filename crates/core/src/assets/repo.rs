@@ -132,6 +132,15 @@ impl<'c> AssetRepo<'c> {
         Ok(self.conn.last_insert_rowid())
     }
 
+    /// 更改資產編號（呼叫端負責驗證與重複檢查；其他資料以 id 關聯，不受影響）。
+    pub fn rename(&self, id: i64, new_tag: &str) -> Result<(), CoreError> {
+        self.conn.execute(
+            "UPDATE asset SET asset_tag = ?2 WHERE id = ?1",
+            params![id, new_tag],
+        )?;
+        Ok(())
+    }
+
     /// 以清冊內容覆寫欄位並重新啟用（若曾退役），同時更新 `last_seen`。
     pub fn update_record(
         &self,

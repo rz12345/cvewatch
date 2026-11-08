@@ -1,4 +1,5 @@
-//! 畫面編修（design D1、D9）：新增資產、修改欄位、元件與未辨識產品的編修、退役、恢復與永久刪除。
+//! 畫面編修（design D1、D9）：新增資產、修改欄位、更名（12 design D1）、元件與未辨識產品的編修、
+//! 退役、恢復與永久刪除。
 //!
 //! 每個公開操作一個交易；表單儲存以 [`apply_edits`] 把多個步驟包在同一個交易（任何一步失敗就
 //! 全部不寫入）。檢查（資產狀態、重複產品、至少一個清冊元件）都在交易內查詢，不信任呼叫端的
@@ -41,7 +42,9 @@ pub struct NewComponent {
 /// 編輯既有資產的一個步驟（[`apply_edits`]）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EditOp<'a> {
-    /// 修改欄位（`asset_tag` 不使用）
+    /// 更改資產編號（12 design D1）；放在其他步驟之前，之後的步驟以資產 id 操作
+    Rename(&'a str),
+    /// 修改欄位（`asset_tag` 不使用，編號只能以 [`EditOp::Rename`] 修改）
     Fields(RecordInput<'a>),
     AddComponent(NewComponent),
     SetVersion {
@@ -55,6 +58,13 @@ pub enum EditOp<'a> {
         product_key: String,
     },
     DeleteUnresolved(i64),
+}
+
+impl EditOp<'_> {
+    /// 這個步驟是否影響比對（12 design D2）：比對結果與編號無關，更名不需要重新比對。
+    pub fn affects_matching(&self) -> bool {
+        !matches!(self, EditOp::Rename(_))
+    }
 }
 
 /// 永久刪除會一併移除的資料量（確認對話框用）。
@@ -204,12 +214,18 @@ fn join_field_errors(errors: Vec<FieldError>) -> CoreError {
     invalid(messages.join("；"))
 }
 
-/// 已被使用的資產編號（不分大小寫，與畫面、等待區的查詢方式一致）。
-fn tag_in_use(conn: &Connection, tag: &str) -> Result<Option<(String, AssetStatus)>, CoreError> {
+/// 已被使用的資產編號（不分大小寫，與畫面、等待區的查詢方式一致）；`exclude` 為不列入的
+/// 資產 id（更名時排除自身，因此只改大小寫可通過）。
+fn tag_in_use(
+    conn: &Connection,
+    tag: &str,
+    exclude: Option<i64>,
+) -> Result<Option<(String, AssetStatus)>, CoreError> {
     let row: Option<(String, String)> = conn
         .query_row(
-            "SELECT asset_tag, status FROM asset WHERE asset_tag = ?1 COLLATE NOCASE LIMIT 1",
-            params![tag],
+            "SELECT asset_tag, status FROM asset
+             WHERE asset_tag = ?1 COLLATE NOCASE AND (?2 IS NULL OR id <> ?2) LIMIT 1",
+            params![tag, exclude],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .optional()?;
@@ -230,7 +246,7 @@ pub fn create_asset(
         return Err(invalid("至少需要一個元件（產品與版本）"));
     }
     let out = in_tx(conn, now, |tx| {
-        if let Some((existing, status)) = tag_in_use(tx, &record.asset_tag)? {
+        if let Some((existing, status)) = tag_in_use(tx, &record.asset_tag, None)? {
             return Err(invalid(match status {
                 AssetStatus::Retired => {
                     format!("資產編號 {existing} 屬於已退役的資產，可改為恢復該資產")
@@ -399,14 +415,19 @@ fn delete_in(
     Ok(EditOutcome::default())
 }
 
+/// 執行一個步驟；更名時把 `asset` 換成更名後的資產，之後的步驟與錯誤訊息使用新編號。
 fn apply_op(
     conn: &Connection,
     catalog: &Catalog,
-    asset: &Asset,
+    asset: &mut Asset,
     op: &EditOp<'_>,
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
     match op {
+        EditOp::Rename(new_tag) => {
+            *asset = rename_in(conn, asset, new_tag)?;
+            Ok(EditOutcome::default())
+        }
         EditOp::Fields(input) => update_fields(conn, asset, input, now),
         EditOp::AddComponent(c) => add_to(conn, catalog, asset, c, now),
         EditOp::SetVersion {
@@ -423,7 +444,8 @@ fn apply_op(
 }
 
 /// 在同一個交易依序執行編輯步驟；「至少一個元件」在全部步驟之後檢查一次
-/// （因此可以先移除、再加回同一產品）。任何一步失敗時整批不寫入。
+/// （因此可以先移除、再加回同一產品）。任何一步失敗時整批不寫入。有影響比對的步驟時
+/// （[`EditOp::affects_matching`]）在同一交易記錄「比對待補」；只更名時不記錄。
 pub fn apply_edits(
     conn: &mut Connection,
     catalog: &Catalog,
@@ -431,22 +453,71 @@ pub fn apply_edits(
     ops: &[EditOp<'_>],
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
-    let out = in_tx(conn, now, |tx| {
-        let asset = active_asset(tx, tag)?;
-        let mut outcome = EditOutcome::default();
-        for op in ops {
-            outcome
-                .warnings
-                .extend(apply_op(tx, catalog, &asset, op, now)?.warnings);
-        }
-        ensure_minimum(tx, &asset)?;
-        Ok(outcome)
-    })?;
-    tracing::info!(asset = %tag, steps = ops.len(), "畫面編修資產");
-    Ok(out)
+    let tx = conn.transaction()?;
+    let original = active_asset(&tx, tag)?;
+    let mut asset = original.clone();
+    let mut outcome = EditOutcome::default();
+    for op in ops {
+        let out = apply_op(&tx, catalog, &mut asset, op, now)?;
+        outcome.warnings.extend(out.warnings);
+    }
+    ensure_minimum(&tx, &asset)?;
+    if ops.iter().any(EditOp::affects_matching) {
+        mark_match_stale(&tx, now)?;
+    }
+    tx.commit()?;
+    log_rename(&original, &asset);
+    tracing::info!(asset = %asset.record.asset_tag, steps = ops.len(), "畫面編修資產");
+    Ok(outcome)
 }
 
-/// 修改 active 資產的欄位；`asset_tag` 不可修改（`input.asset_tag` 不使用）。
+/// 提交後才記錄更名（交易回復時不留下沒有發生的更名紀錄）。
+fn log_rename(before: &Asset, after: &Asset) {
+    if before.record.asset_tag != after.record.asset_tag {
+        tracing::info!(
+            from = %before.record.asset_tag,
+            to = %after.record.asset_tag,
+            "資產更名"
+        );
+    }
+}
+
+/// 更名（12 design D1）：新編號去除前後空白、不可空白、不可與原編號相同；已被其他資產
+/// （含 retired，不分大小寫）使用時拒絕。排除自身，因此只改大小寫可通過。回傳更名後的資產。
+fn rename_in(conn: &Connection, asset: &Asset, new_tag: &str) -> Result<Asset, CoreError> {
+    let old = &asset.record.asset_tag;
+    let new_tag = new_tag.trim();
+    if new_tag.is_empty() {
+        return Err(invalid("資產編號不可空白"));
+    }
+    if new_tag == old {
+        return Err(invalid(format!("新編號與原編號相同：{old}")));
+    }
+    if let Some((existing, status)) = tag_in_use(conn, new_tag, Some(asset.id))? {
+        return Err(invalid(match status {
+            AssetStatus::Retired => format!("資產編號 {existing} 已被使用（屬於已退役的資產）"),
+            AssetStatus::Active => format!("資產編號 {existing} 已被使用"),
+        }));
+    }
+    AssetRepo::new(conn).rename(asset.id, new_tag)?;
+    let mut renamed = asset.clone();
+    renamed.record.asset_tag = new_tag.to_string();
+    Ok(renamed)
+}
+
+/// 更改 active 資產的編號（12 design D1、D2）。元件、版本歷史、未辨識產品、命中與處理紀錄
+/// 以資產 id 關聯而保留；比對結果與編號無關，因此不記錄「比對待補」。回傳實際寫入的新編號
+/// （已去除前後空白）。
+pub fn rename_asset(conn: &mut Connection, tag: &str, new_tag: &str) -> Result<String, CoreError> {
+    let tx = conn.transaction()?;
+    let asset = active_asset(&tx, tag)?;
+    let renamed = rename_in(&tx, &asset, new_tag)?;
+    tx.commit()?;
+    log_rename(&asset, &renamed);
+    Ok(renamed.record.asset_tag)
+}
+
+/// 修改 active 資產的欄位；`asset_tag` 不使用（`input.asset_tag` 被忽略，更名見 [`rename_asset`]）。
 pub fn update_asset(
     conn: &mut Connection,
     tag: &str,

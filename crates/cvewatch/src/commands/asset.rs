@@ -1,8 +1,9 @@
-//! `cvewatch asset import | import-packages | list | show | export | template | catalog`
+//! `cvewatch asset import | import-packages | list | show | rename | export | template | catalog`
 
 use std::path::Path;
 
 use cvewatch_core::assets::columns::ColumnMap;
+use cvewatch_core::assets::edit::rename_asset;
 use cvewatch_core::assets::export::export_inventory;
 use cvewatch_core::assets::import::{import_inventory, ImportOptions};
 use cvewatch_core::assets::packages::import::{import_packages, PackageImportReport};
@@ -42,6 +43,7 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
             unresolved,
         } => asset_view::list(app, category.as_deref(), unresolved),
         AssetAction::Show { asset_tag } => asset_view::show(app, &asset_tag),
+        AssetAction::Rename { asset_tag, new_tag } => rename(app, &asset_tag, &new_tag),
         AssetAction::Export { path } => export(app, &path),
         AssetAction::Template { path } => template(&path),
         AssetAction::Catalog { unresolved, action } => match (unresolved, action) {
@@ -192,6 +194,17 @@ fn export(app: &App, path: &Path) -> Result<ExitCode, CoreError> {
     println!("{UNENCRYPTED_NOTICE}");
     println!(
         "編輯此檔後可用 `cvewatch asset import` 匯入；匯入會以檔案內容覆寫資產欄位與清冊元件。"
+    );
+    Ok(ExitCode::Success)
+}
+
+/// 更名（12 design D5）：不需確認（可再更名回來）；提醒外部檔案的舊編號不會對應。
+fn rename(app: &App, tag: &str, new_tag: &str) -> Result<ExitCode, CoreError> {
+    let mut conn = open_working_db(&app.paths, &app.store)?;
+    let new_tag = rename_asset(&mut conn, tag, new_tag)?;
+    println!("已將 {tag} 更名為 {new_tag}");
+    println!(
+        "注意：舊清冊與已匯出的 VEX 中的 {tag} 不會對應到此資產；請以 `cvewatch asset export` 重新匯出清冊。"
     );
     Ok(ExitCode::Success)
 }

@@ -1,5 +1,6 @@
-//! 「新增資產」與「編輯」共用的對話框（design D11）：上半部資產欄位（`asset_tag` 只在新增時
-//! 可編輯；category、曝露度、重要性為下拉選單），下半部元件與未辨識產品（[`super::asset_components`]）。
+//! 「新增資產」與「編輯」共用的對話框（design D11）：上半部資產欄位（category、曝露度、重要性為
+//! 下拉選單；編輯時資產編號可修改＝更名，與原編號不同時欄位下方提示影響，12 design D4），
+//! 下半部元件與未辨識產品（[`super::asset_components`]）。
 //!
 //! 每個欄位只有左側一個標籤，必填欄位標「*」；類別與曝露度的選項雙語（design 11 D3）。
 //! 驗證錯誤以介面用語紅字顯示在欄位下方，失敗時保留對話框與輸入內容；本地驗證失敗不寫狀態列，
@@ -25,6 +26,14 @@ use crate::screens::ALERT;
 use crate::text::one_line;
 
 pub use super::asset_components::PACKAGE_NOTE;
+
+/// 更名提示（12 design D4）：外部檔案的舊編號不會對應到更名後的資產。
+pub fn rename_note(old_tag: &str) -> String {
+    format!(
+        "更名後，舊清冊與已匯出的 VEX 中的「{}」不會對應到此資產；儲存後建議重新匯出清冊",
+        one_line(old_tag)
+    )
+}
 
 /// 有欄位錯誤時對話框底部的摘要。
 pub const FIX_FIELDS: &str = "請修正標示的欄位";
@@ -136,7 +145,7 @@ impl GuiApp {
     fn save_asset(&mut self, mut edit: Box<AssetEdit>) {
         // 上一次的寫入失敗已不適用（對話框與狀態列都清除），本次結果另行顯示
         self.clear_dialog_failure(edit.failure.take().as_deref());
-        if let Err(errors) = edit.form.validate(&self.ws.settings.catalog) {
+        if let Err(errors) = self.ws.validate_asset_form(&edit.form) {
             edit.errors = errors;
             self.asset_dialog = Some(AssetDialog::Edit(edit));
             return;
@@ -163,9 +172,9 @@ fn body(
     products: &Products,
     catalog: &Catalog,
 ) -> Option<Action> {
-    let title = match edit.form.mode {
+    let title = match &edit.form.mode {
         FormMode::New => "新增資產".to_string(),
-        FormMode::Edit => format!("編輯 {}", one_line(&edit.form.asset_tag)),
+        FormMode::Edit { original_tag } => format!("編輯 {}", one_line(original_tag)),
     };
     ui.heading(title);
     egui::ScrollArea::vertical()
@@ -216,19 +225,10 @@ fn label_text(field: StandardField) -> String {
     }
 }
 
-fn text_field(
-    ui: &mut egui::Ui,
-    value: &mut String,
-    enabled: bool,
-    errors: &FormErrors,
-    field: StandardField,
-) {
+fn text_field(ui: &mut egui::Ui, value: &mut String, errors: &FormErrors, field: StandardField) {
     let l = ui.label(label_text(field));
-    ui.add_enabled(
-        enabled,
-        egui::TextEdit::singleline(value).desired_width(FIELD_WIDTH),
-    )
-    .labelled_by(l.id);
+    ui.add(egui::TextEdit::singleline(value).desired_width(FIELD_WIDTH))
+        .labelled_by(l.id);
     ui.end_row();
     if errors.field(field).is_some() {
         ui.label("");
@@ -311,7 +311,6 @@ impl FieldOptions {
 }
 
 fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit) {
-    let new = edit.form.mode == FormMode::New;
     let errors = edit.errors.clone();
     let options = &*FIELD_OPTIONS;
     let f = &mut edit.form;
@@ -319,8 +318,17 @@ fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit) {
         .num_columns(2)
         .show(ui, |ui| {
             use StandardField as F;
-            text_field(ui, &mut f.asset_tag, new, &errors, F::AssetTag);
-            text_field(ui, &mut f.name, true, &errors, F::Name);
+            text_field(ui, &mut f.asset_tag, &errors, F::AssetTag);
+            if let (Some(old), Some(_)) = (f.original_tag(), f.renamed_to()) {
+                ui.label("");
+                ui.scope(|ui| {
+                    ui.set_max_width(FIELD_WIDTH);
+                    let note = egui::RichText::new(rename_note(old)).color(ALERT);
+                    ui.add(egui::Label::new(note).wrap());
+                });
+                ui.end_row();
+            }
+            text_field(ui, &mut f.name, &errors, F::Name);
             choice_field(
                 ui,
                 &mut f.category,
@@ -342,8 +350,8 @@ fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit) {
                 &errors,
                 F::Criticality,
             );
-            text_field(ui, &mut f.location, true, &errors, F::Location);
-            text_field(ui, &mut f.owner, true, &errors, F::Owner);
-            text_field(ui, &mut f.notes, true, &errors, F::Notes);
+            text_field(ui, &mut f.location, &errors, F::Location);
+            text_field(ui, &mut f.owner, &errors, F::Owner);
+            text_field(ui, &mut f.notes, &errors, F::Notes);
         });
 }

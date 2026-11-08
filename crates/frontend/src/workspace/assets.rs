@@ -6,17 +6,19 @@
 
 use std::path::{Path, PathBuf};
 
+use cvewatch_core::assets::columns::StandardField;
 use cvewatch_core::assets::edit::{self, EditOp, EditOutcome, NewComponent, PurgePreview};
 use cvewatch_core::assets::export::export_inventory;
 use cvewatch_core::assets::plan::VersionWarning;
 use cvewatch_core::assets::template::write_template;
 use cvewatch_core::assets::validate::validate_record;
+use cvewatch_core::assets::AssetRecord;
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::CoreError;
 
 use super::reload::Refreshed;
 use super::Workspace;
-use crate::asset_form::{AssetForm, FormMode, UnresolvedAction};
+use crate::asset_form::{rename_conflict, AssetForm, FormErrors, UnresolvedAction};
 use crate::data::AssetEntry;
 use crate::display::product_name;
 use crate::findings::ListView;
@@ -32,9 +34,16 @@ pub const UNENCRYPTED_NOTICE: &str = "此檔未加密，含資產清單";
 type Step<'a> = (String, EditOp<'a>);
 
 /// 資產欄位是否與資料庫不同（以與 core 相同的驗證結果比較，忽略前後空白）。
+/// 編號另由更名步驟處理，比較時換回原編號（12 design D3）。
 fn fields_changed(form: &AssetForm, entry: &AssetEntry) -> bool {
     match validate_record(&form.record_input()) {
-        Ok(record) => record != entry.asset.record,
+        Ok(record) => {
+            let record = AssetRecord {
+                asset_tag: entry.asset.record.asset_tag.clone(),
+                ..record
+            };
+            record != entry.asset.record
+        }
         // 驗證失敗時交給 core 回報錯誤
         Err(_) => true,
     }
@@ -107,6 +116,10 @@ fn component_steps<'a>(form: &'a AssetForm, catalog: &Catalog) -> Vec<Step<'a>> 
 /// 編輯既有資產時，表單與資料庫目前內容的差異。
 fn edit_steps<'a>(form: &'a AssetForm, entry: &AssetEntry, catalog: &Catalog) -> Vec<Step<'a>> {
     let mut steps = Vec::new();
+    if let Some(new_tag) = form.renamed_to() {
+        let old = &entry.asset.record.asset_tag;
+        steps.push((format!("更名 {old} → {new_tag}"), EditOp::Rename(new_tag)));
+    }
     if fields_changed(form, entry) {
         steps.push((
             "修改資產欄位".to_string(),
@@ -157,50 +170,88 @@ impl<V: ListView> Workspace<V> {
     /// 儲存資產表單（新增，或依差異在同一交易編修）。表單先以本地驗證檢查；
     /// 回傳的 `Refreshed.report` 為 Error 時表示沒有寫入（對話框應保留）。
     pub fn save_asset_form(&mut self, form: &AssetForm, open: &[i64]) -> Refreshed {
-        if let Err(errors) = form.validate(&self.settings.catalog) {
+        if let Err(errors) = self.validate_asset_form(form) {
             return Refreshed::unchanged(Report::error(errors.summary()), open);
         }
-        let now = self.services.now();
+        match form.original_tag() {
+            None => self.save_new_asset(form, open),
+            Some(original) => self.save_asset_edits(form, original, open),
+        }
+    }
+
+    /// 寫入前的本地驗證：欄位與元件（[`AssetForm::validate`]），以及更名的新編號是否已被使用。
+    pub fn validate_asset_form(&self, form: &AssetForm) -> Result<(), FormErrors> {
+        let mut errors = form
+            .validate(&self.settings.catalog)
+            .err()
+            .unwrap_or_default();
+        let tag_ok = errors.field(StandardField::AssetTag).is_none();
+        if let Some(msg) = rename_conflict(form, &self.data).filter(|_| tag_ok) {
+            errors.fields.insert(0, (StandardField::AssetTag, msg));
+        }
+        if errors.is_empty() {
+            Ok(())
+        } else {
+            Err(errors)
+        }
+    }
+
+    fn save_new_asset(&mut self, form: &AssetForm, open: &[i64]) -> Refreshed {
         let tag = form.asset_tag.trim().to_string();
-        let catalog = &self.settings.catalog;
-        let (done, result) = match form.mode {
-            FormMode::New => (
-                format!("已新增資產 {tag}"),
-                edit::create_asset(
-                    &mut self.conn,
-                    catalog,
-                    &form.record_input(),
-                    &new_components(form),
-                    now,
-                ),
-            ),
-            FormMode::Edit => {
-                let Some(entry) = self.data.asset(&tag) else {
-                    let r = Report::error(format!("找不到使用中的資產 {tag}，請重新載入"));
-                    return Refreshed::unchanged(r, open);
-                };
-                let steps = edit_steps(form, entry, catalog);
-                if steps.is_empty() {
-                    return Refreshed::unchanged(Report::info(format!("{tag} 沒有變更")), open);
-                }
-                let labels: Vec<String> = steps.iter().map(|(l, _)| l.clone()).collect();
-                let ops: Vec<EditOp<'_>> = steps.into_iter().map(|(_, op)| op).collect();
-                (
-                    format!("已儲存 {tag}（{}）", labels.join("、")),
-                    edit::apply_edits(&mut self.conn, catalog, &tag, &ops, now),
-                )
-            }
+        let result = edit::create_asset(
+            &mut self.conn,
+            &self.settings.catalog,
+            &form.record_input(),
+            &new_components(form),
+            self.services.now(),
+        );
+        self.after_save(format!("已新增資產 {tag}"), &tag, result, open)
+    }
+
+    /// 編輯既有資產：以原編號找資產，把差異轉成步驟，在同一交易寫入。是否需要比對由 core 的
+    /// [`EditOp::affects_matching`] 判斷（只更名時不需要，12 design D2）。
+    fn save_asset_edits(&mut self, form: &AssetForm, original: &str, open: &[i64]) -> Refreshed {
+        let Some(entry) = self.data.asset(original) else {
+            let r = Report::error(format!("找不到使用中的資產 {original}，請重新載入"));
+            return Refreshed::unchanged(r, open);
         };
+        let catalog = &self.settings.catalog;
+        let steps = edit_steps(form, entry, catalog);
+        if steps.is_empty() {
+            return Refreshed::unchanged(Report::info(format!("{original} 沒有變更")), open);
+        }
+        let shown = form.renamed_to().unwrap_or(original).to_string();
+        let labels: Vec<String> = steps.iter().map(|(l, _)| l.clone()).collect();
+        let done = format!("已儲存 {shown}（{}）", labels.join("、"));
+        let ops: Vec<EditOp<'_>> = steps.into_iter().map(|(_, op)| op).collect();
+        let needs_match = ops.iter().any(EditOp::affects_matching);
+        let result =
+            edit::apply_edits(&mut self.conn, catalog, original, &ops, self.services.now());
+        let mut r = self.after_save(done, original, result, open);
+        r.needs_match &= needs_match;
+        r
+    }
+
+    /// 寫入結果：成功時重新載入並標示需要比對；失敗時不重新載入（沒有寫入任何變更）。
+    fn after_save(
+        &mut self,
+        done: String,
+        tag: &str,
+        result: Result<EditOutcome, CoreError>,
+        open: &[i64],
+    ) -> Refreshed {
         match result {
             Ok(outcome) => {
                 let (message, level) = saved_message(done, &outcome, &self.settings.catalog);
                 self.after_asset_write(message, level, open)
             }
-            Err(e) => {
-                let r = Report::failure(&format!("儲存 {tag} 失敗（未寫入任何變更）"), &e);
-                Refreshed::unchanged(r, open)
-            }
+            Err(e) => self.save_failed(tag, &e, open),
         }
+    }
+
+    fn save_failed(&self, tag: &str, e: &CoreError, open: &[i64]) -> Refreshed {
+        let r = Report::failure(&format!("儲存 {tag} 失敗（未寫入任何變更）"), e);
+        Refreshed::unchanged(r, open)
     }
 
     /// 寫入後重新載入並標示需要比對；重新載入失敗時保留其警告。

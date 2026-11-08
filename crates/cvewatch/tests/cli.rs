@@ -217,6 +217,7 @@ fn asset_subcommands_support_help() {
         "import-packages",
         "list",
         "show",
+        "rename",
         "template",
         "catalog",
     ] {

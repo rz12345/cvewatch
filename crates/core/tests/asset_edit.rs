@@ -252,7 +252,10 @@ fn raising_exposure_updates_the_asset() {
     };
     edit::update_asset(&mut w.conn, "NAS-01", &input, now()).unwrap();
     let r = record(&w, "NAS-01");
-    assert_eq!(r.asset_tag, "NAS-01", "asset_tag 不可修改");
+    assert_eq!(
+        r.asset_tag, "NAS-01",
+        "修改欄位不使用 input.asset_tag（更名另由 rename_asset／EditOp::Rename）"
+    );
     assert_eq!(r.exposure, Exposure::Internet);
     assert_eq!(r.owner.as_deref(), Some("系統組"));
 }

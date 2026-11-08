@@ -149,11 +149,19 @@ pub fn plan_import(
 ) -> Result<ImportPlan, CoreError> {
     let mut errors = Vec::new();
     let mut plan = ImportPlan::default();
+    let folded = folded_tags(current);
     for incoming in &inventory.assets {
         let planned = resolve_asset(incoming, catalog, &mut plan, &mut errors);
         let tag = &planned.record.asset_tag;
         match current.get(tag) {
-            None => plan.added.push(tag.clone()),
+            None => match folded.get(&tag.to_ascii_lowercase()) {
+                // 編號在資料庫區分大小寫，但新增與更名不分大小寫檢查重複（12 code review）
+                Some(existing) => errors.push(format!(
+                    "{}：asset_tag「{tag}」與既有資產 {existing} 只差大小寫；請改用相同寫法，                     或以 cvewatch asset rename 更名",
+                    incoming.row
+                )),
+                None => plan.added.push(tag.clone()),
+            },
             Some(existing) => match diff_asset(existing, &planned) {
                 Some(update) => plan.updated.push(update),
                 None => plan.unchanged += 1,
@@ -178,6 +186,14 @@ pub fn plan_import(
     disappeared.sort();
     plan.disappeared = disappeared;
     Ok(plan)
+}
+
+/// 既有資產編號（不分 ASCII 大小寫，與 SQLite `COLLATE NOCASE` 相同）→ 實際寫法。
+fn folded_tags(current: &Snapshot) -> HashMap<String, &str> {
+    current
+        .keys()
+        .map(|tag| (tag.to_ascii_lowercase(), tag.as_str()))
+        .collect()
 }
 
 /// 以目錄辨識元件；未辨識者記錄建議，重複的產品視為列錯誤。

@@ -9,15 +9,17 @@ use cvewatch_core::assets::validate::{validate_record, FieldErrorKind, RecordInp
 use cvewatch_core::assets::{MAX_CRITICALITY, MIN_CRITICALITY};
 use cvewatch_core::catalog::Catalog;
 
-use crate::data::AssetEntry;
+use crate::data::{AssetEntry, Snapshot};
 use crate::display::product_name;
 
 /// 新增或編輯既有資產。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum FormMode {
     New,
-    /// 編輯 `asset_tag` 這個資產（不可修改編號）
-    Edit,
+    /// 編輯 `original_tag` 這個資產；表單的 `asset_tag` 與它不同時表示更名（12 design D3）
+    Edit {
+        original_tag: String,
+    },
 }
 
 /// 元件列（既有元件或新加入的目錄產品）。
@@ -126,7 +128,9 @@ impl AssetForm {
         let r = &entry.asset.record;
         let text = |v: &Option<String>| v.clone().unwrap_or_default();
         AssetForm {
-            mode: FormMode::Edit,
+            mode: FormMode::Edit {
+                original_tag: r.asset_tag.clone(),
+            },
             asset_tag: r.asset_tag.clone(),
             name: r.name.clone(),
             category: r.category.as_str().into(),
@@ -157,6 +161,24 @@ impl AssetForm {
                     action: UnresolvedAction::Keep,
                 })
                 .collect(),
+        }
+    }
+
+    /// 編輯模式下要更名的新編號（去除前後空白）：空白或與原編號完全相同時為 None。
+    /// 只改大小寫也算更名（資料庫的編號區分大小寫）。
+    pub fn renamed_to(&self) -> Option<&str> {
+        let FormMode::Edit { original_tag } = &self.mode else {
+            return None;
+        };
+        let tag = self.asset_tag.trim();
+        (!tag.is_empty() && tag != original_tag).then_some(tag)
+    }
+
+    /// 編輯模式的原編號（新增模式為 None）。
+    pub fn original_tag(&self) -> Option<&str> {
+        match &self.mode {
+            FormMode::Edit { original_tag } => Some(original_tag),
+            FormMode::New => None,
         }
     }
 
@@ -322,6 +344,28 @@ impl FormErrors {
             .collect::<Vec<_>>()
             .join("；")
     }
+}
+
+/// 更名的新編號已被其他資產（含已退役、不分大小寫）使用時，「資產編號」欄位的錯誤。
+/// 以載入的資料先行檢查，讓錯誤標在欄位旁（12 code review）；core 仍在交易內再檢查一次。
+pub fn rename_conflict(form: &AssetForm, data: &Snapshot) -> Option<String> {
+    let new_tag = form.renamed_to()?;
+    let original = form.original_tag()?;
+    let (other, retired) = data
+        .assets
+        .iter()
+        .map(|a| (a, false))
+        .chain(data.retired_assets.iter().map(|a| (a, true)))
+        .find(|(a, _)| {
+            let tag = &a.asset.record.asset_tag;
+            tag != original && tag.eq_ignore_ascii_case(new_tag)
+        })?;
+    let tag = &other.asset.record.asset_tag;
+    Some(if retired {
+        format!("已被使用（已退役的 {tag}）")
+    } else {
+        format!("已被使用（{tag}）")
+    })
 }
 
 /// 目錄產品選單的一個選項。
@@ -495,5 +539,23 @@ mod tests {
         assert_eq!(product_choices(&catalog).len(), catalog.products().len());
         let panos = &search_products(&catalog, "PAN-OS")[0];
         assert_eq!(panos.label(), "PAN-OS（Palo Alto Networks）");
+    }
+
+    #[test]
+    fn renamed_to_reports_only_a_real_new_tag() {
+        let mut f = filled();
+        assert_eq!(f.renamed_to(), None, "新增模式沒有更名");
+        f.mode = FormMode::Edit {
+            original_tag: "NAS-01".into(),
+        };
+        for unchanged in ["NAS-01", " NAS-01 ", "", "   "] {
+            f.asset_tag = unchanged.into();
+            assert_eq!(f.renamed_to(), None, "{unchanged:?}");
+        }
+        f.asset_tag = " NAS-11 ".into();
+        assert_eq!(f.renamed_to(), Some("NAS-11"));
+        f.asset_tag = "nas-01".into();
+        assert_eq!(f.renamed_to(), Some("nas-01"), "只改大小寫也算更名");
+        assert_eq!(f.original_tag(), Some("NAS-01"));
     }
 }
