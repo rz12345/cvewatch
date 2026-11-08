@@ -1,8 +1,11 @@
-//! 顯示用文字（TUI 與 GUI 共用）：時間格式、等待區天數、命中詳情的段落。
+//! 顯示用文字（TUI 與 GUI 共用）：時間格式、等待區天數、命中詳情的段落，以及資產畫面的
+//! 使用者用語（產品顯示名稱、類別與曝露度的中文名稱，design 11 D1）。
 //!
 //! 只產生純文字；粗體、標題樣式與控制字元處理由各前端決定。
 
 use chrono::{DateTime, Utc};
+use cvewatch_core::assets::{AssetRecord, Category, Component, Exposure};
+use cvewatch_core::catalog::Catalog;
 use cvewatch_core::matching::evidence::{Source, Verdict};
 use cvewatch_core::matching::findings::MANUAL;
 use cvewatch_core::matching::pending_ops::PendingRow;
@@ -38,6 +41,56 @@ pub fn pending_days(row: &PendingRow, now: DateTime<Utc>) -> Option<i64> {
     DateTime::parse_from_rfc3339(&row.entered_at)
         .ok()
         .map(|t| (now - t.to_utc()).num_days().max(0))
+}
+
+/// 目錄產品的顯示名稱（例如 `proxmox-ve` → 「Proxmox VE」）；目錄沒有此 key 時原樣回傳。
+pub fn product_name(catalog: &Catalog, key: &str) -> String {
+    catalog
+        .get(key)
+        .map_or_else(|| key.to_string(), |p| p.display_name.clone())
+}
+
+/// 元件名稱（不含版本）：目錄產品用顯示名稱，套件用不含版本的 purl（不在目錄中，原樣回傳）。
+pub fn component_name(catalog: &Catalog, component: &Component) -> String {
+    product_name(catalog, component.key())
+}
+
+/// 要顯示的資產名稱；與資產編號相同時為 None（清單與詳情標題不重複顯示）。
+pub fn shown_name(record: &AssetRecord) -> Option<&str> {
+    let name = record.name.trim();
+    (name != record.asset_tag.trim()).then_some(name)
+}
+
+/// 類別的中文名稱。
+fn category_zh(c: Category) -> &'static str {
+    match c {
+        Category::Network => "網路設備",
+        Category::Security => "資安設備",
+        Category::Virtualization => "虛擬化",
+        Category::Server => "伺服器",
+        Category::Storage => "儲存設備",
+        Category::Host => "主機",
+    }
+}
+
+/// 曝露度的中文名稱。
+fn exposure_zh(e: Exposure) -> &'static str {
+    match e {
+        Exposure::Internet => "網際網路",
+        Exposure::Dmz => "DMZ",
+        Exposure::Internal => "內部網路",
+        Exposure::Mgmt => "管理網路",
+    }
+}
+
+/// 「英文值（中文）」，例如「server（伺服器）」；儲存與匯出仍使用英文值。
+pub fn category_label(c: Category) -> String {
+    format!("{}（{}）", c.as_str(), category_zh(c))
+}
+
+/// 「英文值（中文）」，例如「internal（內部網路）」。
+pub fn exposure_label(e: Exposure) -> String {
+    format!("{}（{}）", e.as_str(), exposure_zh(e))
 }
 
 /// 詳情中的符號（TUI 在舊主控台改用 ASCII）。
@@ -292,6 +345,66 @@ mod tests {
         );
         assert_eq!(short_time("2026-11-01T06:05:00+00:00", tz), "11-01 14:05");
         assert_eq!(full_time("not a time", tz), "not a time");
+    }
+
+    #[test]
+    fn product_names_come_from_the_catalog() {
+        let catalog = Catalog::seed().unwrap();
+        assert_eq!(product_name(&catalog, "proxmox-ve"), "Proxmox VE");
+        assert_eq!(product_name(&catalog, "no-such-key"), "no-such-key");
+    }
+
+    #[test]
+    fn name_equal_to_tag_is_not_repeated() {
+        let mut r = AssetRecord {
+            asset_tag: "PVE-01".into(),
+            name: "PVE-01 ".into(),
+            category: Category::Server,
+            location: None,
+            owner: None,
+            exposure: Exposure::Internal,
+            criticality: 2,
+            notes: None,
+        };
+        assert_eq!(shown_name(&r), None);
+        r.name = "pve01".into();
+        assert_eq!(shown_name(&r), Some("pve01"));
+    }
+
+    #[test]
+    fn component_names_have_no_version() {
+        use cvewatch_core::assets::ComponentKind;
+        let catalog = Catalog::seed().unwrap();
+        let mut c = Component {
+            id: 1,
+            asset_id: 1,
+            kind: ComponentKind::Package {
+                purl: "pkg:deb/debian/openssl".into(),
+                purl_full: "pkg:deb/debian/openssl@3.0.11-1".into(),
+            },
+            version_raw: "3.0.11-1".into(),
+            version_norm: None,
+            source: cvewatch_core::assets::ComponentSource::Dpkg,
+            updated_at: String::new(),
+        };
+        assert_eq!(component_name(&catalog, &c), "pkg:deb/debian/openssl");
+        c.kind = ComponentKind::Product {
+            product_id: 1,
+            product_key: "paloalto-panos".into(),
+        };
+        assert_eq!(component_name(&catalog, &c), "PAN-OS");
+    }
+
+    #[test]
+    fn category_and_exposure_are_bilingual() {
+        assert_eq!(category_label(Category::Server), "server（伺服器）");
+        assert_eq!(exposure_label(Exposure::Internal), "internal（內部網路）");
+        for c in Category::ALL {
+            assert!(category_label(*c).starts_with(c.as_str()));
+        }
+        for e in Exposure::ALL {
+            assert!(exposure_label(*e).starts_with(e.as_str()));
+        }
     }
 
     #[test]

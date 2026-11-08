@@ -50,7 +50,7 @@ fn asset_match_runs_in_the_background() {
     let (mut h, f) = gui(seeded_world());
     match_output(&f);
     let spawner = deferred(&mut h);
-    edit_version(&mut h, "PA-460", "paloalto-panos", "11.1.6");
+    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
     assert_eq!(db_version(&h, "PA-460"), "11.1.6", "編修已寫入");
     assert!(status(&h).ends_with(MATCHING), "{}", status(&h));
     assert!(h.state().matching.running());
@@ -74,7 +74,7 @@ fn asset_match_companion_missing() {
             ..Setup::default()
         },
     );
-    edit_version(&mut h, "PA-460", "paloalto-panos", "11.1.6");
+    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
     assert_eq!(db_version(&h, "PA-460"), "11.1.6", "編修已寫入");
     let r = h.state().status.clone().expect("status");
     assert_eq!(r.level, cvewatch_frontend::Level::Warning);
@@ -94,7 +94,7 @@ fn asset_match_failure_keeps_the_edit_and_warns() {
         stdout: String::new(),
         stderr: "資料庫鎖定中".into(),
     };
-    edit_version(&mut h, "PA-460", "paloalto-panos", "11.1.6");
+    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
     h.run();
     let r = h.state().status.clone().expect("status");
     assert_eq!(r.level, cvewatch_frontend::Level::Warning);
@@ -111,9 +111,9 @@ fn asset_match_edits_during_matching_run_once_more_afterwards() {
     let (mut h, f) = gui(seeded_world());
     match_output(&f);
     let spawner = deferred(&mut h);
-    edit_version(&mut h, "PA-460", "paloalto-panos", "11.1.6");
-    edit_version(&mut h, "PA-460", "paloalto-panos", "11.1.7");
-    edit_version(&mut h, "FW-CORE", "paloalto-panos", "11.1.8");
+    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
+    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.7");
+    edit_version(&mut h, "FW-CORE", "PAN-OS", "11.1.8");
     assert_eq!(spawner.pending(), 1, "進行中不排第二個比對");
     spawner.run_all();
     h.run();
@@ -142,7 +142,7 @@ impl egui::DroppedFile for Dropped {
 #[test]
 fn asset_match_previewing_after_on_screen_edits() {
     let (mut h, f) = gui(seeded_world());
-    edit_version(&mut h, "PA-460", "paloalto-panos", "11.1.6");
+    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
     *f.companion.output.lock().unwrap() = Output {
         code: Some(0),
         stdout: "更新 1（版本變更 1）\n  PA-460 paloalto-panos 11.1.6 → 11.1.2".into(),
@@ -166,9 +166,9 @@ fn asset_match_result_keeps_the_report_of_an_edit_made_meanwhile() {
     let (mut h, f) = gui(seeded_world());
     match_output(&f);
     let spawner = deferred(&mut h);
-    edit_version(&mut h, "PA-460", "paloalto-panos", "11.1.6");
+    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
     select_asset(&mut h, "PVE-01");
-    click(&mut h, "刪除");
+    click(&mut h, "退役…");
     click(&mut h, "標為退役");
     assert!(status(&h).ends_with(MATCHING), "{}", status(&h));
     spawner.run_all();

@@ -57,11 +57,9 @@ fn asset_version_edit_needs_match_and_reloads() {
     let r = ws.save_asset_form(&form, &[]);
     assert_eq!(r.report.level, Level::Info, "{}", r.report.message);
     assert!(r.needs_match);
-    assert!(
-        r.report.message.contains("版本改為 11.1.6"),
-        "{}",
-        r.report.message
-    );
+    let m = &r.report.message;
+    assert!(m.contains("PAN-OS 版本改為 11.1.6"), "{m}");
+    assert!(!m.contains("paloalto-panos"), "產品以顯示名稱呈現：{m}");
     assert_eq!(version(&ws, "FW-01"), "11.1.6");
 }
 
@@ -142,11 +140,9 @@ fn asset_local_validation_blocks_writes() {
     let r = ws.save_asset_form(&form, &[]);
     assert_eq!(r.report.level, Level::Error);
     assert!(!r.needs_match);
-    assert!(
-        r.report.message.contains("缺少 asset_tag"),
-        "{}",
-        r.report.message
-    );
+    let m = &r.report.message;
+    assert!(m.contains("資產編號：必填"), "{m}");
+    assert!(!m.contains("asset_tag"), "{m}");
     assert!(r.report.message.contains("至少需要一個元件"));
 }
 

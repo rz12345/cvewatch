@@ -161,16 +161,56 @@ pub struct RecordInput<'a> {
     pub notes: &'a str,
 }
 
+impl RecordInput<'_> {
+    /// 欄位的原始輸入；product、version 不屬於資產欄位，回傳空字串。
+    pub fn value(&self, field: StandardField) -> &str {
+        match field {
+            StandardField::AssetTag => self.asset_tag,
+            StandardField::Name => self.name,
+            StandardField::Category => self.category,
+            StandardField::Exposure => self.exposure,
+            StandardField::Criticality => self.criticality,
+            StandardField::Location => self.location,
+            StandardField::Owner => self.owner,
+            StandardField::Notes => self.notes,
+            StandardField::Product | StandardField::Version => "",
+        }
+    }
+}
+
+/// 資產欄位中的必填欄位（依驗證與錯誤回報的順序）。
+pub const REQUIRED_FIELDS: [StandardField; 3] = [
+    StandardField::AssetTag,
+    StandardField::Name,
+    StandardField::Category,
+];
+
+/// 欄位錯誤的種類（讓畫面以自己的用語呈現，不必解析 `message`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FieldErrorKind {
+    /// 必填欄位空白
+    Missing,
+    /// 不是允許的值（category、exposure）
+    NotAllowed,
+    /// 超出範圍或不是數字（criticality）
+    OutOfRange,
+}
+
 /// 單一欄位的驗證錯誤；`message` 不含列位置（匯入時加上「第 N 列：」）。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldError {
     pub field: StandardField,
+    pub kind: FieldErrorKind,
     pub message: String,
 }
 
 impl FieldError {
-    fn new(field: StandardField, message: String) -> FieldError {
-        FieldError { field, message }
+    fn new(field: StandardField, kind: FieldErrorKind, message: String) -> FieldError {
+        FieldError {
+            field,
+            kind,
+            message,
+        }
     }
 }
 
@@ -183,13 +223,13 @@ fn optional_text(v: &str) -> Option<String> {
 /// 清冊匯入與畫面編修共用，錯誤依欄位順序回報。
 pub fn validate_record(input: &RecordInput<'_>) -> Result<AssetRecord, Vec<FieldError>> {
     let mut errors = Vec::new();
-    for (field, value) in [
-        (StandardField::AssetTag, input.asset_tag),
-        (StandardField::Name, input.name),
-        (StandardField::Category, input.category),
-    ] {
-        if value.trim().is_empty() {
-            errors.push(FieldError::new(field, format!("缺少 {}", field.as_str())));
+    for field in REQUIRED_FIELDS {
+        if input.value(field).trim().is_empty() {
+            errors.push(FieldError::new(
+                field,
+                FieldErrorKind::Missing,
+                format!("缺少 {}", field.as_str()),
+            ));
         }
     }
     let category = parse_enum(
@@ -251,6 +291,7 @@ fn parse_enum<T>(
     if parsed.is_none() {
         errors.push(FieldError::new(
             field,
+            FieldErrorKind::NotAllowed,
             format!("{}「{value}」不是允許的值（{}）", field.as_str(), allowed()),
         ));
     }
@@ -266,6 +307,7 @@ fn parse_criticality(raw: &str, errors: &mut Vec<FieldError>) -> Option<u8> {
         _ => {
             errors.push(FieldError::new(
                 StandardField::Criticality,
+                FieldErrorKind::OutOfRange,
                 format!("criticality「{raw}」必須是 {MIN_CRITICALITY}–{MAX_CRITICALITY}"),
             ));
             None
@@ -358,6 +400,28 @@ mod tests {
             errors,
             vec![(StandardField::AssetTag, "缺少 asset_tag".to_string())]
         );
+    }
+
+    #[test]
+    fn errors_carry_their_kind() {
+        let errors = validate_record(&RecordInput {
+            name: "",
+            category: "router",
+            criticality: "9",
+            ..input()
+        })
+        .expect_err("應驗證失敗");
+        let kinds: Vec<_> = errors.iter().map(|e| (e.field, e.kind)).collect();
+        assert_eq!(
+            kinds,
+            vec![
+                (StandardField::Name, FieldErrorKind::Missing),
+                (StandardField::Category, FieldErrorKind::NotAllowed),
+                (StandardField::Criticality, FieldErrorKind::OutOfRange),
+            ]
+        );
+        let empty = RecordInput::default();
+        assert!(REQUIRED_FIELDS.iter().all(|f| empty.value(*f).is_empty()));
     }
 
     #[test]

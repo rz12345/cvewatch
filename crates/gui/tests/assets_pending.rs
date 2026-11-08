@@ -7,16 +7,6 @@ use eframe::egui;
 use egui_kittest::kittest::Queryable;
 use support::*;
 
-/// 點選資產清單中的資產（清單項目以「資產編號  名稱」開頭）。
-fn pick_asset(h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiApp>, tag: &str) {
-    h.get_by(|n| {
-        n.label()
-            .is_some_and(|l| l.starts_with(&format!("{tag}  ")))
-    })
-    .click();
-    h.run();
-}
-
 #[test]
 fn selecting_asset_shows_components_findings_and_unresolved() {
     let (mut h, _f) = gui(seeded_world());
@@ -24,12 +14,12 @@ fn selecting_asset_shows_components_findings_and_unresolved() {
     pick_asset(&mut h, "PVE-01");
     assert_eq!(h.state().assets_selected.as_deref(), Some("PVE-01"));
     assert!(shows(&h, "元件（1）"));
-    assert!(shows(&h, "proxmox-ve 8.2.2"));
+    assert!(shows(&h, "Proxmox VE 8.2.2"));
     assert!(shows(&h, "未處理命中 0 筆｜全部命中 0 筆"));
     assert!(shows(&h, "Synology DS920+ 7.2"), "未辨識產品");
     pick_asset(&mut h, "PA-460");
     assert!(shows(&h, "未處理命中 4 筆｜全部命中 4 筆"));
-    assert!(shows(&h, "paloalto-panos 11.1.2"));
+    assert!(shows(&h, "PAN-OS 11.1.2"));
     pick_asset(&mut h, "FW-CORE");
     assert!(shows(&h, LONG_NAME), "中文資產名稱");
 }

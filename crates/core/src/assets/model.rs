@@ -101,6 +101,14 @@ impl Component {
         self.source == ComponentSource::Excel && matches!(self.kind, ComponentKind::Product { .. })
     }
 
+    /// 識別元件的字串：產品 key，或不含版本的套件 purl。
+    pub fn key(&self) -> &str {
+        match &self.kind {
+            ComponentKind::Product { product_key, .. } => product_key,
+            ComponentKind::Package { purl, .. } => purl,
+        }
+    }
+
     /// 產品 key 或套件 purl，用於顯示。
     pub fn label(&self) -> &str {
         match &self.kind {

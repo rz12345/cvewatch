@@ -89,6 +89,7 @@ impl GuiApp {
         }
         match self.screen {
             Screen::Findings => self.findings_keys(&pressed),
+            Screen::Assets => self.assets_keys(ctx, &pressed),
             Screen::Pending => {
                 if let Some(cve) = self.pending_selected.clone() {
                     if pressed(egui::Key::A, false) {

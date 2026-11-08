@@ -1,4 +1,4 @@
-//! 「刪除」（標為退役）確認與「永久刪除」確認（design D11）。
+//! 「退役…」（標為退役）確認與「永久刪除」確認（design D11、11 D7）。
 //!
 //! 永久刪除先顯示將一併移除的元件數與命中數、建議先備份，輸入框內容與 `asset_tag` 完全相同
 //! （區分大小寫、不去除空白）才啟用確認按鈕。
@@ -39,7 +39,7 @@ enum Choice {
 }
 
 impl GuiApp {
-    /// 「刪除」：先確認。
+    /// 「退役…」：先確認。
     pub fn start_retire_asset(&mut self, tag: &str) {
         self.asset_dialog = Some(AssetDialog::Retire {
             tag: tag.to_string(),
@@ -69,7 +69,7 @@ impl GuiApp {
     pub(super) fn show_retire_confirm(&mut self, ctx: &egui::Context, tag: String) {
         let mut choice = None;
         egui::Modal::new(egui::Id::unique("dialog-retire")).show(ctx, |ui| {
-            ui.heading(format!("刪除 {}", one_line(&tag)));
+            ui.heading(format!("將 {} 標為退役", one_line(&tag)));
             ui.label(RETIRE_NOTE);
             ui.add_space(6.0);
             ui.horizontal(|ui| {

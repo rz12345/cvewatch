@@ -1,4 +1,4 @@
-//! 10 任務 7.3：刪除（標為退役）、顯示已退役、恢復與永久刪除確認。
+//! 10 任務 7.3、11 任務 3.5：退役（「退役…」確認後標為退役）、顯示已退役、恢復與永久刪除確認。
 
 mod support;
 
@@ -16,11 +16,6 @@ fn nas_world(retired: bool) -> common::matching::World {
     w
 }
 
-fn listed(h: &Harness<'_, cvewatch_gui::GuiApp>, text: &str) -> bool {
-    h.query_all_by_label_contains(text)
-        .any(|n| n.accesskit_node().role() != eframe::egui::accesskit::Role::Label)
-}
-
 fn purge_button_disabled(h: &Harness<'_, cvewatch_gui::GuiApp>) -> bool {
     h.get_all_by_label("永久刪除")
         .last()
@@ -33,14 +28,19 @@ fn purge_button_disabled(h: &Harness<'_, cvewatch_gui::GuiApp>) -> bool {
 fn asset_retire_deleting_from_the_asset_list() {
     let (mut h, f) = gui(nas_world(false));
     select_asset(&mut h, "NAS-02");
-    click(&mut h, "刪除");
+    click(&mut h, "退役…");
+    assert!(shows(&h, "將 NAS-02 標為退役"), "確認對話框標題");
     assert!(shows(&h, "命中與處理紀錄都保留"), "確認對話框說明退役語意");
     click(&mut h, "標為退役");
     assert!(h.state().asset_dialog.is_none());
     assert!(h.state().ws.data.asset("NAS-02").is_none());
     assert!(!listed(&h, "NAS-02"), "預設清單不再列出");
     click(&mut h, "顯示已退役");
-    assert!(listed(&h, "NAS-02  NAS-02（已退役）"), "以退役樣式列出");
+    assert!(listed(&h, "NAS-02"), "勾選後列出");
+    assert!(
+        listed(&h, "（已退役）"),
+        "以退役樣式列出（名稱同編號時只顯示標示）"
+    );
     assert_eq!(match_calls(&f), 1);
     // 已退役資產只提供恢復與永久刪除
     assert!(h.query_by_label("編輯").is_none());
@@ -51,7 +51,7 @@ fn asset_retire_deleting_from_the_asset_list() {
 fn asset_retire_cancel_keeps_the_asset() {
     let (mut h, _f) = gui(nas_world(false));
     select_asset(&mut h, "NAS-02");
-    click(&mut h, "刪除");
+    click(&mut h, "退役…");
     click_last(&mut h, "取消");
     assert!(h.state().ws.data.asset("NAS-02").is_some());
 }

@@ -494,12 +494,38 @@ pub fn select_asset(h: &mut Harness<'_, GuiApp>, tag: &str) {
     h.run();
 }
 
-/// 以編輯對話框修改元件版本並儲存。
-pub fn edit_version(h: &mut Harness<'_, GuiApp>, tag: &str, key: &str, version: &str) {
+/// 以編輯對話框修改元件版本並儲存（`product` 為產品顯示名稱）。
+pub fn edit_version(h: &mut Harness<'_, GuiApp>, tag: &str, product: &str, version: &str) {
     select_asset(h, tag);
     click(h, "編輯");
-    replace_text(h, &format!("{key} 版本"), version);
+    replace_text(h, &format!("{product} 版本"), version);
     click(h, "儲存");
+}
+
+/// 資產清單（左側表格）中標籤完全相符的儲存格：位於「未處理」欄位標題右緣之左
+/// （清單先於詳情繪製；詳情的命中狀態也可能是「未處理」，取第一個）。
+pub fn list_cells<'a>(h: &'a Harness<'_, GuiApp>, label: &'a str) -> Vec<egui_kittest::Node<'a>> {
+    let Some(edge) = h
+        .query_all_by_label("未處理")
+        .next()
+        .map(|n| n.rect().right())
+    else {
+        return Vec::new();
+    };
+    h.query_all_by_label(label)
+        .filter(|n| n.rect().left() < edge)
+        .collect()
+}
+
+/// 資產清單中有標籤為 `label` 的儲存格。
+pub fn listed(h: &Harness<'_, GuiApp>, label: &str) -> bool {
+    !list_cells(h, label).is_empty()
+}
+
+/// 點選資產清單中該資產的編號儲存格。
+pub fn pick_asset(h: &mut Harness<'_, GuiApp>, tag: &str) {
+    list_cells(h, tag).first().expect("listed").click();
+    h.run();
 }
 
 /// fake companion 收到的 `match` 子命令次數。

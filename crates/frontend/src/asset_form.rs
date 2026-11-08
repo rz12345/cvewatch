@@ -5,10 +5,12 @@
 //! core 的編修操作仍會在交易內再檢查一次。
 
 use cvewatch_core::assets::columns::StandardField;
-use cvewatch_core::assets::validate::{validate_record, RecordInput};
+use cvewatch_core::assets::validate::{validate_record, FieldErrorKind, RecordInput};
+use cvewatch_core::assets::{MAX_CRITICALITY, MIN_CRITICALITY};
 use cvewatch_core::catalog::Catalog;
 
 use crate::data::AssetEntry;
+use crate::display::product_name;
 
 /// 新增或編輯既有資產。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -23,7 +25,7 @@ pub enum FormMode {
 pub struct ComponentDraft {
     /// 既有元件的 id；新加入時為 None
     pub id: Option<i64>,
-    /// 目錄產品 key，套件元件為 purl
+    /// 目錄產品 key；套件元件為不含版本的 purl（顯示名稱見 [`ComponentDraft::name`]）
     pub product_key: String,
     pub version: String,
     /// 編輯前的版本（既有元件）
@@ -44,6 +46,11 @@ impl ComponentDraft {
             package: false,
             removed: false,
         }
+    }
+
+    /// 顯示名稱（目錄產品的 display_name；套件為 purl）。
+    pub fn name(&self, catalog: &Catalog) -> String {
+        product_name(catalog, &self.product_key)
     }
 
     /// 儲存後仍存在的清冊元件（不含套件與已移除者）。
@@ -133,7 +140,7 @@ impl AssetForm {
                 .iter()
                 .map(|c| ComponentDraft {
                     id: Some(c.id),
-                    product_key: c.label().to_string(),
+                    product_key: c.key().to_string(),
                     version: c.version_raw.clone(),
                     original_version: Some(c.version_raw.clone()),
                     package: !c.is_inventory_product(),
@@ -172,11 +179,15 @@ impl AssetForm {
         self.components.push(ComponentDraft::new(key));
     }
 
-    /// 本地驗證（不需資料庫）。
-    pub fn validate(&self) -> Result<(), FormErrors> {
+    /// 本地驗證（不需資料庫）。錯誤以介面用語回報（design 11 D2）：不出現清冊的英文欄位名，
+    /// 產品以目錄的顯示名稱呈現。
+    pub fn validate(&self, catalog: &Catalog) -> Result<(), FormErrors> {
         let mut errors = FormErrors::default();
         if let Err(fields) = validate_record(&self.record_input()) {
-            errors.fields = fields.into_iter().map(|e| (e.field, e.message)).collect();
+            errors.fields = fields
+                .into_iter()
+                .map(|e| (e.field, field_message(e.kind)))
+                .collect();
         }
         let mut seen: Vec<&str> = Vec::new();
         for (i, c) in self.components.iter().enumerate() {
@@ -184,21 +195,23 @@ impl AssetForm {
                 continue;
             }
             if c.version.trim().is_empty() {
-                errors.components.push((i, "缺少 version".into()));
+                errors.components.push((i, VERSION_REQUIRED.into()));
             }
             if seen.contains(&c.product_key.as_str()) {
+                let name = product_name(catalog, &c.product_key);
                 errors
                     .components
-                    .push((i, format!("已有產品 {}，請改為修改版本", c.product_key)));
+                    .push((i, format!("已有產品 {name}，請改為修改版本")));
             }
             seen.push(&c.product_key);
         }
         for (i, u) in self.unresolved.iter().enumerate() {
             if let UnresolvedAction::MapTo(key) = &u.action {
                 if seen.contains(&key.as_str()) {
+                    let name = product_name(catalog, key);
                     errors
                         .unresolved
-                        .push((i, format!("已有產品 {key}，請刪除此筆或改選其他產品")));
+                        .push((i, format!("已有產品 {name}，請刪除此筆或改選其他產品")));
                 }
                 seen.push(key);
             }
@@ -208,9 +221,7 @@ impl AssetForm {
             .iter()
             .any(|u| u.action != UnresolvedAction::Delete);
         if seen.is_empty() && !kept_unresolved {
-            errors
-                .general
-                .push("至少需要一個元件（產品與版本）；不再使用此資產時請改為刪除資產".into());
+            errors.general.push(COMPONENT_REQUIRED.into());
         }
         if errors.is_empty() {
             Ok(())
@@ -219,6 +230,43 @@ impl AssetForm {
         }
     }
 }
+
+/// 欄位的介面名稱（對話框標籤與錯誤摘要用；清冊與 CLI 仍用英文欄名）。
+pub fn field_label(field: StandardField) -> &'static str {
+    match field {
+        StandardField::AssetTag => "資產編號",
+        StandardField::Name => "名稱",
+        StandardField::Category => "類別",
+        StandardField::Exposure => "曝露度",
+        StandardField::Criticality => "重要性",
+        StandardField::Location => "位置",
+        StandardField::Owner => "負責人",
+        StandardField::Notes => "備註",
+        StandardField::Product => "產品",
+        StandardField::Version => "版本",
+    }
+}
+
+/// core 的欄位錯誤種類轉為介面用語（不解析 core 的訊息字串；core 與 CLI 的文字不變）。
+fn field_message(kind: FieldErrorKind) -> String {
+    match kind {
+        FieldErrorKind::Missing => REQUIRED.into(),
+        FieldErrorKind::NotAllowed => CHOOSE_FROM_LIST.into(),
+        FieldErrorKind::OutOfRange => {
+            format!("重要性只能是 {MIN_CRITICALITY}–{MAX_CRITICALITY}")
+        }
+    }
+}
+
+/// 必填欄位留空。
+pub const REQUIRED: &str = "必填";
+/// 下拉選單的值不在允許清單中。
+pub const CHOOSE_FROM_LIST: &str = "請從清單選擇";
+/// 元件沒有版本。
+pub const VERSION_REQUIRED: &str = "請填寫版本";
+/// 沒有任何元件。
+pub const COMPONENT_REQUIRED: &str =
+    "至少需要一個元件（產品與版本）；不再使用此資產時請改用「退役…」";
 
 /// 本地驗證錯誤，依位置分類。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -263,14 +311,14 @@ impl FormErrors {
             .collect()
     }
 
-    /// 全部訊息（狀態列摘要用）。
+    /// 全部訊息（不在對話框中顯示時的摘要；欄位錯誤前加上欄位名稱）。
     pub fn summary(&self) -> String {
         self.fields
             .iter()
-            .map(|(_, m)| m.as_str())
-            .chain(self.components.iter().map(|(_, m)| m.as_str()))
-            .chain(self.unresolved.iter().map(|(_, m)| m.as_str()))
-            .chain(self.general.iter().map(String::as_str))
+            .map(|(f, m)| format!("{}：{m}", field_label(*f)))
+            .chain(self.components.iter().map(|(_, m)| m.clone()))
+            .chain(self.unresolved.iter().map(|(_, m)| m.clone()))
+            .chain(self.general.iter().cloned())
             .collect::<Vec<_>>()
             .join("；")
     }
@@ -321,6 +369,14 @@ pub fn search_products(catalog: &Catalog, query: &str) -> Vec<ProductChoice> {
 mod tests {
     use super::*;
 
+    fn catalog() -> Catalog {
+        Catalog::seed().unwrap()
+    }
+
+    fn check(f: &AssetForm) -> Result<(), FormErrors> {
+        f.validate(&catalog())
+    }
+
     fn filled() -> AssetForm {
         let mut f = AssetForm::new();
         f.asset_tag = "FW-02".into();
@@ -333,16 +389,51 @@ mod tests {
 
     #[test]
     fn complete_new_form_is_valid() {
-        assert_eq!(filled().validate(), Ok(()));
+        assert_eq!(check(&filled()), Ok(()));
     }
 
     #[test]
     fn empty_asset_tag_is_reported_on_its_field() {
         let mut f = filled();
         f.asset_tag.clear();
-        let e = f.validate().unwrap_err();
-        assert_eq!(e.field(StandardField::AssetTag), Some("缺少 asset_tag"));
+        let e = check(&f).unwrap_err();
+        assert_eq!(e.field(StandardField::AssetTag), Some(REQUIRED));
         assert!(e.components.is_empty() && e.general.is_empty());
+    }
+
+    #[test]
+    fn errors_use_interface_wording() {
+        let mut f = AssetForm::new();
+        f.category = "router".into();
+        f.exposure = "public".into();
+        f.criticality = "5".into();
+        f.add_product("paloalto-panos");
+        f.add_product("paloalto-panos");
+        let e = check(&f).unwrap_err();
+        use StandardField as F;
+        assert_eq!(e.field(F::AssetTag), Some(REQUIRED));
+        assert_eq!(e.field(F::Name), Some(REQUIRED));
+        assert_eq!(e.field(F::Category), Some(CHOOSE_FROM_LIST));
+        assert_eq!(e.field(F::Exposure), Some(CHOOSE_FROM_LIST));
+        assert_eq!(e.field(F::Criticality), Some("重要性只能是 1–3"));
+        assert_eq!(e.component(0), vec![VERSION_REQUIRED]);
+        assert!(e.component(1).contains(&"已有產品 PAN-OS，請改為修改版本"));
+        f.category.clear();
+        let e = check(&f).unwrap_err();
+        assert_eq!(e.field(F::Category), Some(REQUIRED));
+        f.components.clear();
+        let all = format!("{}；{}", e.summary(), check(&f).unwrap_err().summary());
+        for internal in [
+            "asset_tag",
+            "name",
+            "category",
+            "exposure",
+            "criticality",
+            "paloalto-panos",
+            "version",
+        ] {
+            assert!(!all.contains(internal), "{internal}: {all}");
+        }
     }
 
     #[test]
@@ -350,22 +441,22 @@ mod tests {
         let mut f = filled();
         f.add_product("paloalto-panos");
         f.components[1].version = "11.2.4".into();
-        let e = f.validate().unwrap_err();
+        let e = check(&f).unwrap_err();
         assert_eq!(e.components.len(), 1);
         assert_eq!(e.components[0].0, 1);
         assert!(e.component(1)[0].contains("已有產品"), "{e:?}");
         // 移除重複的那列後通過
         f.components[1].removed = true;
-        assert_eq!(f.validate(), Ok(()));
+        assert_eq!(check(&f), Ok(()));
     }
 
     #[test]
     fn missing_version_and_no_component() {
         let mut f = filled();
         f.components[0].version = " ".into();
-        assert_eq!(f.validate().unwrap_err().component(0), vec!["缺少 version"]);
+        assert_eq!(check(&f).unwrap_err().component(0), vec![VERSION_REQUIRED]);
         f.components[0].removed = true;
-        let e = f.validate().unwrap_err();
+        let e = check(&f).unwrap_err();
         assert!(e.general[0].contains("至少需要一個元件"), "{e:?}");
     }
 
@@ -379,10 +470,13 @@ mod tests {
             version_raw: "8.2.4".into(),
             action: UnresolvedAction::Keep,
         });
-        assert_eq!(f.validate(), Ok(()));
+        assert_eq!(check(&f), Ok(()));
         f.components[0].removed = false;
         f.unresolved[0].action = UnresolvedAction::MapTo("paloalto-panos".into());
-        assert_eq!(f.validate().unwrap_err().unresolved_row(0).len(), 1);
+        assert_eq!(
+            check(&f).unwrap_err().unresolved_row(0),
+            vec!["已有產品 PAN-OS，請刪除此筆或改選其他產品"]
+        );
     }
 
     #[test]

@@ -1,7 +1,10 @@
-//! 10 任務 6.4：資產編輯對話框（新增、欄位錯誤、修改版本、取消、未辨識產品改為目錄產品）。
+//! 10 任務 6.4、11 任務 3.1～3.4：資產編輯對話框（新增、欄位錯誤、修改版本、取消、未辨識產品改為
+//! 目錄產品、單一標籤與必填標示、關閉時清除狀態列、加入元件的焦點流程）。
 
 mod support;
 
+use cvewatch_gui::dialogs::asset_edit::AssetEdit;
+use cvewatch_gui::dialogs::AssetDialog;
 use eframe::egui;
 use egui_kittest::kittest::Queryable;
 use support::*;
@@ -19,22 +22,28 @@ fn asset_edit_adding_an_asset_from_the_window() {
     let (mut h, f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
     click(&mut h, "新增資產");
-    replace_text(&mut h, "資產編號", "FW-02");
-    replace_text(&mut h, "名稱", "fw02");
-    h.get_by_label("選擇類別").click();
+    replace_text(&mut h, "資產編號 *", "FW-02");
+    replace_text(&mut h, "名稱 *", "fw02");
+    assert!(!shows(&h, "選擇類別"), "下拉選單只有左側一個標籤");
+    h.get_by_label("類別 *").click();
     h.run();
-    click_option(&mut h, "security");
+    click_option(&mut h, "security（資安設備）");
     h.get_by_label("加入元件").click();
     h.run();
     click_option(&mut h, "PAN-OS（Palo Alto Networks）");
-    replace_text(&mut h, "paloalto-panos 版本", "11.2.3");
+    replace_text(&mut h, "PAN-OS 版本", "11.2.3");
     click(&mut h, "儲存");
     assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
     assert_eq!(h.state().assets_selected.as_deref(), Some("FW-02"));
     let entry = h.state().ws.data.asset("FW-02").expect("清單出現 FW-02");
     assert_eq!(entry.components[0].version_raw, "11.2.3");
     assert_eq!(entry.asset.record.criticality, 2);
-    assert!(shows(&h, "FW-02  fw02"));
+    assert_eq!(
+        entry.asset.record.category.as_str(),
+        "security",
+        "儲存英文值"
+    );
+    assert!(listed(&h, "FW-02") && listed(&h, "fw02"), "清單列出 FW-02");
     assert_eq!(match_calls(&f), 1, "儲存後背景比對");
 }
 
@@ -46,17 +55,20 @@ fn asset_edit_invalid_field_keeps_the_dialog_open() {
     click(&mut h, "新增資產");
     click(&mut h, "儲存");
     assert!(h.state().asset_dialog.is_some(), "對話框不關閉");
-    assert!(shows(&h, "缺少 asset_tag"));
+    assert!(shows(&h, "必填"));
+    assert!(!shows(&h, "asset_tag"), "不出現清冊的英文欄位名");
     assert!(shows(&h, "至少需要一個元件"));
+    assert!(shows(&h, "請修正標示的欄位"), "對話框底部摘要");
+    assert!(h.state().status.is_none(), "本地驗證失敗不寫狀態列");
     assert_eq!(asset_count(&h), before, "資料庫不變");
 }
 
 #[test]
 fn asset_edit_editing_a_component_version() {
     let (mut h, _f) = gui(seeded_world());
-    edit_version(&mut h, "PA-460", "paloalto-panos", "11.1.6");
+    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
     assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
-    assert!(shows(&h, "paloalto-panos 11.1.6"), "詳情顯示新版本");
+    assert!(shows(&h, "PAN-OS 11.1.6"), "詳情顯示新版本");
     assert!(shows(&h, "先前版本 11.1.2"), "版本歷史多一筆");
 }
 
@@ -65,8 +77,8 @@ fn asset_edit_cancel_leaves_the_database_unchanged() {
     let (mut h, f) = gui(seeded_world());
     select_asset(&mut h, "PA-460");
     click(&mut h, "編輯");
-    replace_text(&mut h, "名稱", "改過的名稱");
-    replace_text(&mut h, "paloalto-panos 版本", "99.0");
+    replace_text(&mut h, "名稱 *", "改過的名稱");
+    replace_text(&mut h, "PAN-OS 版本", "99.0");
     click_last(&mut h, "取消");
     assert!(h.state().asset_dialog.is_none());
     let (name, version): (String, String) = h
@@ -90,8 +102,20 @@ fn asset_edit_mapping_an_unresolved_product() {
     select_asset(&mut h, "PVE-01");
     assert!(shows(&h, "Synology DS920+ 7.2"));
     click(&mut h, "編輯");
-    h.get_by_label("Synology DS920+ 7.2 處置").click();
-    h.run();
+    assert!(
+        h.query_by_label("Proxmox VE 版本").is_some(),
+        "元件列用顯示名稱"
+    );
+    // 原文與版本 → 處置選單 → 刪除
+    let combo = h
+        .get_all_by_label("Synology DS920+ 7.2")
+        .last()
+        .unwrap()
+        .rect();
+    let delete = h.get_by_label("刪除「Synology DS920+」").rect();
+    assert!(combo.right() <= delete.left(), "刪除在處置選單之後");
+    // 原文與版本是處置選單的標籤（詳情中同名的文字先繪製）
+    click_last(&mut h, "Synology DS920+ 7.2");
     click_option(&mut h, "改為 DiskStation Manager（Synology）");
     click(&mut h, "儲存");
     assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
@@ -133,9 +157,108 @@ fn asset_edit_escape_does_not_discard_unsaved_input() {
     h.run();
     assert!(h.state().asset_dialog.is_none(), "沒有修改時 Esc 關閉");
     click(&mut h, "新增資產");
-    replace_text(&mut h, "名稱", "fw02");
+    replace_text(&mut h, "名稱 *", "fw02");
     h.key_press(egui::Key::Escape);
     h.run();
     assert!(h.state().asset_dialog.is_some(), "有修改時 Esc 不關閉");
     assert!(h.state().has_unsaved(), "關閉視窗前需確認");
+}
+
+fn dialog<'a>(h: &'a egui_kittest::Harness<'_, cvewatch_gui::GuiApp>) -> &'a AssetEdit {
+    match &h.state().asset_dialog {
+        Some(AssetDialog::Edit(e)) => e,
+        _ => panic!("編輯對話框未開啟"),
+    }
+}
+
+#[test]
+fn asset_edit_cancelled_dialog_leaves_no_error_behind() {
+    let (mut h, _f) = gui(seeded_world());
+    ctrl(&mut h, egui::Key::Num3);
+    click(&mut h, "新增資產");
+    click(&mut h, "儲存");
+    assert!(shows(&h, "必填"));
+    click_last(&mut h, "取消");
+    assert!(h.state().asset_dialog.is_none());
+    assert!(h.state().status.is_none(), "狀態列不顯示欄位錯誤");
+}
+
+#[test]
+fn asset_edit_cancel_clears_the_write_failure_from_the_status_bar() {
+    let (mut h, _f) = gui(seeded_world());
+    ctrl(&mut h, egui::Key::Num3);
+    click(&mut h, "新增資產");
+    replace_text(&mut h, "資產編號 *", "PA-460");
+    replace_text(&mut h, "名稱 *", "重複");
+    h.get_by_label("類別 *").click();
+    h.run();
+    click_option(&mut h, "security（資安設備）");
+    h.get_by_label("加入元件").click();
+    h.run();
+    click_option(&mut h, "PAN-OS（Palo Alto Networks）");
+    replace_text(&mut h, "PAN-OS 版本", "11.2.3");
+    click(&mut h, "儲存");
+    let failure = dialog(&h).failure.clone().expect("core 拒絕重複的資產編號");
+    assert_eq!(status(&h), failure, "寫入失敗也顯示在狀態列");
+    // 再次儲存時本地驗證失敗：上一次的寫入失敗不再顯示
+    replace_text(&mut h, "名稱 *", "x");
+    h.key_press(egui::Key::Backspace);
+    h.run();
+    click(&mut h, "儲存");
+    assert!(shows(&h, "必填"));
+    assert!(dialog(&h).failure.is_none(), "對話框不留舊的寫入失敗");
+    assert!(h.state().status.is_none(), "狀態列也清除");
+    click_last(&mut h, "取消");
+    assert!(h.state().status.is_none(), "{}", status(&h));
+}
+
+#[test]
+fn asset_edit_keyboard_flow_when_adding_a_component() {
+    let (mut h, _f) = gui(seeded_world());
+    ctrl(&mut h, egui::Key::Num3);
+    click(&mut h, "新增資產");
+    h.get_by_label("加入元件").click();
+    h.run();
+    assert!(
+        h.get_by_label("搜尋產品").is_focused(),
+        "開啟時搜尋框取得焦點"
+    );
+    h.get_by_label("搜尋產品").type_text("pan");
+    h.run();
+    assert_eq!(dialog(&h).search, "pan");
+    click_option(&mut h, "PAN-OS（Palo Alto Networks）");
+    assert!(h.get_by_label("PAN-OS 版本").is_focused(), "焦點移到版本欄");
+    h.get_by_label("PAN-OS 版本").type_text("11.2.3");
+    h.run();
+    let form = &dialog(&h).form;
+    assert_eq!(form.components[0].product_key, "paloalto-panos");
+    assert_eq!(form.components[0].version, "11.2.3");
+}
+
+#[test]
+fn asset_edit_duplicate_rows_have_separate_version_fields() {
+    let (mut h, _f) = gui(seeded_world());
+    ctrl(&mut h, egui::Key::Num3);
+    click(&mut h, "新增資產");
+    for _ in 0..2 {
+        h.get_by_label("加入元件").click();
+        h.run();
+        click_option(&mut h, "PAN-OS（Palo Alto Networks）");
+    }
+    assert_eq!(h.get_all_by_label("PAN-OS 版本").count(), 2);
+    // 第二列剛加入，焦點在它的版本欄
+    h.get_all_by_label("PAN-OS 版本")
+        .last()
+        .unwrap()
+        .type_text("11.2.3");
+    h.run();
+    let versions: Vec<_> = dialog(&h)
+        .form
+        .components
+        .iter()
+        .map(|c| c.version.clone())
+        .collect();
+    assert_eq!(versions, ["", "11.2.3"]);
+    click(&mut h, "儲存");
+    assert!(shows(&h, "已有產品 PAN-OS，請改為修改版本"));
 }

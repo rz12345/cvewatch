@@ -1,5 +1,6 @@
 //! 六個畫面的內容（外框在 `shell`）。
 
+pub mod asset_list;
 pub mod assets;
 pub mod dashboard;
 pub mod detail;

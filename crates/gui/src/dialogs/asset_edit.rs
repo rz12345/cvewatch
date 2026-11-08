@@ -1,23 +1,33 @@
 //! 「新增資產」與「編輯」共用的對話框（design D11）：上半部資產欄位（`asset_tag` 只在新增時
-//! 可編輯；category、曝露度、重要性為下拉選單），下半部元件表格（套件元件唯讀）、未辨識產品的
-//! 處置與可搜尋的「加入元件」。驗證錯誤以紅字顯示在欄位下方，失敗時保留對話框與輸入內容。
+//! 可編輯；category、曝露度、重要性為下拉選單），下半部元件與未辨識產品（[`super::asset_components`]）。
+//!
+//! 每個欄位只有左側一個標籤，必填欄位標「*」；類別與曝露度的選項雙語（design 11 D3）。
+//! 驗證錯誤以介面用語紅字顯示在欄位下方，失敗時保留對話框與輸入內容；本地驗證失敗不寫狀態列，
+//! 以「取消」或 Esc 關閉時清除對話框留在狀態列的寫入失敗訊息（design 11 D5）。
+
+use std::sync::LazyLock;
 
 use cvewatch_core::assets::columns::StandardField;
+use cvewatch_core::assets::validate::REQUIRED_FIELDS;
 use cvewatch_core::assets::{Category, Exposure, MAX_CRITICALITY, MIN_CRITICALITY};
+use cvewatch_core::catalog::Catalog;
 use cvewatch_frontend::asset_form::{
-    product_choices, search_products, AssetForm, ComponentDraft, FormErrors, FormMode,
-    ProductChoice, UnresolvedAction,
+    field_label, product_choices, search_products, AssetForm, FormErrors, FormMode, ProductChoice,
 };
+use cvewatch_frontend::display::{category_label, exposure_label};
 use cvewatch_frontend::Level;
 use eframe::egui;
 
+use super::asset_components::{add_component, components, unresolved};
 use super::{escape_pressed, AssetDialog};
 use crate::app::GuiApp;
 use crate::screens::ALERT;
 use crate::text::one_line;
 
-/// 套件元件的說明（唯讀）。
-pub const PACKAGE_NOTE: &str = "由套件清單管理";
+pub use super::asset_components::PACKAGE_NOTE;
+
+/// 有欄位錯誤時對話框底部的摘要。
+pub const FIX_FIELDS: &str = "請修正標示的欄位";
 
 const FIELD_WIDTH: f32 = 260.0;
 
@@ -31,6 +41,10 @@ pub struct AssetEdit {
     pub failure: Option<String>,
     /// 「加入元件」的搜尋字串
     pub search: String,
+    /// 「加入元件」選單在上一幀是開啟的（剛開啟的那一幀讓搜尋框取得焦點）
+    pub picker_open: bool,
+    /// 下一幀讓這個元件列的版本欄取得焦點（剛加入的元件）
+    pub focus_version: Option<usize>,
 }
 
 impl AssetEdit {
@@ -41,6 +55,8 @@ impl AssetEdit {
             errors: FormErrors::default(),
             failure: None,
             search: String::new(),
+            picker_open: false,
+            focus_version: None,
         }
     }
 
@@ -92,25 +108,38 @@ impl GuiApp {
         let popup_open = egui::Popup::is_any_open(ctx);
         let mut action = None;
         egui::Modal::new(egui::Id::unique("dialog-asset-edit")).show(ctx, |ui| {
-            action = body(ui, &mut edit, &products);
+            action = body(ui, &mut edit, &products, catalog);
         });
         if action.is_none() && !popup_open && !edit.dirty() && escape_pressed(ctx) {
             action = Some(Action::Cancel);
         }
         match action {
             None => self.asset_dialog = Some(AssetDialog::Edit(edit)),
-            Some(Action::Cancel) => {}
+            Some(Action::Cancel) => self.clear_dialog_failure(edit.failure.as_deref()),
             Some(Action::Save) => self.save_asset(edit),
         }
     }
 
-    /// 儲存：本地驗證失敗時只顯示錯誤；寫入失敗時保留對話框與輸入內容；成功時關閉並選取該資產。
+    /// 關閉對話框時，狀態列若仍是這個對話框的寫入失敗訊息就清除。
+    fn clear_dialog_failure(&mut self, failure: Option<&str>) {
+        let left_behind = self
+            .status
+            .as_ref()
+            .is_some_and(|r| Some(r.message.as_str()) == failure);
+        if left_behind {
+            self.status = None;
+        }
+    }
+
+    /// 儲存：本地驗證失敗時只在對話框內顯示錯誤（不寫狀態列）；寫入失敗時保留對話框與輸入內容；
+    /// 成功時關閉並選取該資產。
     fn save_asset(&mut self, mut edit: Box<AssetEdit>) {
-        edit.failure = None;
-        if let Err(errors) = edit.form.validate() {
+        // 上一次的寫入失敗已不適用（對話框與狀態列都清除），本次結果另行顯示
+        self.clear_dialog_failure(edit.failure.take().as_deref());
+        if let Err(errors) = edit.form.validate(&self.ws.settings.catalog) {
             edit.errors = errors;
             self.asset_dialog = Some(AssetDialog::Edit(edit));
-            return self.report(cvewatch_frontend::Report::error("請修正標示的欄位"));
+            return;
         }
         edit.errors = FormErrors::default();
         let open = self.open_ids();
@@ -128,7 +157,12 @@ impl GuiApp {
     }
 }
 
-fn body(ui: &mut egui::Ui, edit: &mut AssetEdit, products: &Products) -> Option<Action> {
+fn body(
+    ui: &mut egui::Ui,
+    edit: &mut AssetEdit,
+    products: &Products,
+    catalog: &Catalog,
+) -> Option<Action> {
     let title = match edit.form.mode {
         FormMode::New => "新增資產".to_string(),
         FormMode::Edit => format!("編輯 {}", one_line(&edit.form.asset_tag)),
@@ -139,11 +173,17 @@ fn body(ui: &mut egui::Ui, edit: &mut AssetEdit, products: &Products) -> Option<
         .show(ui, |ui| {
             fields(ui, edit);
             ui.separator();
-            components(ui, edit);
-            unresolved(ui, edit, &products.all);
+            components(ui, edit, catalog);
+            unresolved(ui, edit, &products.all, catalog);
             add_component(ui, edit, &products.matching);
         });
     ui.separator();
+    let marked = !edit.errors.fields.is_empty()
+        || !edit.errors.components.is_empty()
+        || !edit.errors.unresolved.is_empty();
+    if marked {
+        ui.colored_label(ALERT, FIX_FIELDS);
+    }
     for msg in edit.errors.general.iter().chain(edit.failure.iter()) {
         ui.colored_label(ALERT, msg);
     }
@@ -166,15 +206,24 @@ fn field_error(ui: &mut egui::Ui, errors: &FormErrors, field: StandardField) {
     }
 }
 
+/// 欄位標籤：介面名稱，必填欄位加「 *」。
+fn label_text(field: StandardField) -> String {
+    let name = field_label(field);
+    if REQUIRED_FIELDS.contains(&field) {
+        format!("{name} *")
+    } else {
+        name.to_string()
+    }
+}
+
 fn text_field(
     ui: &mut egui::Ui,
-    label: &str,
     value: &mut String,
     enabled: bool,
     errors: &FormErrors,
     field: StandardField,
 ) {
-    let l = ui.label(label);
+    let l = ui.label(label_text(field));
     ui.add_enabled(
         enabled,
         egui::TextEdit::singleline(value).desired_width(FIELD_WIDTH),
@@ -188,29 +237,33 @@ fn text_field(
     }
 }
 
+/// 下拉選單：左側標籤以 `labelled_by` 關聯（選單右側不再重複標籤）。
 fn choice_field(
     ui: &mut egui::Ui,
-    label: &str,
     value: &mut String,
-    options: &[&str],
+    options: &[Choice],
     errors: &FormErrors,
     field: StandardField,
 ) {
-    ui.label(label);
-    let shown = if value.is_empty() {
-        "（請選擇）".to_string()
-    } else {
-        value.clone()
+    let l = ui.label(label_text(field));
+    let shown = match options.iter().find(|o| o.value == value.trim()) {
+        Some(o) => o.text.clone(),
+        None if value.trim().is_empty() => "（請選擇）".to_string(),
+        None => one_line(value),
     };
-    egui::ComboBox::from_label(format!("選擇{label}"))
+    let combo = egui::ComboBox::from_id_salt(("asset-field", field.as_str()))
         .selected_text(shown)
         .show_ui(ui, |ui| {
             for o in options {
-                if ui.selectable_label(value.as_str() == *o, *o).clicked() {
-                    *value = o.to_string();
+                if ui
+                    .selectable_label(value.as_str() == o.value, &o.text)
+                    .clicked()
+                {
+                    *value = o.value.clone();
                 }
             }
         });
+    combo.response.labelled_by(l.id);
     ui.end_row();
     if errors.field(field).is_some() {
         ui.label("");
@@ -219,20 +272,39 @@ fn choice_field(
     }
 }
 
-/// 下拉選單的選項：類別、曝露度、重要性。
+/// 下拉選單的一個選項：儲存的值（英文）與顯示文字。
+struct Choice {
+    value: String,
+    text: String,
+}
+
+/// 選項內容固定，只建立一次（不在每一幀重新組字）。
+static FIELD_OPTIONS: LazyLock<FieldOptions> = LazyLock::new(FieldOptions::new);
+
+/// 下拉選單的選項：類別、曝露度（雙語）、重要性。
 struct FieldOptions {
-    categories: Vec<&'static str>,
-    exposures: Vec<&'static str>,
-    levels: Vec<String>,
+    categories: Vec<Choice>,
+    exposures: Vec<Choice>,
+    levels: Vec<Choice>,
 }
 
 impl FieldOptions {
     fn new() -> FieldOptions {
+        let choice = |value: &str, text: String| Choice {
+            value: value.to_string(),
+            text,
+        };
         FieldOptions {
-            categories: Category::ALL.iter().map(|c| c.as_str()).collect(),
-            exposures: Exposure::ALL.iter().map(|e| e.as_str()).collect(),
+            categories: Category::ALL
+                .iter()
+                .map(|c| choice(c.as_str(), category_label(*c)))
+                .collect(),
+            exposures: Exposure::ALL
+                .iter()
+                .map(|e| choice(e.as_str(), exposure_label(*e)))
+                .collect(),
             levels: (MIN_CRITICALITY..=MAX_CRITICALITY)
-                .map(|n| n.to_string())
+                .map(|n| choice(&n.to_string(), n.to_string()))
                 .collect(),
         }
     }
@@ -241,174 +313,37 @@ impl FieldOptions {
 fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit) {
     let new = edit.form.mode == FormMode::New;
     let errors = edit.errors.clone();
-    let options = FieldOptions::new();
+    let options = &*FIELD_OPTIONS;
     let f = &mut edit.form;
     egui::Grid::new("asset-fields")
         .num_columns(2)
         .show(ui, |ui| {
             use StandardField as F;
-            text_field(ui, "資產編號", &mut f.asset_tag, new, &errors, F::AssetTag);
-            text_field(ui, "名稱", &mut f.name, true, &errors, F::Name);
-            choice_fields(ui, f, &options, &errors);
-            text_field(ui, "位置", &mut f.location, true, &errors, F::Location);
-            text_field(ui, "負責人", &mut f.owner, true, &errors, F::Owner);
-            text_field(ui, "備註", &mut f.notes, true, &errors, F::Notes);
+            text_field(ui, &mut f.asset_tag, new, &errors, F::AssetTag);
+            text_field(ui, &mut f.name, true, &errors, F::Name);
+            choice_field(
+                ui,
+                &mut f.category,
+                &options.categories,
+                &errors,
+                F::Category,
+            );
+            choice_field(
+                ui,
+                &mut f.exposure,
+                &options.exposures,
+                &errors,
+                F::Exposure,
+            );
+            choice_field(
+                ui,
+                &mut f.criticality,
+                &options.levels,
+                &errors,
+                F::Criticality,
+            );
+            text_field(ui, &mut f.location, true, &errors, F::Location);
+            text_field(ui, &mut f.owner, true, &errors, F::Owner);
+            text_field(ui, &mut f.notes, true, &errors, F::Notes);
         });
-}
-
-fn choice_fields(ui: &mut egui::Ui, f: &mut AssetForm, o: &FieldOptions, errors: &FormErrors) {
-    let levels: Vec<&str> = o.levels.iter().map(String::as_str).collect();
-    choice_field(
-        ui,
-        "類別",
-        &mut f.category,
-        &o.categories,
-        errors,
-        StandardField::Category,
-    );
-    choice_field(
-        ui,
-        "曝露度",
-        &mut f.exposure,
-        &o.exposures,
-        errors,
-        StandardField::Exposure,
-    );
-    choice_field(
-        ui,
-        "重要性",
-        &mut f.criticality,
-        &levels,
-        errors,
-        StandardField::Criticality,
-    );
-}
-
-fn components(ui: &mut egui::Ui, edit: &mut AssetEdit) {
-    ui.label(egui::RichText::new("元件").strong());
-    if edit.form.components.is_empty() {
-        ui.label("尚無元件，請由下方「加入元件」選擇產品。");
-    }
-    let errors = edit.errors.clone();
-    let mut dropped = None;
-    egui::Grid::new("asset-components")
-        .num_columns(3)
-        .striped(true)
-        .show(ui, |ui| {
-            for (i, d) in edit.form.components.iter_mut().enumerate() {
-                if component_row(ui, d) {
-                    dropped = Some(i);
-                }
-                ui.end_row();
-                for msg in errors.component(i) {
-                    ui.label("");
-                    ui.colored_label(ALERT, msg);
-                    ui.end_row();
-                }
-            }
-        });
-    if let Some(i) = dropped {
-        // 尚未儲存的新元件直接拿掉（錯誤的列索引隨之失效）
-        edit.form.components.remove(i);
-        edit.errors.components.clear();
-    }
-}
-
-/// 一列元件；回傳 true 表示要拿掉這個尚未儲存的新元件。
-fn component_row(ui: &mut egui::Ui, d: &mut ComponentDraft) -> bool {
-    let name = one_line(&d.product_key);
-    if d.package {
-        ui.label(name);
-        ui.label(one_line(&d.version));
-        ui.weak(PACKAGE_NOTE);
-        return false;
-    }
-    let l = ui.label(format!("{name} 版本"));
-    if d.removed {
-        ui.weak(format!("{}（儲存時移除）", one_line(&d.version)));
-        if ui.button(format!("復原 {name}")).clicked() {
-            d.removed = false;
-        }
-        return false;
-    }
-    ui.add(
-        egui::TextEdit::singleline(&mut d.version)
-            .id_salt(("component-version", &d.product_key))
-            .desired_width(180.0),
-    )
-    .labelled_by(l.id);
-    if ui.button(format!("移除 {name}")).clicked() {
-        if d.id.is_none() {
-            return true;
-        }
-        d.removed = true;
-    }
-    false
-}
-
-fn unresolved(ui: &mut egui::Ui, edit: &mut AssetEdit, products: &[ProductChoice]) {
-    if edit.form.unresolved.is_empty() {
-        return;
-    }
-    ui.add_space(6.0);
-    ui.label(egui::RichText::new("未辨識產品").strong());
-    let errors = edit.errors.clone();
-    for (i, u) in edit.form.unresolved.iter_mut().enumerate() {
-        ui.horizontal(|ui| {
-            let raw = one_line(&u.product_raw);
-            let current = match &u.action {
-                UnresolvedAction::Keep => "保留".to_string(),
-                UnresolvedAction::MapTo(key) => format!("改為 {key}"),
-                UnresolvedAction::Delete => "儲存時刪除".to_string(),
-            };
-            egui::ComboBox::from_label(format!("{raw} {} 處置", one_line(&u.version_raw)))
-                .selected_text(current)
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(false, "保留").clicked() {
-                        u.action = UnresolvedAction::Keep;
-                    }
-                    for p in products {
-                        if ui
-                            .selectable_label(false, format!("改為 {}", p.label()))
-                            .clicked()
-                        {
-                            u.action = UnresolvedAction::MapTo(p.key.clone());
-                        }
-                    }
-                })
-                .response
-                .on_hover_text("改為目錄產品（沿用原版本字串）");
-            if ui.button(format!("刪除「{raw}」")).clicked() {
-                u.action = UnresolvedAction::Delete;
-            }
-        });
-        for msg in errors.unresolved_row(i) {
-            ui.colored_label(ALERT, msg);
-        }
-    }
-}
-
-fn add_component(ui: &mut egui::Ui, edit: &mut AssetEdit, choices: &[ProductChoice]) {
-    ui.add_space(6.0);
-    let mut picked = None;
-    egui::ComboBox::from_label("加入元件")
-        .selected_text("選擇目錄產品…")
-        .height(320.0)
-        .show_ui(ui, |ui| {
-            let l = ui.label("搜尋產品");
-            ui.add(egui::TextEdit::singleline(&mut edit.search).desired_width(220.0))
-                .labelled_by(l.id);
-            for c in choices {
-                if ui.selectable_label(false, c.label()).clicked() {
-                    picked = Some(c.key.clone());
-                }
-            }
-            if choices.is_empty() {
-                ui.label("沒有相符的產品");
-            }
-        });
-    if let Some(key) = picked {
-        edit.form.add_product(&key);
-        edit.search.clear();
-    }
 }

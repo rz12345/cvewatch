@@ -38,9 +38,14 @@ pub struct VersionWarning {
 impl VersionWarning {
     /// 不含列位置的說明（匯入與畫面編修相同）。
     pub fn describe(&self) -> String {
+        self.describe_with(&self.product_key)
+    }
+
+    /// 與 [`describe`](Self::describe) 相同，但產品以 `product` 呈現（畫面用顯示名稱）。
+    pub fn describe_with(&self, product: &str) -> String {
         format!(
-            "{} {}「{}」不符合 {} 格式",
-            self.asset_tag, self.product_key, self.version_raw, self.scheme
+            "{} {product}「{}」不符合 {} 格式",
+            self.asset_tag, self.version_raw, self.scheme
         )
     }
 }

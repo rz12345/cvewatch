@@ -8,14 +8,17 @@ use std::path::{Path, PathBuf};
 
 use cvewatch_core::assets::edit::{self, EditOp, EditOutcome, NewComponent, PurgePreview};
 use cvewatch_core::assets::export::export_inventory;
+use cvewatch_core::assets::plan::VersionWarning;
 use cvewatch_core::assets::template::write_template;
 use cvewatch_core::assets::validate::validate_record;
+use cvewatch_core::catalog::Catalog;
 use cvewatch_core::CoreError;
 
 use super::reload::Refreshed;
 use super::Workspace;
 use crate::asset_form::{AssetForm, FormMode, UnresolvedAction};
 use crate::data::AssetEntry;
+use crate::display::product_name;
 use crate::findings::ListView;
 use crate::report::{Level, Report};
 
@@ -25,7 +28,7 @@ pub const TEMPLATE_FILE_NAME: &str = "cvewatch-inventory-template.xlsx";
 /// 匯出清冊後的提示（與 VEX 匯出相同）。
 pub const UNENCRYPTED_NOTICE: &str = "此檔未加密，含資產清單";
 
-/// 一個步驟與其說明（成功訊息用）。
+/// 一個步驟與其說明（成功訊息用；產品以顯示名稱呈現）。
 type Step<'a> = (String, EditOp<'a>);
 
 /// 資產欄位是否與資料庫不同（以與 core 相同的驗證結果比較，忽略前後空白）。
@@ -38,7 +41,7 @@ fn fields_changed(form: &AssetForm, entry: &AssetEntry) -> bool {
 }
 
 /// 移除元件與刪除未辨識產品（先執行：之後可加回同一產品；「至少一個元件」在最後才檢查）。
-fn removal_steps(form: &AssetForm) -> Vec<Step<'_>> {
+fn removal_steps<'a>(form: &'a AssetForm, catalog: &Catalog) -> Vec<Step<'a>> {
     let components = form
         .components
         .iter()
@@ -46,7 +49,7 @@ fn removal_steps(form: &AssetForm) -> Vec<Step<'_>> {
         .filter_map(|d| {
             d.id.map(|id| {
                 (
-                    format!("移除 {}", d.product_key),
+                    format!("移除 {}", d.name(catalog)),
                     EditOp::RemoveComponent(id),
                 )
             })
@@ -65,20 +68,20 @@ fn removal_steps(form: &AssetForm) -> Vec<Step<'_>> {
 }
 
 /// 新元件、版本變更與未辨識產品改為目錄產品。
-fn component_steps(form: &AssetForm) -> Vec<Step<'_>> {
+fn component_steps<'a>(form: &'a AssetForm, catalog: &Catalog) -> Vec<Step<'a>> {
     let mut steps = Vec::new();
     for d in form.components.iter().filter(|d| !d.package && !d.removed) {
         let version = d.version.trim().to_string();
         match (d.id, &d.original_version) {
             (None, _) => steps.push((
-                format!("加入 {} {version}", d.product_key),
+                format!("加入 {} {version}", d.name(catalog)),
                 EditOp::AddComponent(NewComponent {
                     product_key: d.product_key.clone(),
                     version_raw: version,
                 }),
             )),
             (Some(id), Some(old)) if old.trim() != version => steps.push((
-                format!("{} 版本改為 {version}", d.product_key),
+                format!("{} 版本改為 {version}", d.name(catalog)),
                 EditOp::SetVersion {
                     component_id: id,
                     version_raw: version,
@@ -90,7 +93,7 @@ fn component_steps(form: &AssetForm) -> Vec<Step<'_>> {
     for u in &form.unresolved {
         if let UnresolvedAction::MapTo(key) = &u.action {
             steps.push((
-                format!("「{}」改為 {key}", u.product_raw),
+                format!("「{}」改為 {}", u.product_raw, product_name(catalog, key)),
                 EditOp::ResolveUnresolved {
                     unresolved_id: u.id,
                     product_key: key.clone(),
@@ -102,7 +105,7 @@ fn component_steps(form: &AssetForm) -> Vec<Step<'_>> {
 }
 
 /// 編輯既有資產時，表單與資料庫目前內容的差異。
-fn edit_steps<'a>(form: &'a AssetForm, entry: &AssetEntry) -> Vec<Step<'a>> {
+fn edit_steps<'a>(form: &'a AssetForm, entry: &AssetEntry, catalog: &Catalog) -> Vec<Step<'a>> {
     let mut steps = Vec::new();
     if fields_changed(form, entry) {
         steps.push((
@@ -110,8 +113,8 @@ fn edit_steps<'a>(form: &'a AssetForm, entry: &AssetEntry) -> Vec<Step<'a>> {
             EditOp::Fields(form.record_input()),
         ));
     }
-    steps.extend(removal_steps(form));
-    steps.extend(component_steps(form));
+    steps.extend(removal_steps(form, catalog));
+    steps.extend(component_steps(form, catalog));
     steps
 }
 
@@ -126,12 +129,21 @@ fn new_components(form: &AssetForm) -> Vec<NewComponent> {
         .collect()
 }
 
+/// 版本格式警告（與 core 的 `describe` 相同，但產品用顯示名稱）。
+fn describe_warning(w: &VersionWarning, catalog: &Catalog) -> String {
+    w.describe_with(&product_name(catalog, &w.product_key))
+}
+
 /// 成功訊息；有版本格式警告時為 Warning。
-fn saved_message(done: String, outcome: &EditOutcome) -> (String, Level) {
+fn saved_message(done: String, outcome: &EditOutcome, catalog: &Catalog) -> (String, Level) {
     if outcome.warnings.is_empty() {
         return (done, Level::Info);
     }
-    let warnings: Vec<String> = outcome.warnings.iter().map(|w| w.describe()).collect();
+    let warnings: Vec<String> = outcome
+        .warnings
+        .iter()
+        .map(|w| describe_warning(w, catalog))
+        .collect();
     (
         format!(
             "{done}；版本無法解析（仍保存原始字串）：{}",
@@ -145,7 +157,7 @@ impl<V: ListView> Workspace<V> {
     /// 儲存資產表單（新增，或依差異在同一交易編修）。表單先以本地驗證檢查；
     /// 回傳的 `Refreshed.report` 為 Error 時表示沒有寫入（對話框應保留）。
     pub fn save_asset_form(&mut self, form: &AssetForm, open: &[i64]) -> Refreshed {
-        if let Err(errors) = form.validate() {
+        if let Err(errors) = form.validate(&self.settings.catalog) {
             return Refreshed::unchanged(Report::error(errors.summary()), open);
         }
         let now = self.services.now();
@@ -167,7 +179,7 @@ impl<V: ListView> Workspace<V> {
                     let r = Report::error(format!("找不到使用中的資產 {tag}，請重新載入"));
                     return Refreshed::unchanged(r, open);
                 };
-                let steps = edit_steps(form, entry);
+                let steps = edit_steps(form, entry, catalog);
                 if steps.is_empty() {
                     return Refreshed::unchanged(Report::info(format!("{tag} 沒有變更")), open);
                 }
@@ -181,7 +193,7 @@ impl<V: ListView> Workspace<V> {
         };
         match result {
             Ok(outcome) => {
-                let (message, level) = saved_message(done, &outcome);
+                let (message, level) = saved_message(done, &outcome, &self.settings.catalog);
                 self.after_asset_write(message, level, open)
             }
             Err(e) => {
