@@ -82,10 +82,6 @@ cargo test                                     # 不呼叫外部 API、不存取
 正式建置：`scriptsuild.bat` 以 release 建置 `cvewatch.exe`、`cvewatchw.exe`、`cvewatch-gui.exe`，並複製到 `dist\`（已 gitignore；三個檔案需放在目標電腦的同一資料夾）；
 `check` 先執行 `cargo fmt --check`、clippy 與 `cargo test`，`debug` 改用 debug 建置，`nodist` 不複製到 `dist\`。
 
-開發時測試視窗版：`scripts\dev-gui.bat` 會建置 `cvewatch` 與 `cvewatch-gui`，在 `.dev\`（已 gitignore）建立獨立的設定檔與資料目錄、
-首次匯入 `tests\fixtures\inventory_basic.xlsx`，再以 `--config .dev\cvewatch.toml` 開啟視窗；`reset` 重建測試環境、`release` 改用 release 建置、`noseed` 不匯入範例清冊。
-資料庫金鑰在 Credential Manager 與正式環境共用（只沿用、不覆蓋）。
-
 在 Claude Code 中，一次做一個 change：
 
 ```
