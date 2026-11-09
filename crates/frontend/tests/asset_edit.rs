@@ -288,19 +288,19 @@ fn isms_id_used_by_a_retired_asset_is_reported_on_its_field() {
     let w = assets_world();
     w.conn
         .execute(
-            "UPDATE asset SET isms_id = 'ALL-HW-005' WHERE asset_tag = 'NAS-02'",
+            "UPDATE asset SET isms_id = 'SYS-HW-005' WHERE asset_tag = 'NAS-02'",
             [],
         )
         .unwrap();
     let (ws, _rec) = open(w);
     let mut form = edit_form(&ws, "FW-01");
-    form.isms_id = "all-hw-005".into();
+    form.isms_id = "sys-hw-005".into();
     let e = ws.validate_asset_form(&form).unwrap_err();
     assert_eq!(
         e.field(StandardField::IsmsId),
         Some("已被使用（已退役的 NAS-02）")
     );
-    form.isms_id = "ALL-HW-006".into();
+    form.isms_id = "SYS-HW-006".into();
     assert!(ws.validate_asset_form(&form).is_ok());
 }
 

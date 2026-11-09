@@ -14,7 +14,7 @@ fn assets_screen_lists_assets_and_unresolved_products() {
     let (mut app, _) = app(seeded_world());
     keys(&mut app, "3");
     let out = render(&app);
-    assert!(out.contains("Synology DS920+"), "{out}");
+    assert!(out.contains("Synology XYZ-300+"), "{out}");
     assert!(out.contains(LONG_NAME));
     insta::assert_snapshot!(out);
 }
@@ -34,12 +34,12 @@ fn long_chinese_name_is_truncated_without_shifting_columns() {
 fn asset_detail_shows_components_findings_and_unresolved() {
     let (mut app, _) = app(seeded_world());
     keys(&mut app, "3");
-    keys(&mut app, "j"); // 依編號排序：FW-CORE、PA-460、PVE-01
+    keys(&mut app, "j"); // 依編號排序：FW-CORE、FW-EDGE、PVE-01
     press(&mut app, KeyCode::Enter);
     let Some(View::AssetDetail { asset_tag, .. }) = app.view() else {
         panic!("應進入資產詳情");
     };
-    assert_eq!(asset_tag, "PA-460");
+    assert_eq!(asset_tag, "FW-EDGE");
     insta::assert_snapshot!(render(&app));
     press(&mut app, KeyCode::Enter);
     assert!(matches!(app.view(), Some(View::FindingDetail { .. })));
@@ -147,5 +147,5 @@ fn apply_targets_skip_assets_without_products() {
     let Some(Dialog::PendingTarget { options, .. }) = &app.dialog else {
         panic!("應選擇套用目標");
     };
-    assert_eq!(options, &["FW-CORE", "PA-460", "PVE-01"]);
+    assert_eq!(options, &["FW-CORE", "FW-EDGE", "PVE-01"]);
 }

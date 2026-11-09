@@ -81,19 +81,19 @@ fn first_import_creates_assets_components_and_reports() {
 
     assert_eq!(plan.added.len(), 6);
     assert_eq!(plan.updated.len(), 0);
-    // R6515-01：ESXi、iDRAC9、BIOS 三個元件
-    let r6515 = AssetRepo::new(&conn)
-        .find_by_tag("R6515-01")
+    // SRV-01：ESXi、iDRAC9、BIOS 三個元件
+    let srv = AssetRepo::new(&conn)
+        .find_by_tag("SRV-01")
         .unwrap()
         .unwrap();
     let keys: Vec<String> = ComponentRepo::new(&conn)
-        .for_asset(r6515.id)
+        .for_asset(srv.id)
         .unwrap()
         .iter()
         .map(|c| c.label().to_string())
         .collect();
     assert_eq!(keys.len(), 3, "{keys:?}");
-    // 「Palo Alto PA-460」辨識為 PAN-OS
+    // 「Palo Alto PAN-OS」辨識為 PAN-OS
     assert_eq!(
         version_of(&conn, "FW-02", "paloalto-panos").as_deref(),
         Some("11.1 latest")
@@ -135,9 +135,9 @@ fn first_import_creates_assets_components_and_reports() {
     assert_eq!(tags("NAS-01").record.category.as_str(), "HW05");
     assert_eq!(tags("NAS-03").record.category.as_str(), "HW05");
     assert_eq!(tags("NAS-03").record.cia, Cia::new(2, 3, 2));
-    assert_eq!(tags("R6515-01").record.cia, Cia::new(3, 3, 4));
+    assert_eq!(tags("SRV-01").record.cia, Cia::new(3, 3, 4));
     let fw01 = tags("FW-01");
-    assert_eq!(fw01.record.isms_id.as_deref(), Some("ALL-HW-003"));
+    assert_eq!(fw01.record.isms_id.as_deref(), Some("SYS-HW-003"));
     assert!(
         plan.notices.is_empty(),
         "新格式清冊沒有 notice：{:?}",
@@ -358,7 +358,7 @@ fn csv_with_separate_components_file() {
     .unwrap();
     assert_eq!(plan.added.len(), 2);
     assert_eq!(
-        version_of(&conn, "R6515-01", "dell-idrac9").as_deref(),
+        version_of(&conn, "SRV-01", "dell-idrac9").as_deref(),
         Some("7.10.30.00")
     );
 }
@@ -466,7 +466,7 @@ fn legacy_inventory_is_converted_with_notices() {
         "{notices:?}"
     );
     assert!(
-        notices.contains(&"第 3 列 R6515-01：virtualization 已轉為 HW01 伺服器".to_string()),
+        notices.contains(&"第 3 列 SRV-01：virtualization 已轉為 HW01 伺服器".to_string()),
         "{notices:?}"
     );
     let fw = AssetRepo::new(&conn).find_by_tag("FW-01").unwrap().unwrap();
@@ -498,8 +498,8 @@ fn legacy_reimport_lists_rating_changes() {
     let esx = plan
         .updated
         .iter()
-        .find(|u| u.asset_tag == "R6515-01")
-        .expect("R6515-01 的機密性由 3 回到範本值 2");
+        .find(|u| u.asset_tag == "SRV-01")
+        .expect("SRV-01 的機密性由 3 回到範本值 2");
     assert!(esx.changed_fields.contains(&"confidentiality"), "{esx:?}");
     assert!(
         !plan
@@ -532,7 +532,7 @@ fn legacy_reimport_keeps_isms_ids() {
             .isms_id
     };
     let plan = import(&mut conn, "inventory_legacy.xlsx");
-    assert_eq!(isms(&conn).as_deref(), Some("ALL-HW-003"));
+    assert_eq!(isms(&conn).as_deref(), Some("SYS-HW-003"));
     assert!(plan.notices.iter().any(|n| n.message == ISMS_KEPT_NOTICE));
     // 新格式清冊的 isms_id 欄留空：清除
     let path = env.dir.path().join("blank.csv");
@@ -593,7 +593,7 @@ fn raising_a_template_value_affects_only_new_imports() {
     assert_eq!(nas02(&conn), Cia::new(3, 3, 4), "留空重匯時採用新的範本值");
 }
 
-/// Scenario: Duplicate ISMS ID — retired 的 NAS-02 已使用 ALL-HW-005。
+/// Scenario: Duplicate ISMS ID — retired 的 NAS-02 已使用 SYS-HW-005。
 #[test]
 fn duplicate_isms_id_with_a_retired_asset_is_rejected() {
     use cvewatch_core::assets::edit;
@@ -601,7 +601,7 @@ fn duplicate_isms_id_with_a_retired_asset_is_rejected() {
     let mut conn = open_working_db(&env.paths, &env.store).unwrap();
     import(&mut conn, "inventory_basic.xlsx");
     conn.execute(
-        "UPDATE asset SET isms_id = 'ALL-HW-005' WHERE asset_tag = 'NAS-02'",
+        "UPDATE asset SET isms_id = 'SYS-HW-005' WHERE asset_tag = 'NAS-02'",
         [],
     )
     .unwrap();
@@ -609,7 +609,7 @@ fn duplicate_isms_id_with_a_retired_asset_is_rejected() {
     let input = cvewatch_core::assets::validate::RecordInput {
         name: "nas01",
         category: "HW05",
-        isms_id: "all-hw-005",
+        isms_id: "sys-hw-005",
         ..Default::default()
     };
     let err = edit::update_asset(&mut conn, &classes(), "NAS-01", &input, Utc::now())
@@ -627,7 +627,7 @@ fn duplicate_isms_id_with_a_retired_asset_is_rejected() {
     std::fs::write(
         &dir,
         "asset_tag,name,category,product,version,isms_id\n\
-         NAS-01,nas01,HW05,Synology DSM,7.2.1-69057,all-hw-005\n",
+         NAS-01,nas01,HW05,Synology DSM,7.2.1-69057,sys-hw-005\n",
     )
     .unwrap();
     let book = read_inventory(&dir, None).unwrap();
@@ -642,7 +642,7 @@ fn duplicate_isms_id_with_a_retired_asset_is_rejected() {
     .unwrap_err()
     .to_string();
     assert!(
-        err.contains("第 2 列：ISMS 編號 all-hw-005 已被 NAS-02 使用（該資產已退役）"),
+        err.contains("第 2 列：ISMS 編號 sys-hw-005 已被 NAS-02 使用（該資產已退役）"),
         "{err}"
     );
 }
@@ -665,8 +665,8 @@ fn swapping_isms_ids_in_one_import() {
         .unwrap();
         path
     };
-    let first = write("a.csv", "ALL-HW-001", "ALL-HW-002");
-    let second = write("b.csv", "ALL-HW-002", "ALL-HW-001");
+    let first = write("a.csv", "SYS-HW-001", "SYS-HW-002");
+    let second = write("b.csv", "SYS-HW-002", "SYS-HW-001");
     for path in [first, second] {
         let book = read_inventory(&path, None).unwrap();
         let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
@@ -680,7 +680,7 @@ fn swapping_isms_ids_in_one_import() {
         .unwrap();
     }
     let fw01 = AssetRepo::new(&conn).find_by_tag("FW-01").unwrap().unwrap();
-    assert_eq!(fw01.record.isms_id.as_deref(), Some("ALL-HW-002"));
+    assert_eq!(fw01.record.isms_id.as_deref(), Some("SYS-HW-002"));
 }
 
 /// Scenario: Generating a template / Class sheet follows configuration

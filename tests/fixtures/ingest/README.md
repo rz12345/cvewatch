@@ -41,7 +41,7 @@ cvelist 的 zip（含巢狀 baseline）由測試以 `zip::ZipWriter::new_stream`
 
 | 路徑 | 來源 | 用途 |
 |---|---|---|
-| `inventory.csv`、`components.csv` | **合成** | FW-01（PA-460 / PAN-OS）、R6515-01（ESXi build + iDRAC9）、PVE-01（Proxmox VE）、NAS-01（Synology DSM） |
+| `inventory.csv`、`components.csv` | **合成** | FW-01（PAN-OS）、SRV-01（ESXi build + iDRAC9）、PVE-01（Proxmox VE）、NAS-01（Synology DSM） |
 | `inventory_upgraded.csv` | **合成** | NAS-01 升版到已修正版本（自動轉為已處理） |
 | `cves/CVE-2099-6000{1,4,5}.json` | **合成** CVE 5.1 | DSM 版本區間、CNA changes 與 NVD 矛盾、只列產品沒有版本 |
 | `nvd.json` | **合成** NVD API 2.0 | iDRAC（AND 平台條件）、Proxmox 區間、PAN-OS 未區分熱修 |

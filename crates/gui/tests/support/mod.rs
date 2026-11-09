@@ -34,7 +34,7 @@ pub const NOW: &str = "2026-11-07T00:00:00+00:00";
 pub const KEV_CVE: &str = "CVE-2026-0001";
 pub const LONG_NAME: &str = "資訊所機房核心防火牆主機";
 pub const VENDOR_URL: &str = "https://security.paloaltonetworks.com/CVE-2026-0001";
-/// 影響 PAN-OS 11.1.0–11.1.6 前（PA-460 與 FW-CORE 都受影響）、不含 `2026-0` 的 CVE。
+/// 影響 PAN-OS 11.1.0–11.1.6 前（FW-EDGE 與 FW-CORE 都受影響）、不含 `2026-0` 的 CVE。
 pub const OLD_CVE: &str = "CVE-2025-1111";
 
 /// fake companion：以與正式環境相同的 `CliTarget` 組出命令並記錄其參數（含 `--config`），
@@ -218,12 +218,12 @@ pub fn gui_with(world: World, setup: Setup) -> (Harness<'static, GuiApp>, Fakes)
     (harness(app), fakes)
 }
 
-/// PA-460（PAN-OS 11.1.2，四筆命中，其一列入 KEV 並有原廠公告）、名稱很長的核心防火牆
+/// FW-EDGE（PAN-OS 11.1.2，四筆命中，其一列入 KEV 並有原廠公告）、名稱很長的核心防火牆
 /// （[`OLD_CVE`] 一筆命中）、
 /// PVE-01 與一筆僅關鍵字相符的等待區 CVE、兩筆同步紀錄（cvelist 成功、osv 失敗）、一筆未辨識產品。
 pub fn seeded_world() -> World {
     let mut w = world_with(Some(PROXMOX_CNA));
-    w.asset("PA-460", "internet", &[("paloalto-panos", "11.1.2")]);
+    w.asset("FW-EDGE", "internet", &[("paloalto-panos", "11.1.2")]);
     w.asset("FW-CORE", "internal", &[("paloalto-panos", "11.1.5")]);
     w.conn
         .execute(
@@ -263,7 +263,7 @@ pub fn seeded_world() -> World {
     w.conn
         .execute(
             "INSERT INTO asset_unresolved (asset_id, product_raw, version_raw, seen_at)
-             VALUES ((SELECT id FROM asset WHERE asset_tag = 'PVE-01'), 'Synology DS920+', '7.2', ?1)",
+             VALUES ((SELECT id FROM asset WHERE asset_tag = 'PVE-01'), 'Synology XYZ-300+', '7.2', ?1)",
             params![NOW],
         )
         .expect("unresolved");

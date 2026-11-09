@@ -230,7 +230,7 @@
 - **THEN** 對話框不關閉，三個欄位旁顯示「必填」，資料庫不變
 
 #### Scenario: ISMS ID with the wrong major class
-- **WHEN** 類別為「HW03 資安設備」，ISMS 編號填 `ALL-SW-001` 後按「儲存」
+- **WHEN** 類別為「HW03 資安設備」，ISMS 編號填 `SYS-SW-001` 後按「儲存」
 - **THEN** 對話框不關閉，ISMS 編號欄位旁顯示大類不符的錯誤，資料庫不變
 
 ### Requirement: GUI asset renaming
@@ -293,8 +293,8 @@ GUI 的資產編修、退役、恢復與永久刪除寫入後 SHALL 在背景執
 - **THEN** 詳情與類別下拉選單顯示「HW01 伺服器」，儲存後資料庫與匯出的值仍為 `HW01`
 
 #### Scenario: Ratings in the detail pane
-- **WHEN** 使用者選取 C/I/A 為 2/3/4、ISMS 編號為 `ALL-HW-003` 的 `FW-01`
-- **THEN** 詳情顯示機密性 2、完整性 3、可用性 4、資產價值 4 與 `ALL-HW-003`
+- **WHEN** 使用者選取 C/I/A 為 2/3/4、ISMS 編號為 `SYS-HW-003` 的 `FW-01`
+- **THEN** 詳情顯示機密性 2、完整性 3、可用性 4、資產價值 4 與 `SYS-HW-003`
 
 ### Requirement: GUI product picker
 資產對話框的「加入元件」與未辨識產品的「改為…」SHALL 使用同一種產品選擇器：含搜尋框與結果清單，每筆以「顯示名稱（廠商）」呈現。搜尋 SHALL 比對顯示名稱、別名與廠商，不分大小寫並忽略空白與 `-_./`；顯示名稱或別名以搜尋字開頭者 SHALL 排在只有中間相符者之前，同級依顯示名稱排序。搜尋框為空時 SHALL 依顯示名稱列出全部產品。

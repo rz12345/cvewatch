@@ -2,7 +2,7 @@
 
 ## Context
 
-- 機構的 ISMS「資訊資產清冊」（B390-I305-01 v2.1）以「資產類別（PE/IF/SW/HW/SE）＋資產名稱（子類別，例如 HW01 伺服器）」分類。選項工作表為每個子類別提供描述與 C/I/A 範本值；資產價值 = MAX(C, I, A)，範圍 1–4
+- 機構的 ISMS「資訊資產清冊」以「資產類別（PE/IF/SW/HW/SE）＋資產名稱（子類別，例如 HW01 伺服器）」分類。選項工作表為每個子類別提供描述與 C/I/A 範本值；資產價值 = MAX(C, I, A)，範圍 1–4
 - 目前 `Category` 是 `string_enum!` 產生的固定列舉（`crates/core/src/assets/model.rs`），資料庫 `asset.category` 為 `TEXT NOT NULL`，沒有 CHECK。`criticality` 為 `INTEGER NOT NULL DEFAULT 2 CHECK (criticality IN (1,2,3))`
 - 重要性只用在：風險排序（`matching/scoring.rs` 的 `cmp_findings`）、`active_component` view（0004）、命中查詢（`matching/query.rs`）、各介面的顯示。比對規則與風險等級不使用 category 或重要性
 - migration 在單一交易內套用（`db/migrate.rs`）。重建 `asset` 表需要 DROP TABLE，而 `component`、`asset_unresolved` 以 `ON DELETE CASCADE` 參照 `asset`，在交易內 DROP 會連帶刪除元件
@@ -156,8 +156,8 @@ availability = 3
 
 - **A1 驗證模組拆分**：單筆欄位驗證移到 `assets/record.rs`（`validate.rs` 重新匯出 `validate_record` 等），`validate.rs` 只留整份清冊的解析；`validate_record` 為畫面編修（不接受舊值），`validate_import_record` 為清冊匯入（接受舊值並回傳原值供 notice）
 - **A2 SW01 必填的錯誤**：每個空白的 C/I/A 各一筆 `FieldError`（`Missing`，GUI 在三個欄位旁各顯示「必填」），訊息相同且只列出缺少的項目（例如「SW01 應用系統必須填寫完整性與可用性」）；清冊匯入時同一列相同訊息只列一次
-- **A3 ISMS 編號的錯誤種類**：新增 `FieldErrorKind::ClassMismatch`（大類不符）；格式不符沿用 `NotAllowed`。GUI 用語為「格式應為「系統代碼-大類-流水號」，例如 ALL-HW-001」「大類（HW／SW）與類別不符」
-- **A4 ISMS 編號重複的訊息**：「ISMS 編號 all-hw-005 已被 NAS-02 使用（該資產已退役）」，匯入與 core 編修共用（`plan::isms_in_use_message`）；GUI 另以載入的資料先行檢查，錯誤標在「ISMS 編號」欄位（與更名的 `rename_conflict` 相同做法），core 仍在交易內再查
+- **A3 ISMS 編號的錯誤種類**：新增 `FieldErrorKind::ClassMismatch`（大類不符）；格式不符沿用 `NotAllowed`。GUI 用語為「格式應為「系統代碼-大類-流水號」，例如 SYS-HW-001」「大類（HW／SW）與類別不符」
+- **A4 ISMS 編號重複的訊息**：「ISMS 編號 sys-hw-005 已被 NAS-02 使用（該資產已退役）」，匯入與 core 編修共用（`plan::isms_in_use_message`）；GUI 另以載入的資料先行檢查，錯誤標在「ISMS 編號」欄位（與更名的 `rename_conflict` 相同做法），core 仍在交易內再查
 - **A5 匯入互換 ISMS 編號**：重複檢查以「匯入後的狀態」判斷（清冊中的資產改用清冊的編號）；寫入前先清除這次會變更的編號，避免逐筆寫入時暫時違反唯一索引
 - **A6 類別錯誤訊息**：列出目前生效的全部子類別代碼（含設定檔新增者），例如「category「printer」不是允許的值（子類別代碼 HW01、…、SW07 或子類別名稱）」
 - **A7 名稱比對**：子類別名稱以 NFKC 後完全相同比對（不轉小寫）；舊值與代碼不分 ASCII 大小寫
@@ -168,7 +168,7 @@ availability = 3
 - **A12 TUI 版面**：資產清單的類別欄只顯示代碼（欄寬 14 → 6，名稱欄因此變寬）、「重要」欄改為「價值」；資產詳情第一行為「類別 HW01 伺服器  曝露度 …  C2 / I3 / A4（價值 4）  ISMS 編號 …」，地點與負責人移到第二行
 - **A13 GUI 下拉選單高度**：選單最大高度設為 480，內建 18 個子類別不必捲動即可看到與點選
 - **A14 匯入預覽的 notice**：GUI 預覽顯示 `asset import --dry-run` 的輸出，CLI 的明細改由 `plan_detail_lines` 產生，notice（「提醒：」）列在版本警告之後、清冊中消失之前；以 `inventory_legacy.xlsx` 在 CLI 單元測試驗證順序，GUI 測試以 fake companion 驗證預覽顯示
-- **A15 範本範例列**：`FW-01`（HW03、ISMS 編號 `ALL-HW-001`、C/I/A 留空）、`R6515-01`（HW01、機密性 3）、`NAS-01`（HW05、C/I/A 留空），示範範本值與覆寫
+- **A15 範本範例列**：`FW-01`（HW03、ISMS 編號 `SYS-HW-001`、C/I/A 留空）、`SRV-01`（HW01、機密性 3）、`NAS-01`（HW05、C/I/A 留空），示範範本值與覆寫
 - **A16 fixtures**：`inventory_basic.xlsx` 等改為新欄位（混用代碼、子類別名稱與小寫代碼）；`inventory_legacy.xlsx` 保留舊格式；`tests/fixtures/matching/inventory*.csv` 維持舊格式以持續驗證相容匯入
 
 ## Code review 後的調整

@@ -185,7 +185,7 @@ GUI 測試以 `egui_kittest::Harness` 在無視窗環境中執行 `GuiApp`，以
 | 任務 | 結果 |
 |---|---|
 | 1.3（後半） | 2026-11-08 在遠端桌面工作階段開啟視窗，日誌「2026-11-08T09:06:21.889659Z INFO 繪製後端 renderer=Wgpu」：遠端桌面下 wgpu 可直接建立視窗，不需退回 glow。連同前半的 glow 退回驗證 → 勾選 |
-| 6.3 | 2026-11-08 以 release 版：`cvewatch asset template` 產生範本（三列範例）→ 拖進 `cvewatch-gui.exe` 的資產畫面 → 預覽 → 匯入。日誌依序為 companion `asset import … --dry-run`（09:11:52）、`asset import …`（09:11:56）、「清冊匯入完成 added=3 updated=0」、「比對完成 components=4」；資產畫面列出 FW-01、NAS-01、R6515-01，過程中沒有主控台視窗閃現 → 勾選 |
+| 6.3 | 2026-11-08 以 release 版：`cvewatch asset template` 產生範本（三列範例）→ 拖進 `cvewatch-gui.exe` 的資產畫面 → 預覽 → 匯入。日誌依序為 companion `asset import … --dry-run`（09:11:52）、`asset import …`（09:11:56）、「清冊匯入完成 added=3 updated=0」、「比對完成 components=4」；資產畫面列出 FW-01、NAS-01、SRV-01，過程中沒有主控台視窗閃現 → 勾選 |
 | 7.1 | 2026-11-08 以注音輸入法測試：搜尋框、Email 收件者（皆為 `TextEdit::singleline`）組字與候選字正常。**備註欄未測，sync 後補測**：備註對話框是 GUI 唯一的 `TextEdit::multiline`，本機尚無 CVE 資料、沒有命中可開啟備註。使用者決定依現況勾選並封存 → 勾選 |
 
 ### 封存後待補測

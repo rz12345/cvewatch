@@ -384,12 +384,12 @@ mod tests {
     #[test]
     fn duplicate_isms_id_lists_both_rows() {
         let errors = rejected(parse(&[
-            &["NAS-01", "n1", "HW05", "DSM", "7.2", "", "ALL-HW-005"],
-            &["NAS-02", "n2", "HW05", "DSM", "7.2", "", "all-hw-005"],
+            &["NAS-01", "n1", "HW05", "DSM", "7.2", "", "SYS-HW-005"],
+            &["NAS-02", "n2", "HW05", "DSM", "7.2", "", "sys-hw-005"],
         ]));
         assert_eq!(
             errors,
-            vec!["第 3 列：ISMS 編號「all-hw-005」與第 2 列重複".to_string()]
+            vec!["第 3 列：ISMS 編號「sys-hw-005」與第 2 列重複".to_string()]
         );
     }
 

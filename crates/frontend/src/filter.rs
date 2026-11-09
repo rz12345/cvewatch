@@ -318,7 +318,7 @@ mod tests {
     }
 
     fn rows() -> Vec<FindingRow> {
-        let mut kev = row(1, "CVE-2026-0001", "PA-460", Status::Open, Priority::P1);
+        let mut kev = row(1, "CVE-2026-0001", "FW-EDGE", Status::Open, Priority::P1);
         kev.scores.kev_date = Some("2026-10-01".into());
         kev.scores.cvss = Some(9.8);
         let mut probable = row(2, "CVE-2025-1234", "PVE-01", Status::Open, Priority::P3);
@@ -326,8 +326,14 @@ mod tests {
         probable.scores.epss = Some(0.5);
         probable.title = Some("Proxmox VE flaw".into());
         probable.description = Some("Proxmox VE privilege escalation".into());
-        let resolved = row(3, "CVE-2026-0002", "PA-460", Status::Resolved, Priority::P2);
-        let ignored = row(4, "CVE-2024-3400", "R6515", Status::Ignored, Priority::P4);
+        let resolved = row(
+            3,
+            "CVE-2026-0002",
+            "FW-EDGE",
+            Status::Resolved,
+            Priority::P2,
+        );
+        let ignored = row(4, "CVE-2024-3400", "SRV-01", Status::Ignored, Priority::P4);
         vec![kev, probable, resolved, ignored]
     }
 
@@ -367,7 +373,7 @@ mod tests {
         let r = rows();
         let f = Filter::default()
             .with_status_toggled(Status::Resolved)
-            .with_asset(Some("pa-460".into()));
+            .with_asset(Some("fw-edge".into()));
         assert_eq!(f.statuses, [Status::Open, Status::Resolved]);
         assert_eq!(ids(&r, &vis(&r, &f, "", SortKey::Risk)), [1, 3]);
         let kev = f.with_kev(KevFilter::Only);
@@ -413,7 +419,7 @@ mod tests {
         assert!(matches_search(&key, "remote code execution"));
         assert!(matches_search(&key, "  REMOTE   code "));
         // 欄位之間不相連：CVE ID 結尾 + 資產編號開頭不算命中
-        assert!(!matches_search(&key, "0001 pa-460"));
+        assert!(!matches_search(&key, "0001 fw-edge"));
     }
 
     #[test]

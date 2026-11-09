@@ -77,27 +77,27 @@
 - **THEN** 匯入成功，`FW-01` 的 C/I/A 依前述規則決定，報表有一筆「criticality 欄已停用」警告
 
 ### Requirement: ISMS asset ID
-每個資產 SHALL 可有選填的 ISMS 資產編號，格式 SHALL 為三碼英數字系統代碼、`-`、兩碼大類、`-`、三碼數字（例如 `ALL-HW-001`），大類 MUST 與資產的子類別大類相同。ISMS 編號 MUST NOT 與其他資產（含 retired，不分大小寫）重複；留空表示沒有 ISMS 編號。清冊沒有 `isms_id` 欄時，既有資產的 ISMS 編號 SHALL 保留，匯入報表 SHALL 給出一次提醒。`asset_tag` 仍是資產的識別。
+每個資產 SHALL 可有選填的 ISMS 資產編號，格式 SHALL 為三碼英數字系統代碼、`-`、兩碼大類、`-`、三碼數字（例如 `SYS-HW-001`），大類 MUST 與資產的子類別大類相同。ISMS 編號 MUST NOT 與其他資產（含 retired，不分大小寫）重複；留空表示沒有 ISMS 編號。清冊沒有 `isms_id` 欄時，既有資產的 ISMS 編號 SHALL 保留，匯入報表 SHALL 給出一次提醒。`asset_tag` 仍是資產的識別。
 
 #### Scenario: Valid ISMS ID
-- **WHEN** 類別 `HW03` 的 `FW-01` 填寫 ISMS 編號 `ALL-HW-003`
+- **WHEN** 類別 `HW03` 的 `FW-01` 填寫 ISMS 編號 `SYS-HW-003`
 - **THEN** 資產儲存成功，`asset_tag` 仍為 `FW-01`
 
 #### Scenario: Major class mismatch
-- **WHEN** 類別 `HW03` 的資產填寫 ISMS 編號 `ALL-SW-003`
+- **WHEN** 類別 `HW03` 的資產填寫 ISMS 編號 `SYS-SW-003`
 - **THEN** 匯入或編修被拒絕，並指出 ISMS 編號的大類 SW 與資產類別 HW03 不符
 
 #### Scenario: Malformed ISMS ID
-- **WHEN** 某列 ISMS 編號填寫 `ALLHW001`
-- **THEN** 匯入中止並指出該列 ISMS 編號格式應為「系統代碼-大類-流水號」，例如 `ALL-HW-001`
+- **WHEN** 某列 ISMS 編號填寫 `SYSHW001`
+- **THEN** 匯入中止並指出該列 ISMS 編號格式應為「系統代碼-大類-流水號」，例如 `SYS-HW-001`
 
 #### Scenario: Duplicate ISMS ID
-- **WHEN** `NAS-01` 填寫 `all-hw-005`，而 retired 的 `NAS-02` 已使用 `ALL-HW-005`
+- **WHEN** `NAS-01` 填寫 `sys-hw-005`，而 retired 的 `NAS-02` 已使用 `SYS-HW-005`
 - **THEN** 系統拒絕並指出該 ISMS 編號已被 `NAS-02` 使用
 
 #### Scenario: Old inventory without ISMS column
-- **WHEN** `FW-01` 的 ISMS 編號為 `ALL-HW-003`，使用者重匯沒有 `isms_id` 欄的舊清冊
-- **THEN** `FW-01` 的 ISMS 編號仍為 `ALL-HW-003`，報表有一筆「清冊沒有 isms_id 欄，保留資料庫中既有資產的 ISMS 編號」提醒
+- **WHEN** `FW-01` 的 ISMS 編號為 `SYS-HW-003`，使用者重匯沒有 `isms_id` 欄的舊清冊
+- **THEN** `FW-01` 的 ISMS 編號仍為 `SYS-HW-003`，報表有一筆「清冊沒有 isms_id 欄，保留資料庫中既有資產的 ISMS 編號」提醒
 
 ### Requirement: Migrating existing assets
 升級到此版本時，系統 SHALL 依 Legacy category values 的對照表轉換既有資產（含 retired）的類別，以轉換後子類別的內建範本值設定 C/I/A，並在 notes 末尾附記「舊重要性：N」。資產的元件、版本歷史、命中與處理紀錄 MUST NOT 改變。

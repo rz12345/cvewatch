@@ -39,7 +39,7 @@
                 "cpeMatch": [
                   {
                     "vulnerable": false,
-                    "criteria": "cpe:2.3:h:dell:poweredge_r6515:-:*:*:*:*:*:*:*",
+                    "criteria": "cpe:2.3:h:dell:poweredge_xyz-200:-:*:*:*:*:*:*:*",
                     "matchCriteriaId": "00000000-0000-0000-0000-000000000000"
                   }
                 ]

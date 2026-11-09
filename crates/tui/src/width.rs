@@ -47,7 +47,7 @@ mod tests {
 
     #[test]
     fn short_text_is_unchanged() {
-        assert_eq!(truncate("PA-460", 10), "PA-460");
+        assert_eq!(truncate("FW-EDGE", 10), "FW-EDGE");
         assert_eq!(truncate("防火牆", 6), "防火牆");
     }
 

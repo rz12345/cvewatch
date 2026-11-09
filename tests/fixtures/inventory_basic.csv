@@ -1,3 +1,3 @@
 ﻿asset_tag,name,category,product,version,exposure,confidentiality,integrity,availability
 FW-01,fw01,HW03,PAN-OS,11.1.4-h7,internet,,,
-R6515-01,esx01,HW01,ESXi,8.0 U3c,mgmt,3,,
+SRV-01,esx01,HW01,ESXi,8.0 U3c,mgmt,3,,

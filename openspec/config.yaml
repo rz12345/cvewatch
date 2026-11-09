@@ -8,7 +8,7 @@ context: |
   語言與技術：Rust（stable，edition 2021），單一執行檔 cvewatch.exe；介面為 TUI（ratatui + crossterm）；資料庫為 SQLite 單檔。
   架構原則：同步（sync）與檢視（tui）分離。`cvewatch sync` 由 Windows 工作排程器定期執行；TUI 只讀寫本機 SQLite，不在背景抓資料。
   MVP 不使用任何 AI/LLM；比對全部是可解釋的規則（CPE、CNA affected 版本區間、OSV 套件比對）。
-  資產範圍：網路/資安設備（Palo Alto PA-460 / PAN-OS）、虛擬化與伺服器（VMware ESXi/vCenter、Proxmox VE、Dell iDRAC）、
+  資產範圍：網路/資安設備（Palo Alto PAN-OS）、虛擬化與伺服器（VMware ESXi/vCenter、Proxmox VE、Dell iDRAC）、
   儲存（Synology DSM）、作業系統與套件（Linux/Windows 主機，透過匯入 SBOM/套件清單）。
   資料來源：CVE.org cvelistV5（主要，含 CNA affected 與 CISA ADP Vulnrichment）、NVD API 2.0（CPE/CVSS 補充）、CISA KEV、FIRST EPSS、
   OSV.dev（OS 套件）、原廠 CSAF 2.0 公告（通用讀取器，預設 Palo Alto）、TWCERT/CC（透過 cvelistV5 的 assigner 篩選）。

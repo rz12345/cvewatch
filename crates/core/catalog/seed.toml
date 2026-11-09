@@ -27,7 +27,7 @@
 #   例：為 ESXi 增加別名
 #     [[product]]
 #     key = "vmware-esxi"
-#     aliases = ["r6515 esxi"]
+#     aliases = ["xyz-200 esxi"]
 #
 # [[esxi_build]]：ESXi build 編號 → 版本名稱，讓清冊只填 build 的元件也能與 CVE 的 Update 名稱比較。
 #   對照不到的 build 只能與其他 build 比較，判定結果為未知（不會誤判為不受影響）。
@@ -42,8 +42,7 @@ display_name = "PAN-OS"
 vendor_display = "Palo Alto Networks"
 version_scheme = "panos"          # 11.1.4-h7
 advisory_source = "paloalto"
-aliases = ["panos", "palo alto", "palo alto networks", "palo alto pan-os", "pa-460",
-           "palo alto pa-460", "pa-series"]
+aliases = ["panos", "palo alto", "palo alto networks", "palo alto pan-os", "pa-series"]
 cpe = [{ part = "o", vendor = "paloaltonetworks", product = "pan-os" }]
 cna = [{ vendor = "Palo Alto Networks", product = "PAN-OS" }]
 csaf = [{ vendor = "Palo Alto Networks", product = "PAN-OS" }]
@@ -452,9 +451,8 @@ key = "dell-poweredge-bios"
 display_name = "PowerEdge BIOS"
 vendor_display = "Dell"
 version_scheme = "dotted"         # 2.16.0
-# CPE 依機型而異（例如 poweredge_r6515_firmware），需要時在 catalog.d 補上
-aliases = ["dell bios", "poweredge bios", "dell poweredge bios", "poweredge r6515 bios",
-           "r6515 bios", "dell r6515 bios"]
+# CPE 依機型而異（poweredge_<機型>_firmware），需要時在 catalog.d 補上
+aliases = ["dell bios", "poweredge bios", "dell poweredge bios"]
 keywords = ["PowerEdge BIOS"]
 
 # ── 儲存 ────────────────────────────────────────────────────
@@ -464,7 +462,7 @@ key = "synology-dsm"
 display_name = "DiskStation Manager"
 vendor_display = "Synology"
 version_scheme = "dsm"            # 7.2.2-72806 Update 3
-aliases = ["dsm", "synology", "synology dsm", "synology diskstation manager", "rs3617rpxs"]
+aliases = ["dsm", "synology", "synology dsm", "synology diskstation manager"]
 cpe = [{ part = "o", vendor = "synology", product = "diskstation_manager" }]
 cna = [
   { vendor = "Synology", product = "DiskStation Manager (DSM)" },

@@ -19,10 +19,10 @@ use shared::{keyword_only_pending, panos_cves, PENDING_CVE, PROXMOX_CNA};
 
 const NOW: &str = "2026-11-07T00:00:00+00:00";
 
-/// PA-460（三筆 PAN-OS 命中）與 PVE-01、一筆僅關鍵字相符的等待區 CVE（與 TUI 測試共用片段）。
+/// FW-EDGE（三筆 PAN-OS 命中）與 PVE-01、一筆僅關鍵字相符的等待區 CVE（與 TUI 測試共用片段）。
 fn world() -> World {
     let mut w = world_with(Some(PROXMOX_CNA));
-    w.asset("PA-460", "internet", &[("paloalto-panos", "11.1.2")]);
+    w.asset("FW-EDGE", "internet", &[("paloalto-panos", "11.1.2")]);
     w.asset("PVE-01", "internal", &[("proxmox-ve", "8.2.2")]);
     panos_cves(&w, false);
     keyword_only_pending(&w);
@@ -114,7 +114,10 @@ fn hidden_selection_is_reported_not_changed() {
 fn applying_pending_creates_probable_finding() {
     let (mut ws, _rec) = open(world());
     assert_eq!(ws.data.pending.len(), 1);
-    assert_eq!(ws.pending_targets().expect("targets"), ["PA-460", "PVE-01"]);
+    assert_eq!(
+        ws.pending_targets().expect("targets"),
+        ["FW-EDGE", "PVE-01"]
+    );
     let r = ws.resolve_pending(
         PENDING_CVE,
         &Action::Apply("PVE-01".into()),

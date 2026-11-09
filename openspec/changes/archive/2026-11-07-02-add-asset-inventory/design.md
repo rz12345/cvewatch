@@ -52,7 +52,7 @@ catalog_csaf(product_id, csaf_vendor_norm, csaf_product_norm) -- CSAF product_tr
 | asset_tag | ✓ | 唯一識別，例如財產編號 |
 | name | ✓ | 主機名稱 |
 | category | ✓ | network / security / virtualization / server / storage / host |
-| product | ✓ | 產品名稱，可用任何別名（「PAN-OS」「Palo Alto PA-460」） |
+| product | ✓ | 產品名稱，可用任何別名（「PAN-OS」「Palo Alto XYZ-100」） |
 | version | ✓ | 原樣填寫，例如 `11.1.4-h7`、`8.0 U3c`、`7.2.2-72806 Update 3` |
 | exposure |  | 預設 internal |
 | criticality |  | 1 低 / 2 中 / 3 高，預設 2 |
@@ -78,7 +78,7 @@ display_name = "PAN-OS"
 vendor_display = "Palo Alto Networks"
 version_scheme = "panos"            # 11.1.4-h7
 advisory_source = "paloalto"        # 對應 [[sources.csaf]] 的 id
-aliases = ["pan-os", "panos", "palo alto", "pa-460", "pa460", "palo alto networks"]
+aliases = ["pan-os", "panos", "palo alto", "xyz-100", "xyz100", "palo alto networks"]
 cpe = [{ part = "o", vendor = "paloaltonetworks", product = "pan-os" }]
 cna = [{ vendor = "palo alto networks", product = "pan-os" }]
 csaf = [{ vendor = "palo alto networks", product = "pan-os" }]   # CSAF product_tree 的 vendor / product_name
@@ -86,7 +86,7 @@ csaf = [{ vendor = "palo alto networks", product = "pan-os" }]   # CSAF product_
 [[product]]
 key = "synology-dsm"
 version_scheme = "dsm"              # 7.2.2-72806 Update 3
-aliases = ["dsm", "diskstation manager", "synology", "rs3617rpxs"]
+aliases = ["dsm", "diskstation manager", "synology", "xyz-300+"]
 cpe = [{ part = "o", vendor = "synology", product = "diskstation_manager" }]
 cna = [{ vendor = "synology", product = "diskstation manager" }]
 ```

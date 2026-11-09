@@ -10,7 +10,7 @@
 系統 SHALL 以 `asset_tag` 唯一識別資產，每個資產 SHALL 可擁有多個元件，每個元件記錄產品與原始版本字串。
 
 #### Scenario: Server with several tracked components
-- **WHEN** 清冊中 `R6515-01` 的主要產品為 ESXi 8.0 U3c，components 工作表另列 iDRAC 7.10.30.00 與 BIOS 2.16.0
+- **WHEN** 清冊中 `SRV-01` 的主要產品為 ESXi 8.0 U3c，components 工作表另列 iDRAC 7.10.30.00 與 BIOS 2.16.0
 - **THEN** 系統建立一個資產與三個元件
 
 ### Requirement: Spreadsheet import

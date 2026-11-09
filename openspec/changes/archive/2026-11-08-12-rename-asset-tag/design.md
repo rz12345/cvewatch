@@ -99,7 +99,7 @@
 2. **重複編號的訊息**：被 active 資產占用時為「資產編號 X 已被使用」，被 retired 資產占用時為「資產編號 X 已被使用（屬於已退役的資產）」。不像新增資產那樣建議「改為恢復該資產」，因為更名的情境不是要恢復那個資產
 3. **`apply_edits` 攔截 `EditOp::Rename`**：更名後以更新過的 `Asset` 執行後續步驟，錯誤訊息也使用新編號。`apply_op` 中的 `Rename` 分支只是為了讓 match 完整，行為與攔截時相同
 4. **更名提示用函式 `rename_note(原編號)`**（tasks 4.1）：提示內含原編號，無法寫成常數
-5. **測試放在新檔**：core、frontend、GUI 各新增 `tests/asset_rename.rs`，不擴充既有的 `asset_edit.rs`，以免檔案過大（core 的 `asset_edit.rs` 已有約 900 行）。core 測試沿用 VEX 測試的 `FW-01` 資料，因為它已經有 4 筆命中與處理事件；GUI 測試使用種子資料 `PA-460`
+5. **測試放在新檔**：core、frontend、GUI 各新增 `tests/asset_rename.rs`，不擴充既有的 `asset_edit.rs`，以免檔案過大（core 的 `asset_edit.rs` 已有約 900 行）。core 測試沿用 VEX 測試的 `FW-01` 資料，因為它已經有 4 筆命中與處理事件；GUI 測試使用種子資料 `FW-EDGE`
 6. **CLI 測試多驗證一項**：尚未 `init` 時，`asset rename` 以結束碼 1 提示 `cvewatch init`，與其他需要資料庫的指令一致
 7. **`Workspace::save_asset_form` 拆成 `save_new_asset`、`save_asset_edits`、`after_save`、`save_failed`**：加入更名分支後，原函式會超過 50 行
 

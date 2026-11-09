@@ -64,7 +64,7 @@ fn asset_edit_invalid_field_keeps_the_dialog_open() {
 #[test]
 fn asset_edit_editing_a_component_version() {
     let (mut h, _f) = gui(seeded_world());
-    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
+    edit_version(&mut h, "FW-EDGE", "PAN-OS", "11.1.6");
     assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
     assert!(shows(&h, "PAN-OS 11.1.6"), "詳情顯示新版本");
     assert!(shows(&h, "先前版本 11.1.2"), "版本歷史多一筆");
@@ -73,7 +73,7 @@ fn asset_edit_editing_a_component_version() {
 #[test]
 fn asset_edit_cancel_leaves_the_database_unchanged() {
     let (mut h, f) = gui(seeded_world());
-    select_asset(&mut h, "PA-460");
+    select_asset(&mut h, "FW-EDGE");
     click(&mut h, "編輯");
     replace_text(&mut h, "名稱 *", "改過的名稱");
     replace_text(&mut h, "PAN-OS 版本", "99.0");
@@ -85,12 +85,12 @@ fn asset_edit_cancel_leaves_the_database_unchanged() {
         .conn
         .query_row(
             "SELECT a.name, c.version_raw FROM asset a JOIN component c ON c.asset_id = a.id
-             WHERE a.asset_tag = 'PA-460'",
+             WHERE a.asset_tag = 'FW-EDGE'",
             [],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )
         .unwrap();
-    assert_eq!((name.as_str(), version.as_str()), ("PA-460", "11.1.2"));
+    assert_eq!((name.as_str(), version.as_str()), ("FW-EDGE", "11.1.2"));
     assert_eq!(match_calls(&f), 0);
 }
 
@@ -98,7 +98,7 @@ fn asset_edit_cancel_leaves_the_database_unchanged() {
 fn asset_edit_mapping_an_unresolved_product() {
     let (mut h, _f) = gui(seeded_world());
     select_asset(&mut h, "PVE-01");
-    assert!(shows(&h, "Synology DS920+ 7.2"));
+    assert!(shows(&h, "Synology XYZ-300+ 7.2"));
     click(&mut h, "編輯");
     assert!(
         h.query_by_label("Proxmox VE 版本").is_some(),
@@ -106,14 +106,14 @@ fn asset_edit_mapping_an_unresolved_product() {
     );
     // 原文與版本 → 處置選單 → 刪除
     let combo = h
-        .get_all_by_label("Synology DS920+ 7.2")
+        .get_all_by_label("Synology XYZ-300+ 7.2")
         .last()
         .unwrap()
         .rect();
-    let delete = h.get_by_label("刪除「Synology DS920+」").rect();
+    let delete = h.get_by_label("刪除「Synology XYZ-300+」").rect();
     assert!(combo.right() <= delete.left(), "刪除在處置選單之後");
     // 原文與版本是處置選單的標籤（詳情中同名的文字先繪製）
-    click_last(&mut h, "Synology DS920+ 7.2");
+    click_last(&mut h, "Synology XYZ-300+ 7.2");
     click_option(&mut h, "改為 DiskStation Manager（Synology）");
     click(&mut h, "儲存");
     assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
@@ -123,7 +123,7 @@ fn asset_edit_mapping_an_unresolved_product() {
         .components
         .iter()
         .any(|c| c.label() == "synology-dsm" && c.version_raw == "7.2"));
-    assert!(!shows(&h, "Synology DS920+ 7.2"), "詳情不再列出該筆");
+    assert!(!shows(&h, "Synology XYZ-300+ 7.2"), "詳情不再列出該筆");
 }
 
 #[test]
@@ -199,7 +199,7 @@ fn asset_edit_cancel_clears_the_write_failure_from_the_status_bar() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
     click(&mut h, "新增資產");
-    replace_text(&mut h, "資產編號 *", "PA-460");
+    replace_text(&mut h, "資產編號 *", "FW-EDGE");
     replace_text(&mut h, "名稱 *", "重複");
     h.get_by_label("類別 *").click();
     h.run();
@@ -372,7 +372,7 @@ fn asset_edit_isms_id_with_the_wrong_major_class() {
     let before = asset_count(&h);
     new_asset_with_component(&mut h, "FW-09");
     choose_class(&mut h, "HW03 資安設備");
-    replace_text(&mut h, "ISMS 編號", "ALL-SW-001");
+    replace_text(&mut h, "ISMS 編號", "SYS-SW-001");
     click(&mut h, "儲存");
     assert!(h.state().asset_dialog.is_some(), "對話框不關閉");
     assert_eq!(

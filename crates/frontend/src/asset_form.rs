@@ -359,7 +359,7 @@ pub const REQUIRED: &str = "必填";
 /// 下拉選單的值不在允許清單中。
 pub const CHOOSE_FROM_LIST: &str = "請從清單選擇";
 /// ISMS 編號格式不符。
-pub const ISMS_FORMAT: &str = "格式應為「系統代碼-大類-流水號」，例如 ALL-HW-001";
+pub const ISMS_FORMAT: &str = "格式應為「系統代碼-大類-流水號」，例如 SYS-HW-001";
 /// ISMS 編號的大類與類別不符。
 pub const ISMS_CLASS_MISMATCH: &str = "大類（HW／SW）與類別不符";
 /// 元件沒有版本。
@@ -521,7 +521,7 @@ mod tests {
         f.category = "router".into();
         f.exposure = "public".into();
         f.availability = "5".into();
-        f.isms_id = "ALLHW001".into();
+        f.isms_id = "SYSHW001".into();
         f.add_product("paloalto-panos");
         f.add_product("paloalto-panos");
         let e = check(&f).unwrap_err();
@@ -586,10 +586,10 @@ mod tests {
     #[test]
     fn isms_id_with_the_wrong_major_class() {
         let mut f = filled();
-        f.isms_id = "ALL-SW-001".into();
+        f.isms_id = "SYS-SW-001".into();
         let e = check(&f).unwrap_err();
         assert_eq!(e.field(StandardField::IsmsId), Some(ISMS_CLASS_MISMATCH));
-        f.isms_id = "ALL-HW-001".into();
+        f.isms_id = "SYS-HW-001".into();
         assert_eq!(check(&f), Ok(()));
         assert_eq!(field_label(StandardField::IsmsId), "ISMS 編號");
     }

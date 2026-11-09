@@ -65,10 +65,10 @@ fn base_assets() -> Vec<Vec<String>> {
             "",
             "",
             "",
-            "ALL-HW-003",
+            "SYS-HW-003",
         ],
         &[
-            "R6515-01", "esx01", "HW01", "ESXi", "8.0 U3c", "mgmt", "3", "", "", "",
+            "SRV-01", "esx01", "HW01", "ESXi", "8.0 U3c", "mgmt", "3", "", "", "",
         ],
         &[
             "NAS-01",
@@ -110,7 +110,7 @@ fn base_assets() -> Vec<Vec<String>> {
             "FW-02",
             "fw02",
             "HW03",
-            "Palo Alto PA-460",
+            "Palo Alto PAN-OS",
             "11.1 latest",
             "dmz",
             "",
@@ -134,7 +134,7 @@ fn legacy_assets() -> Vec<Vec<String>> {
             "3",
         ],
         &[
-            "R6515-01",
+            "SRV-01",
             "esx01",
             "virtualization",
             "ESXi",
@@ -165,7 +165,7 @@ fn legacy_assets() -> Vec<Vec<String>> {
             "FW-02",
             "fw02",
             "security",
-            "Palo Alto PA-460",
+            "Palo Alto PAN-OS",
             "11.1 latest",
             "dmz",
             "3",
@@ -175,8 +175,8 @@ fn legacy_assets() -> Vec<Vec<String>> {
 
 fn base_components() -> Vec<Vec<String>> {
     rows(&[
-        &["R6515-01", "iDRAC9", "7.10.30.00"],
-        &["R6515-01", "PowerEdge R6515 BIOS", "2.16.0"],
+        &["SRV-01", "iDRAC9", "7.10.30.00"],
+        &["SRV-01", "PowerEdge BIOS", "2.16.0"],
     ])
 }
 

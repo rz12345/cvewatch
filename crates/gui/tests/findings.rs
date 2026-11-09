@@ -37,7 +37,7 @@ fn default_view_is_open_findings_by_risk() {
     let rows = shown(app);
     assert_eq!(rows.len(), 5, "{rows:?}");
     assert_eq!(rows, expected(app, &Filter::default(), "", SortKey::Risk));
-    assert_eq!(rows[0], format!("{KEV_CVE} PA-460"), "KEV 的 P1 排最前");
+    assert_eq!(rows[0], format!("{KEV_CVE} FW-EDGE"), "KEV 的 P1 排最前");
     for cve in PANOS_CVES.iter().chain([&OLD_CVE]) {
         assert!(h.query_all_by_label(cve).next().is_some(), "{cve} 在表格中");
     }
@@ -73,8 +73,8 @@ fn search_narrows_as_you_type_and_header_sorts() {
 fn batch_ignore_with_reason_justification_and_note() {
     let (mut h, _f) = findings_gui();
     let rows = [
-        (PANOS_CVES[1], "PA-460"),
-        (PANOS_CVES[2], "PA-460"),
+        (PANOS_CVES[1], "FW-EDGE"),
+        (PANOS_CVES[2], "FW-EDGE"),
         (OLD_CVE, "FW-CORE"),
     ];
     select_rows(&mut h, &rows);
@@ -98,35 +98,35 @@ fn batch_ignore_with_reason_justification_and_note() {
         );
     }
     assert!(shows(&h, "已將 3 筆命中設為忽略"));
-    assert_eq!(finding_status(h.state(), KEV_CVE, "PA-460").0, "open");
+    assert_eq!(finding_status(h.state(), KEV_CVE, "FW-EDGE").0, "open");
 }
 
 #[test]
 fn cancelling_note_dialog_changes_nothing() {
     let (mut h, _f) = findings_gui();
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     click(&mut h, "已處理");
     h.get_by_label("備註（寫入時間軸）").type_text("寫一半");
     h.run();
     click(&mut h, "取消");
     assert!(h.state().dialog.is_none());
-    assert_eq!(finding_status(h.state(), KEV_CVE, "PA-460").0, "open");
+    assert_eq!(finding_status(h.state(), KEV_CVE, "FW-EDGE").0, "open");
     // Esc 也取消
     click(&mut h, "已處理");
     assert!(h.state().dialog.is_some());
     h.key_press(egui::Key::Escape);
     h.run();
     assert!(h.state().dialog.is_none());
-    assert_eq!(finding_status(h.state(), KEV_CVE, "PA-460").0, "open");
+    assert_eq!(finding_status(h.state(), KEV_CVE, "FW-EDGE").0, "open");
 }
 
 #[test]
 fn selection_hidden_by_search_is_kept_and_not_changed() {
     let (mut h, _f) = findings_gui();
     let rows = [
-        (KEV_CVE, "PA-460"),
-        (PANOS_CVES[1], "PA-460"),
-        (OLD_CVE, "PA-460"),
+        (KEV_CVE, "FW-EDGE"),
+        (PANOS_CVES[1], "FW-EDGE"),
+        (OLD_CVE, "FW-EDGE"),
     ];
     select_rows(&mut h, &rows);
     search(&mut h, OLD_CVE);
@@ -134,9 +134,12 @@ fn selection_hidden_by_search_is_kept_and_not_changed() {
     h.get_by_label("備註（寫入時間軸）").type_text("已更新韌體");
     h.run();
     click(&mut h, "確認");
-    assert_eq!(finding_status(h.state(), OLD_CVE, "PA-460").0, "resolved");
-    assert_eq!(finding_status(h.state(), KEV_CVE, "PA-460").0, "open");
-    assert_eq!(finding_status(h.state(), PANOS_CVES[1], "PA-460").0, "open");
+    assert_eq!(finding_status(h.state(), OLD_CVE, "FW-EDGE").0, "resolved");
+    assert_eq!(finding_status(h.state(), KEV_CVE, "FW-EDGE").0, "open");
+    assert_eq!(
+        finding_status(h.state(), PANOS_CVES[1], "FW-EDGE").0,
+        "open"
+    );
     let app = h.state();
     let kept: Vec<i64> = [rows[0], rows[1]]
         .iter()
@@ -152,14 +155,14 @@ fn selection_hidden_by_search_is_kept_and_not_changed() {
 #[test]
 fn single_key_shortcuts_only_without_text_focus() {
     let (mut h, _f) = findings_gui();
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     h.get_by_label("搜尋").focus();
     h.run();
     h.key_press(egui::Key::R);
     h.run();
     assert!(h.state().dialog.is_none(), "搜尋框中的 r 不觸發狀態變更");
     // 移開焦點後 r 開啟備註對話框
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     h.key_press(egui::Key::R);
     h.run();
     assert!(h.state().dialog.is_some());
@@ -168,7 +171,7 @@ fn single_key_shortcuts_only_without_text_focus() {
 #[test]
 fn detail_shows_evidence_and_opens_vendor_link() {
     let (mut h, f) = findings_gui();
-    let id = finding_id(h.state(), KEV_CVE, "PA-460");
+    let id = finding_id(h.state(), KEV_CVE, "FW-EDGE");
     // 按兩下開啟詳情（兩次點選間隔一個 step，0.25 秒）
     h.get_all_by_label(KEV_CVE).next().expect("row").click();
     h.step();
@@ -193,7 +196,7 @@ fn detail_shows_evidence_and_opens_vendor_link() {
 #[test]
 fn detail_closes_when_finding_is_gone_after_reload() {
     let (mut h, _f) = findings_gui();
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     h.key_press(egui::Key::Enter);
     h.run();
     let id = h
@@ -231,7 +234,7 @@ fn export_filtered_findings_to_documents() {
     assert!(asked[0].1.starts_with("cvewatch-vex-"), "{}", asked[0].1);
     let path = asked[0].0.join(&asked[0].1);
     let text = std::fs::read_to_string(&path).expect("exported");
-    assert!(text.contains("FW-CORE") && !text.contains("PA-460"));
+    assert!(text.contains("FW-CORE") && !text.contains("FW-EDGE"));
     assert!(shows(&h, "此檔未加密"));
     assert!(shows(&h, &path.display().to_string()));
 }
@@ -252,9 +255,9 @@ fn export_never_overwrites_existing_file() {
 #[test]
 fn context_menu_acts_on_right_clicked_row() {
     let (mut h, f) = findings_gui();
-    select_rows(&mut h, &[(OLD_CVE, "PA-460"), (KEV_CVE, "PA-460")]);
+    select_rows(&mut h, &[(OLD_CVE, "FW-EDGE"), (KEV_CVE, "FW-EDGE")]);
     // 已選兩列、游標在 KEV_CVE；在 OLD_CVE 那列按右鍵複製
-    let id = finding_id(h.state(), OLD_CVE, "PA-460");
+    let id = finding_id(h.state(), OLD_CVE, "FW-EDGE");
     let pos = h
         .state()
         .ws
@@ -293,7 +296,7 @@ fn hidden_cursor_row_is_not_a_triage_target() {
 #[test]
 fn escape_closes_dialog_but_keeps_detail() {
     let (mut h, _f) = findings_gui();
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     h.key_press(egui::Key::Enter);
     h.run();
     assert!(h.state().detail.is_some());
@@ -326,11 +329,11 @@ fn arrow_keys_move_cursor() {
 #[test]
 fn failed_write_keeps_note_dialog() {
     let (mut h, _f) = findings_gui();
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     click(&mut h, "已處理");
     h.get_by_label("備註（寫入時間軸）").type_text("很長的備註");
     h.run();
-    let id = finding_id(h.state(), KEV_CVE, "PA-460");
+    let id = finding_id(h.state(), KEV_CVE, "FW-EDGE");
     h.state()
         .ws
         .conn
@@ -365,7 +368,7 @@ fn control_characters_in_cells_are_flattened() {
         .ws
         .conn
         .execute(
-            "UPDATE asset SET name = 'line1\nline2' WHERE asset_tag = 'PA-460'",
+            "UPDATE asset SET name = 'line1\nline2' WHERE asset_tag = 'FW-EDGE'",
             [],
         )
         .unwrap();

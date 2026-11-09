@@ -35,7 +35,7 @@ fn e_opens_path_dialog_in_documents_folder() {
     let (mut app, _) = open_findings();
     // 固定路徑讓快照穩定（實際匯出的測試使用臨時資料夾）
     app.services.documents_dir = PathBuf::from(r"C:\Users\me\Documents");
-    filter_asset(&mut app, "PA-460");
+    filter_asset(&mut app, "FW-EDGE");
     press(&mut app, KeyCode::Char('E'));
     let Some(Dialog::ExportVex { input, count }) = &app.dialog else {
         panic!("expected export dialog");
@@ -54,7 +54,7 @@ fn e_opens_path_dialog_in_documents_folder() {
 #[test]
 fn exporting_filtered_findings_writes_only_that_asset() {
     let (mut app, rec) = open_findings();
-    filter_asset(&mut app, "PA-460");
+    filter_asset(&mut app, "FW-EDGE");
     let expected = app.findings.visible.len();
     assert!(expected > 0);
     press(&mut app, KeyCode::Char('E'));
@@ -66,7 +66,7 @@ fn exporting_filtered_findings_writes_only_that_asset() {
     assert_eq!(vulns.len(), expected);
     assert!(vulns
         .iter()
-        .all(|v| v["affects"][0]["ref"] == "cvewatch:PA-460:paloalto-panos"));
+        .all(|v| v["affects"][0]["ref"] == "cvewatch:FW-EDGE:paloalto-panos"));
     assert_eq!(doc["components"].as_array().unwrap().len(), 1);
     let message = app.message.clone().unwrap();
     assert!(message.contains(&path.display().to_string()), "{message}");

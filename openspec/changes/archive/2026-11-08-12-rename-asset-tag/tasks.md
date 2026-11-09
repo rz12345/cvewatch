@@ -23,8 +23,8 @@
 
 ## 4. GUI：編輯對話框
 
-- [x] 4.1 `dialogs/asset_edit.rs`：編輯模式開放編號欄位；`renamed_to` 有值時，欄位下方以警示色顯示公開函式 `rename_note(原編號)` 的提示；標題維持「編輯 <原編號>」；更新模組開頭的說明註解（design D4）。完成條件：kittest（`crates/gui/tests/asset_rename.rs`，種子資料 `PA-460`）斷言編號欄位可輸入，改為 `PA-461` 後出現提示、標題維持「編輯 PA-460」，改回 `PA-460` 後提示消失
-- [x] 4.2 GUI 測試：`crates/gui/tests/asset_rename.rs` 重現 spec 的 Renaming in the edit dialog（以 `PA-460` → `PA-461`：儲存後對話框關閉、清單選取新編號、名稱更新、命中仍在、背景比對一次；只更名時不比對）與 Renaming to a tag in use（對話框保留、顯示已被使用、編號與名稱不變）。完成條件：`cargo test -p cvewatch-gui` 全部通過
+- [x] 4.1 `dialogs/asset_edit.rs`：編輯模式開放編號欄位；`renamed_to` 有值時，欄位下方以警示色顯示公開函式 `rename_note(原編號)` 的提示；標題維持「編輯 <原編號>」；更新模組開頭的說明註解（design D4）。完成條件：kittest（`crates/gui/tests/asset_rename.rs`，種子資料 `FW-EDGE`）斷言編號欄位可輸入，改為 `FW-BORDER` 後出現提示、標題維持「編輯 FW-EDGE」，改回 `FW-EDGE` 後提示消失
+- [x] 4.2 GUI 測試：`crates/gui/tests/asset_rename.rs` 重現 spec 的 Renaming in the edit dialog（以 `FW-EDGE` → `FW-BORDER`：儲存後對話框關閉、清單選取新編號、名稱更新、命中仍在、背景比對一次；只更名時不比對）與 Renaming to a tag in use（對話框保留、顯示已被使用、編號與名稱不變）。完成條件：`cargo test -p cvewatch-gui` 全部通過
 
 ## 5. 文件與整合驗證
 

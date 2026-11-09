@@ -55,7 +55,7 @@
 - **THEN** 元件版本為 `11.1.6`，版本歷史中有一筆 `11.1.4-h7` 及變更時間
 
 #### Scenario: Adding a duplicate product
-- **WHEN** `R6515-01` 已有 iDRAC9 元件，再新增 iDRAC9 元件
+- **WHEN** `SRV-01` 已有 iDRAC9 元件，再新增 iDRAC9 元件
 - **THEN** 系統拒絕並說明該資產已有此產品，請改為修改版本
 
 #### Scenario: Removing the last component

@@ -456,7 +456,7 @@ mod tests {
 
     #[test]
     fn filter_panel_toggles_and_cycles() {
-        let assets = vec!["PA-460".to_string(), "PVE-01".to_string()];
+        let assets = vec!["FW-EDGE".to_string(), "PVE-01".to_string()];
         let d = Dialog::Filter {
             draft: Filter::default(),
             assets,

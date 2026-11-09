@@ -205,7 +205,7 @@ fn closing_with_unsaved_settings_asks_first() {
 fn closing_with_unsaved_note_asks_first() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num2);
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     click(&mut h, "已處理");
     h.get_by_label("備註（寫入時間軸）").type_text("寫到一半");
     h.run();
@@ -243,7 +243,7 @@ fn leaving_settings_with_changes_asks_and_save_proceeds() {
 fn escape_on_close_prompt_keeps_note() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num2);
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     click(&mut h, "已處理");
     h.get_by_label("備註（寫入時間軸）").type_text("寫到一半");
     h.run();
@@ -264,12 +264,12 @@ fn escape_on_close_prompt_keeps_note() {
 fn failed_note_on_close_keeps_window_open() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num2);
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     click(&mut h, "已處理");
     h.get_by_label("備註（寫入時間軸）").type_text("已更新韌體");
     h.run();
     // 命中在背景被刪除：送出會失敗
-    let id = finding_id(h.state(), KEV_CVE, "PA-460");
+    let id = finding_id(h.state(), KEV_CVE, "FW-EDGE");
     h.state()
         .ws
         .conn

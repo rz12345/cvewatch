@@ -54,7 +54,7 @@ mod tests {
 
     #[test]
     fn removes_case_spaces_and_symbols() {
-        assert_eq!(normalize("Palo Alto PA-460"), "paloaltopa460");
+        assert_eq!(normalize("Palo Alto XYZ-100"), "paloaltoxyz100");
         assert_eq!(normalize("PAN-OS"), "panos");
         assert_eq!(normalize(" pan_os "), "panos");
         assert_eq!(normalize("Debian GNU/Linux"), "debiangnulinux");

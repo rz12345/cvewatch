@@ -48,7 +48,7 @@ pub struct AssetRecord {
     pub exposure: Exposure,
     /// 機密性、完整性、可用性；資產價值為 [`Cia::value`]
     pub cia: Cia,
-    /// ISMS 資產編號（例如 `ALL-HW-001`；不分大小寫唯一）
+    /// ISMS 資產編號（例如 `SYS-HW-001`；不分大小寫唯一）
     pub isms_id: Option<String>,
     pub notes: Option<String>,
 }

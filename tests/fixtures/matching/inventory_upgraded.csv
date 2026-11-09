@@ -1,5 +1,5 @@
 asset_tag,name,category,product,version,exposure,criticality
-FW-01,邊界防火牆,security,Palo Alto PA-460,11.1.4-h7,internet,3
-R6515-01,虛擬化主機,virtualization,ESXi,24280767,mgmt,3
+FW-01,邊界防火牆,security,Palo Alto PAN-OS,11.1.4-h7,internet,3
+SRV-01,虛擬化主機,virtualization,ESXi,24280767,mgmt,3
 PVE-01,Proxmox 叢集,virtualization,Proxmox VE,8.2.2,internal,2
 NAS-01,檔案伺服器,storage,Synology DSM,7.2.2-72806 Update 3,internal,2

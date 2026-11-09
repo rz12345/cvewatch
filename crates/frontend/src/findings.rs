@@ -116,7 +116,7 @@ mod tests {
     fn row(id: i64, cve: &str) -> FindingRow {
         FindingRow {
             id,
-            asset_tag: "PA-460".into(),
+            asset_tag: "FW-EDGE".into(),
             asset_status: "active".into(),
             component: "paloalto-panos".into(),
             version: "11.1.2".into(),

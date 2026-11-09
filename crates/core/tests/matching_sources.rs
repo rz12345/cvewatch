@@ -66,7 +66,7 @@ fn nvd_platform_conditions_are_ignored_and_noted() {
                 Some("7.10.30.00"),
             ),
             (
-                "cpe:2.3:h:dell:poweredge_r6515:-:*:*:*:*:*:*:*",
+                "cpe:2.3:h:dell:poweredge_xyz-200:-:*:*:*:*:*:*:*",
                 false,
                 None,
                 None,

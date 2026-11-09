@@ -41,13 +41,13 @@ fn example_assets() -> Vec<Vec<String>> {
             "",
             "",
             "",
-            "ALL-HW-001",
+            "SYS-HW-001",
             "機房 A",
             "網管組",
             "",
         ],
         [
-            "R6515-01",
+            "SRV-01",
             "esx01",
             "HW01",
             "ESXi",
@@ -104,11 +104,7 @@ pub fn class_sheet(classes: &AssetClasses) -> SheetData<'static> {
 }
 
 fn example_components() -> Vec<Vec<String>> {
-    vec![vec![
-        "R6515-01".into(),
-        "iDRAC9".into(),
-        "7.10.30.00".into(),
-    ]]
+    vec![vec!["SRV-01".into(), "iDRAC9".into(), "7.10.30.00".into()]]
 }
 
 /// 標準欄名表頭。

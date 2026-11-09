@@ -323,7 +323,7 @@ fn isms_id_is_validated_on_edit() {
         &mut w.conn,
         &w.classes,
         "FW-01",
-        &input("ALL-SW-003"),
+        &input("SYS-SW-003"),
         now(),
     ));
     assert!(m.contains("大類 SW 與資產類別 HW03 不符"), "{m}");
@@ -331,19 +331,19 @@ fn isms_id_is_validated_on_edit() {
         &mut w.conn,
         &w.classes,
         "FW-01",
-        &input("ALL-HW-003"),
+        &input("SYS-HW-003"),
         now(),
     )
     .unwrap();
     let r = record(&w, "FW-01");
-    assert_eq!(r.isms_id.as_deref(), Some("ALL-HW-003"));
+    assert_eq!(r.isms_id.as_deref(), Some("SYS-HW-003"));
     assert_eq!(r.asset_tag, "FW-01");
     // 同一資產重新儲存（含只改大小寫）不視為重複
     edit::update_asset(
         &mut w.conn,
         &w.classes,
         "FW-01",
-        &input("all-hw-003"),
+        &input("sys-hw-003"),
         now(),
     )
     .unwrap();
@@ -353,7 +353,7 @@ fn isms_id_is_validated_on_edit() {
         &w.catalog,
         &w.classes,
         &RecordInput {
-            isms_id: "ALL-HW-003",
+            isms_id: "SYS-HW-003",
             ..firewall()
         },
         &[comp("paloalto-panos", "11.2.3")],
@@ -420,14 +420,14 @@ fn upgrading_firmware_records_history() {
 fn adding_a_duplicate_product_is_refused() {
     let mut w = world();
     w.asset(
-        "R6515-01",
+        "SRV-01",
         "mgmt",
         &[("vmware-esxi", "8.0 U3c"), ("dell-idrac9", "7.00.00.00")],
     );
     let m = message(edit::add_component(
         &mut w.conn,
         &w.catalog,
-        "R6515-01",
+        "SRV-01",
         &comp("dell-idrac9", "7.10.30.00"),
         now(),
     ));
@@ -435,12 +435,12 @@ fn adding_a_duplicate_product_is_refused() {
     edit::add_component(
         &mut w.conn,
         &w.catalog,
-        "R6515-01",
+        "SRV-01",
         &comp("dell-poweredge-bios", "2.16.0"),
         now(),
     )
     .unwrap();
-    assert_eq!(versions(&w, "R6515-01").len(), 3);
+    assert_eq!(versions(&w, "SRV-01").len(), 3);
 }
 
 #[test]
@@ -481,16 +481,16 @@ fn removing_the_last_component_is_refused() {
 #[test]
 fn version_text_the_scheme_cannot_read_is_saved_with_a_warning() {
     let mut w = world();
-    let id = w.asset("R6515-01", "mgmt", &[("vmware-esxi", "8.0 U3c")])[0];
+    let id = w.asset("SRV-01", "mgmt", &[("vmware-esxi", "8.0 U3c")])[0];
     let out =
         edit::set_component_version(&mut w.conn, &w.catalog, id, "8.0 latest", now()).unwrap();
     assert_eq!(out.warnings.len(), 1);
     assert_eq!(
         out.warnings[0].describe(),
-        "R6515-01 vmware-esxi「8.0 latest」不符合 esxi 格式"
+        "SRV-01 vmware-esxi「8.0 latest」不符合 esxi 格式"
     );
     assert_eq!(
-        versions(&w, "R6515-01"),
+        versions(&w, "SRV-01"),
         vec![("vmware-esxi".to_string(), "8.0 latest".to_string())]
     );
 }

@@ -50,8 +50,8 @@ fn asset_match_runs_in_the_background() {
     let (mut h, f) = gui(seeded_world());
     match_output(&f);
     let spawner = deferred(&mut h);
-    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
-    assert_eq!(db_version(&h, "PA-460"), "11.1.6", "編修已寫入");
+    edit_version(&mut h, "FW-EDGE", "PAN-OS", "11.1.6");
+    assert_eq!(db_version(&h, "FW-EDGE"), "11.1.6", "編修已寫入");
     assert!(status(&h).ends_with(MATCHING), "{}", status(&h));
     assert!(h.state().matching.running());
     // 比對進行中視窗仍可操作
@@ -61,7 +61,10 @@ fn asset_match_runs_in_the_background() {
     h.run();
     assert!(!h.state().matching.running());
     let s = status(&h);
-    assert!(s.contains("已儲存 PA-460") && s.contains("比對完成"), "{s}");
+    assert!(
+        s.contains("已儲存 FW-EDGE") && s.contains("比對完成"),
+        "{s}"
+    );
     assert_eq!(match_calls(&f), 1);
 }
 
@@ -74,8 +77,8 @@ fn asset_match_companion_missing() {
             ..Setup::default()
         },
     );
-    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
-    assert_eq!(db_version(&h, "PA-460"), "11.1.6", "編修已寫入");
+    edit_version(&mut h, "FW-EDGE", "PAN-OS", "11.1.6");
+    assert_eq!(db_version(&h, "FW-EDGE"), "11.1.6", "編修已寫入");
     let r = h.state().status.clone().expect("status");
     assert_eq!(r.level, cvewatch_frontend::Level::Warning);
     assert!(
@@ -94,7 +97,7 @@ fn asset_match_failure_keeps_the_edit_and_warns() {
         stdout: String::new(),
         stderr: "資料庫鎖定中".into(),
     };
-    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
+    edit_version(&mut h, "FW-EDGE", "PAN-OS", "11.1.6");
     h.run();
     let r = h.state().status.clone().expect("status");
     assert_eq!(r.level, cvewatch_frontend::Level::Warning);
@@ -103,7 +106,7 @@ fn asset_match_failure_keeps_the_edit_and_warns() {
         "{}",
         r.message
     );
-    assert_eq!(db_version(&h, "PA-460"), "11.1.6");
+    assert_eq!(db_version(&h, "FW-EDGE"), "11.1.6");
 }
 
 #[test]
@@ -111,8 +114,8 @@ fn asset_match_edits_during_matching_run_once_more_afterwards() {
     let (mut h, f) = gui(seeded_world());
     match_output(&f);
     let spawner = deferred(&mut h);
-    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
-    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.7");
+    edit_version(&mut h, "FW-EDGE", "PAN-OS", "11.1.6");
+    edit_version(&mut h, "FW-EDGE", "PAN-OS", "11.1.7");
     edit_version(&mut h, "FW-CORE", "PAN-OS", "11.1.8");
     assert_eq!(spawner.pending(), 1, "進行中不排第二個比對");
     spawner.run_all();
@@ -142,10 +145,10 @@ impl egui::DroppedFile for Dropped {
 #[test]
 fn asset_match_previewing_after_on_screen_edits() {
     let (mut h, f) = gui(seeded_world());
-    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
+    edit_version(&mut h, "FW-EDGE", "PAN-OS", "11.1.6");
     *f.companion.output.lock().unwrap() = Output {
         code: Some(0),
-        stdout: "更新 1（版本變更 1）\n  PA-460 paloalto-panos 11.1.6 → 11.1.2".into(),
+        stdout: "更新 1（版本變更 1）\n  FW-EDGE paloalto-panos 11.1.6 → 11.1.2".into(),
         stderr: String::new(),
     };
     let calls_before = f.companion.calls().len();
@@ -154,11 +157,15 @@ fn asset_match_previewing_after_on_screen_edits() {
     h.run();
     assert!(shows(&h, OVERWRITE_REMINDER), "預覽顯示覆寫提醒");
     assert!(
-        shows(&h, "PA-460 paloalto-panos 11.1.6 → 11.1.2"),
+        shows(&h, "FW-EDGE paloalto-panos 11.1.6 → 11.1.2"),
         "版本變更明細"
     );
     assert_eq!(f.companion.calls().len(), calls_before + 1, "只執行預覽");
-    assert_eq!(db_version(&h, "PA-460"), "11.1.6", "按「匯入」前資料庫不變");
+    assert_eq!(
+        db_version(&h, "FW-EDGE"),
+        "11.1.6",
+        "按「匯入」前資料庫不變"
+    );
 }
 
 #[test]
@@ -166,7 +173,7 @@ fn asset_match_result_keeps_the_report_of_an_edit_made_meanwhile() {
     let (mut h, f) = gui(seeded_world());
     match_output(&f);
     let spawner = deferred(&mut h);
-    edit_version(&mut h, "PA-460", "PAN-OS", "11.1.6");
+    edit_version(&mut h, "FW-EDGE", "PAN-OS", "11.1.6");
     select_asset(&mut h, "PVE-01");
     click(&mut h, "退役…");
     click(&mut h, "標為退役");

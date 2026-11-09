@@ -132,12 +132,12 @@ fn isms_id_index_is_case_insensitive() {
     old_asset(&conn, "FW-02", "security", 2, None, "active");
     migrate(&mut conn).unwrap();
     conn.execute(
-        "UPDATE asset SET isms_id = 'ALL-HW-001' WHERE asset_tag = 'FW-01'",
+        "UPDATE asset SET isms_id = 'SYS-HW-001' WHERE asset_tag = 'FW-01'",
         [],
     )
     .unwrap();
     let dup = conn.execute(
-        "UPDATE asset SET isms_id = 'all-hw-001' WHERE asset_tag = 'FW-02'",
+        "UPDATE asset SET isms_id = 'sys-hw-001' WHERE asset_tag = 'FW-02'",
         [],
     );
     assert!(dup.is_err(), "唯一索引為最後防線");

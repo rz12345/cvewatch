@@ -20,7 +20,7 @@ cvewatch asset rename NAS-01 NAS-11              # 更改資產編號（元件�
 | `product`、`version` | ✓ | 第一個元件（其餘元件寫在 `components` 工作表） |
 | `exposure` | | `internet`、`dmz`、`internal`、`mgmt`，空白為 `internal` |
 | `confidentiality`、`integrity`、`availability` | | 機密性、完整性、可用性（1–4）；空白帶入子類別的範本值。**資產價值 = MAX(C, I, A)**，用於同等級內的風險排序 |
-| `isms_id` | | ISMS 資產編號 `系統代碼(3 英數字)-大類(HW/SW)-流水號(3 數字)`，例如 `ALL-HW-001`；大類須與子類別一致，不分大小寫唯一（含已退役資產）；留空表示沒有 ISMS 編號，整欄不存在時保留既有資產的編號 |
+| `isms_id` | | ISMS 資產編號 `系統代碼(3 英數字)-大類(HW/SW)-流水號(3 數字)`，例如 `SYS-HW-001`；大類須與子類別一致，不分大小寫唯一（含已退役資產）；留空表示沒有 ISMS 編號，整欄不存在時保留既有資產的編號 |
 | `location`、`owner`、`notes` | | 位置、負責人、備註 |
 
 - `criticality`（舊的重要性 1–3）**已停用**：匯入時忽略，報表給出一次提醒
@@ -124,6 +124,23 @@ cna = [{ vendor = "Zyxel", product = "ABC-100 firmware" }]
 - 修改後執行 `cvewatch sync --rescan`（以新的識別資料重新篩選 CVE），再重新匯入清冊，或在視窗版以「改為…」對應未辨識產品
 - `catalog.d` 是本機設定，不在備份的資料庫裡：**換電腦或重建資料目錄前請一併備份 `catalog.d`**
 - 升級後若 `catalog.d` 的別名與新版內建別名衝突（同一個寫法屬於兩個產品），目錄會載入失敗，錯誤訊息會指出該別名與兩個產品 key；刪除 `catalog.d` 中重複的別名即可。本版新增的內建產品與別名以 `cvewatch asset catalog` 查看
+
+## 從舊版升級（內建目錄不再收硬體型號）
+
+舊版的內建目錄曾為少數產品收錄設備型號寫法（例如防火牆、伺服器 BIOS、NAS 的機型名稱）；新版只保留「廠牌＋產品」寫法。清冊的產品欄若填的是機型寫法，升級後會變成未辨識產品：
+
+1. 升級前先以 `cvewatch asset import --dry-run <清冊>` 記下目前的結果
+2. 升級後再執行一次；「未辨識產品」中出現的機型寫法，在 `catalog.d\site.toml` 為對應的產品加別名（虛構型號示範）：
+
+   ```toml
+   [[product]]
+   key = "paloalto-panos"
+   aliases = ["Palo Alto XYZ-100"]
+   ```
+
+3. 再執行 `--dry-run`，確認為「新增 0、更新 0」且沒有未辨識產品後，照常匯入。資料庫中既有的元件在重新匯入前不會改變
+
+`cvewatch vex import` 同樣以目錄別名辨識 VEX 文件中的產品名稱：其他工具產生的 VEX 若以機型寫法稱呼產品，也要在 `catalog.d` 補上同一個別名，否則該筆判定會列為未對應。
 
 ## 從舊版升級（類別與重要性改為 ISMS 子類別與 C/I/A）
 

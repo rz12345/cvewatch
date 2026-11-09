@@ -175,7 +175,7 @@ fn import_with_failed_rematch_still_reloads() {
 fn drop_while_dialog_open_is_ignored() {
     let (mut h, f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num2);
-    click_finding(&mut h, KEV_CVE, "PA-460", egui::Modifiers::NONE);
+    click_finding(&mut h, KEV_CVE, "FW-EDGE", egui::Modifiers::NONE);
     click(&mut h, "已處理");
     drop_files(&mut h, &[&f.rec.dir.path().join("assets.xlsx")]);
     assert!(h.state().import.is_none());
@@ -198,7 +198,7 @@ fn failed_import_still_reloads_database_state() {
         .ws
         .conn
         .execute(
-            "UPDATE asset SET name = '改名' WHERE asset_tag = 'PA-460'",
+            "UPDATE asset SET name = '改名' WHERE asset_tag = 'FW-EDGE'",
             [],
         )
         .unwrap();
@@ -209,7 +209,7 @@ fn failed_import_still_reloads_database_state() {
     let app = h.state();
     assert!(app.ws.data.loaded_at >= loaded_before);
     assert_eq!(
-        app.ws.data.asset("PA-460").unwrap().asset.record.name,
+        app.ws.data.asset("FW-EDGE").unwrap().asset.record.name,
         "改名"
     );
 }

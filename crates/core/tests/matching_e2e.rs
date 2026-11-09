@@ -1,4 +1,4 @@
-//! 04 任務 6.2：端對端 — fixture 清冊（PA-460、R6515 + ESXi/iDRAC、Proxmox VE、Synology DSM）
+//! 04 任務 6.2：端對端 — fixture 清冊（防火牆 PAN-OS、伺服器 ESXi/iDRAC、Proxmox VE、Synology DSM）
 //! 經實際匯入、CVE 紀錄 / NVD / 原廠 CSAF 寫入流程後比對，結果與 golden file 比較。
 //!
 //! 更新 golden file：`UPDATE_GOLDEN=1 cargo test -p cvewatch-core --test matching_e2e`，並人工檢查差異。

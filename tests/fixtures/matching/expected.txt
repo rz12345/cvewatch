@@ -1,6 +1,6 @@
 ## 初次比對
 ### 命中（風險排序）
-R6515-01 | vmware-esxi 24280767 | CVE-2099-50001 | P1 confirmed | cna | open
+SRV-01 | vmware-esxi 24280767 | CVE-2099-50001 | P1 confirmed | cna | open
     依據：VMware VMware ESXi（vmware）：8.0 ≤ v < 8.0 U3c：受影響
 PVE-01 | proxmox-ve 8.2.2 | CVE-2099-60003 | P2 confirmed | nvd | open
     依據：cpe:2.3:a:proxmox:virtual_environment:*:*:*:*:*:*:*:*（< 8.2.4）
@@ -10,9 +10,9 @@ FW-01 | paloalto-panos 11.1.4-h7 | CVE-2025-0108 | P2 confirmed | cna | open
     依據：Palo Alto Networks PAN-OS（palo_alto）：11.1.0 ≤ v < 11.1.6-h1：受影響
 NAS-01 | synology-dsm 7.2.1-69057 Update 5 | CVE-2099-60001 | P4 confirmed | cna | open
     依據：Synology DiskStation Manager (DSM)（synthetic）：7.2 ≤ v < 7.2.2-72806：受影響
-R6515-01 | vmware-esxi 24280767 | CVE-2099-60005 | P4 probable | cna | open
+SRV-01 | vmware-esxi 24280767 | CVE-2099-60005 | P4 probable | cna | open
     依據：VMware VMware ESXi（synthetic）：標示受影響但未提供版本（version 為 n/a 等佔位字）
-R6515-01 | dell-idrac9 7.00.00.00 | CVE-2099-60002 | P4 confirmed | nvd | open
+SRV-01 | dell-idrac9 7.00.00.00 | CVE-2099-60002 | P4 confirmed | nvd | open
     依據：cpe:2.3:o:dell:idrac9_firmware:*:*:*:*:*:*:*:*（< 7.10.30.00）
     註記：NVD 設定含平台條件，已忽略
 ### 來源矛盾
@@ -23,7 +23,7 @@ CVE-2099-60005 | no_version_data | KEV -
 
 ## NAS-01 升版後重新比對
 ### 命中（風險排序）
-R6515-01 | vmware-esxi 24280767 | CVE-2099-50001 | P1 confirmed | cna | open
+SRV-01 | vmware-esxi 24280767 | CVE-2099-50001 | P1 confirmed | cna | open
     依據：VMware VMware ESXi（vmware）：8.0 ≤ v < 8.0 U3c：受影響
 PVE-01 | proxmox-ve 8.2.2 | CVE-2099-60003 | P2 confirmed | nvd | open
     依據：cpe:2.3:a:proxmox:virtual_environment:*:*:*:*:*:*:*:*（< 8.2.4）
@@ -34,9 +34,9 @@ FW-01 | paloalto-panos 11.1.4-h7 | CVE-2025-0108 | P2 confirmed | cna | open
 NAS-01 | synology-dsm 7.2.2-72806 Update 3 | CVE-2099-60001 | P4 confirmed | cna | resolved
     依據：Synology DiskStation Manager (DSM)（synthetic）：不在任何版本項目內，defaultStatus = unaffected
     最近事件：open → resolved：版本已不在受影響範圍（目前 7.2.2-72806 Update 3）
-R6515-01 | vmware-esxi 24280767 | CVE-2099-60005 | P4 probable | cna | open
+SRV-01 | vmware-esxi 24280767 | CVE-2099-60005 | P4 probable | cna | open
     依據：VMware VMware ESXi（synthetic）：標示受影響但未提供版本（version 為 n/a 等佔位字）
-R6515-01 | dell-idrac9 7.00.00.00 | CVE-2099-60002 | P4 confirmed | nvd | open
+SRV-01 | dell-idrac9 7.00.00.00 | CVE-2099-60002 | P4 confirmed | nvd | open
     依據：cpe:2.3:o:dell:idrac9_firmware:*:*:*:*:*:*:*:*（< 7.10.30.00）
     註記：NVD 設定含平台條件，已忽略
 ### 來源矛盾

@@ -240,7 +240,7 @@ fn isms_conflict(record: &AssetRecord, owners: &HashMap<String, (String, bool)>)
     Some(isms_in_use_message(id, owner, *retired))
 }
 
-/// 「ISMS 編號 all-hw-005 已被 NAS-02 使用（該資產已退役）」（匯入與畫面編修共用）。
+/// 「ISMS 編號 sys-hw-005 已被 NAS-02 使用（該資產已退役）」（匯入與畫面編修共用）。
 pub fn isms_in_use_message(isms_id: &str, owner: &str, retired: bool) -> String {
     let status = if retired {
         "（該資產已退役）"
@@ -380,20 +380,20 @@ mod tests {
     fn resolve_version_warns_like_import() {
         let catalog = Catalog::seed().unwrap();
         let esxi = catalog.get("vmware-esxi").unwrap();
-        let (norm, warning) = resolve_version(esxi, "8.0 latest", "R6515-01", None);
+        let (norm, warning) = resolve_version(esxi, "8.0 latest", "SRV-01", None);
         assert_eq!(norm, None);
         let w = warning.expect("warning");
         assert_eq!(w.row, None);
         assert_eq!(
             w.describe(),
-            "R6515-01 vmware-esxi「8.0 latest」不符合 esxi 格式"
+            "SRV-01 vmware-esxi「8.0 latest」不符合 esxi 格式"
         );
 
         let row = RowRef {
             sheet: SheetKind::Assets,
             number: 3,
         };
-        let (norm, warning) = resolve_version(esxi, "8.0 U3c", "R6515-01", Some(row));
+        let (norm, warning) = resolve_version(esxi, "8.0 U3c", "SRV-01", Some(row));
         assert!(norm.is_some());
         assert!(warning.is_none());
     }

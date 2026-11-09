@@ -16,8 +16,8 @@ fn selecting_asset_shows_components_findings_and_unresolved() {
     assert!(shows(&h, "元件（1）"));
     assert!(shows(&h, "Proxmox VE 8.2.2"));
     assert!(shows(&h, "未處理命中 0 筆｜全部命中 0 筆"));
-    assert!(shows(&h, "Synology DS920+ 7.2"), "未辨識產品");
-    pick_asset(&mut h, "PA-460");
+    assert!(shows(&h, "Synology XYZ-300+ 7.2"), "未辨識產品");
+    pick_asset(&mut h, "FW-EDGE");
     assert!(shows(&h, "未處理命中 4 筆｜全部命中 4 筆"));
     assert!(shows(&h, "PAN-OS 11.1.2"));
     pick_asset(&mut h, "FW-CORE");

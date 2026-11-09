@@ -4,7 +4,8 @@
 
 .DESCRIPTION
   讀取 <repo>\data\sensitive-patterns.txt（/data 已 gitignore，不入版控），
-  逐行比對 `git diff --cached` 新增的行；有命中時列出「檔名:行號」並以 1 結束。
+  逐行比對 `git diff --cached` 新增的行，並解開暫存區中的 Office 檔（xlsx／docx／pptx）比對其中 XML 的文字；
+  有命中時列出「檔名:行號」（Office 檔為「檔名!內部檔名」）並以 1 結束。
   清單不存在或沒有任何有效字詞時同樣以非 0 結束，避免誤以為檢查通過。
 
   清單格式（UTF-8，每行一項）：
@@ -125,6 +126,57 @@ foreach ($line in $diff) {
         $newLeft = if ($Matches[3]) { [int]$Matches[3] } else { 1 }
     }
 }
+
+# Office Open XML（xlsx／docx／pptx）是 zip，文字 diff 看不到內容：取出暫存區版本，逐一比對其中 XML 的文字
+function Find-OfficeHits {
+    param([string]$Root, [object[]]$Patterns)
+    $names = & git -C $Root -c core.quotepath=false diff --cached --name-only --diff-filter=ACMR
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host '[check-sensitive] 無法列出暫存區的檔案（git diff --cached --name-only 失敗）。' -ForegroundColor Red
+        exit $exitSetup
+    }
+    $office = @($names | Where-Object { $_ -match '\.(xlsx|xlsm|docx|pptx)$' })
+    if ($office.Count -eq 0) { return , @() }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $tmp = Join-Path ([IO.Path]::GetTempPath()) ("check-sensitive-" + [guid]::NewGuid().ToString('N'))
+    $found = @()
+    try {
+        & git -C $Root checkout-index "--prefix=$tmp/" -- $office
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host '[check-sensitive] 無法取出暫存區的 Office 檔（git checkout-index 失敗）。' -ForegroundColor Red
+            exit $exitSetup
+        }
+        foreach ($name in $office) {
+            $zip = $null
+            try {
+                $zip = [IO.Compression.ZipFile]::OpenRead((Join-Path $tmp $name))
+            } catch {
+                Write-Host "[check-sensitive] 無法以 zip 讀取 ${name}：$($_.Exception.Message)" -ForegroundColor Red
+                exit $exitSetup
+            }
+            try {
+                foreach ($entry in ($zip.Entries | Where-Object { $_.FullName -like '*.xml' })) {
+                    $reader = New-Object IO.StreamReader($entry.Open(), [Text.Encoding]::UTF8)
+                    try { $xml = $reader.ReadToEnd() } finally { $reader.Dispose() }
+                    # 標籤換成換行，避免相鄰儲存格的文字黏在一起
+                    $text = [regex]::Replace($xml, '<[^>]+>', "`n")
+                    foreach ($p in $Patterns) {
+                        if ($p.IsMatch($text)) {
+                            $found += [pscustomobject]@{ File = "$name!$($entry.FullName)"; Line = '-'; Pattern = $p.ToString() }
+                        }
+                    }
+                }
+            } finally {
+                $zip.Dispose()
+            }
+        }
+    } finally {
+        if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp -Recurse -Force }
+    }
+    return , $found
+}
+
+$hits += Find-OfficeHits -Root $repoRoot -Patterns $patterns
 
 if ($hits.Count -gt 0) {
     Write-Host "[check-sensitive] 暫存區有 $($hits.Count) 行含敏感字詞：" -ForegroundColor Red

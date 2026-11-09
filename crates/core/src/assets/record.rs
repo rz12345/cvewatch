@@ -285,7 +285,7 @@ fn parse_isms_id(
         errors.push(FieldError::new(
             StandardField::IsmsId,
             FieldErrorKind::NotAllowed,
-            format!("ISMS 編號「{value}」格式應為「系統代碼-大類-流水號」，例如 ALL-HW-001"),
+            format!("ISMS 編號「{value}」格式應為「系統代碼-大類-流水號」，例如 SYS-HW-001"),
         ));
         return None;
     };
@@ -348,7 +348,7 @@ mod tests {
             name: "",
             category: "router",
             availability: "9",
-            isms_id: "ALLHW001",
+            isms_id: "SYSHW001",
             ..input()
         })
         .expect_err("應驗證失敗");
@@ -505,22 +505,22 @@ mod tests {
     #[test]
     fn valid_isms_id_keeps_the_written_form() {
         let r = check(RecordInput {
-            isms_id: " all-hw-003 ",
+            isms_id: " sys-hw-003 ",
             ..input()
         })
         .unwrap();
-        assert_eq!(r.isms_id.as_deref(), Some("all-hw-003"));
+        assert_eq!(r.isms_id.as_deref(), Some("sys-hw-003"));
         assert_eq!(r.asset_tag, "FW-02");
     }
 
     #[test]
     fn malformed_isms_id() {
         for bad in [
-            "ALLHW001",
+            "SYSHW001",
             "AL-HW-001",
-            "ALL-IF-001",
-            "ALL-HW-01",
-            "ALL-HW-001-1",
+            "SYS-IF-001",
+            "SYS-HW-01",
+            "SYS-HW-001-1",
         ] {
             let errors = fields(check(RecordInput {
                 isms_id: bad,
@@ -530,7 +530,7 @@ mod tests {
                 errors,
                 vec![(
                     StandardField::IsmsId,
-                    format!("ISMS 編號「{bad}」格式應為「系統代碼-大類-流水號」，例如 ALL-HW-001")
+                    format!("ISMS 編號「{bad}」格式應為「系統代碼-大類-流水號」，例如 SYS-HW-001")
                 )],
                 "{bad}"
             );
@@ -540,7 +540,7 @@ mod tests {
     #[test]
     fn major_class_mismatch() {
         let errors = check(RecordInput {
-            isms_id: "ALL-SW-003",
+            isms_id: "SYS-SW-003",
             ..input()
         })
         .unwrap_err();
@@ -548,7 +548,7 @@ mod tests {
         assert_eq!(errors[0].kind, FieldErrorKind::ClassMismatch);
         assert_eq!(
             errors[0].message,
-            "ISMS 編號「ALL-SW-003」的大類 SW 與資產類別 HW03 不符"
+            "ISMS 編號「SYS-SW-003」的大類 SW 與資產類別 HW03 不符"
         );
     }
 

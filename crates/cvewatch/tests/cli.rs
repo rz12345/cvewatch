@@ -279,7 +279,7 @@ fn catalog_list_and_show_use_seed_and_user_files() {
         catalog_dir.join("local.toml"),
         "[[product]]
 key = \"vmware-esxi\"
-aliases = [\"r6515 esxi\"]
+aliases = [\"xyz-200 esxi\"]
 ",
     )
     .unwrap();
@@ -296,7 +296,7 @@ aliases = [\"r6515 esxi\"]
         .args(["asset", "catalog", "show", "vmware-esxi"])
         .assert()
         .success()
-        .stdout(predicate::str::contains("r6515 esxi"));
+        .stdout(predicate::str::contains("xyz-200 esxi"));
 }
 
 #[test]

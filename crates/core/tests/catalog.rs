@@ -45,10 +45,10 @@ fn different_spellings_resolve_to_same_product() {
     let catalog = Catalog::seed().unwrap();
     for name in [
         "PAN-OS",
-        "Palo Alto PA-460",
+        "Palo Alto PAN-OS",
         "panos",
         "ＰＡＮ－ＯＳ",
-        "pa460",
+        "paloaltopanos",
     ] {
         assert_eq!(
             catalog.resolve(name).map(|p| p.key.as_str()),
@@ -72,10 +72,10 @@ fn typo_gets_suggestion() {
 fn user_file_adds_alias_and_keeps_seed_fields() {
     let catalog = with_user(&[(
         "local.toml",
-        "[[product]]\nkey = \"vmware-esxi\"\naliases = [\"r6515 esxi\"]\n",
+        "[[product]]\nkey = \"vmware-esxi\"\naliases = [\"xyz-200 esxi\"]\n",
     )])
     .unwrap();
-    let esxi = catalog.resolve("R6515 ESXi").unwrap();
+    let esxi = catalog.resolve("XYZ-200 ESXi").unwrap();
     assert_eq!(esxi.key, "vmware-esxi");
     assert_eq!(esxi.display_name, "ESXi", "未寫的欄位沿用種子");
     assert!(catalog.resolve("vmware esxi").is_some(), "種子別名保留");
@@ -236,7 +236,7 @@ fn catalog_syncs_to_database_idempotently() {
     let alias_owner: String = conn
         .query_row(
             "SELECT p.key FROM catalog_alias a JOIN catalog_product p ON p.id = a.product_id
-             WHERE a.alias_norm = 'paloaltopa460'",
+             WHERE a.alias_norm = 'paloaltopanos'",
             [],
             |r| r.get(0),
         )

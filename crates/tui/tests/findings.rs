@@ -160,7 +160,7 @@ fn esc_in_note_dialog_changes_nothing() {
     press(&mut app, KeyCode::Esc);
     assert!(app.dialog.is_none());
     assert_eq!(events(&app, KEV_CVE).len(), before);
-    assert_eq!(finding_status(&app, KEV_CVE, "PA-460").unwrap().0, "open");
+    assert_eq!(finding_status(&app, KEV_CVE, "FW-EDGE").unwrap().0, "open");
 }
 
 #[test]
@@ -171,7 +171,7 @@ fn resolve_from_detail_then_reopen() {
     keys(&mut app, "已升級");
     press(&mut app, KeyCode::Enter);
     assert_eq!(
-        finding_status(&app, KEV_CVE, "PA-460").unwrap().0,
+        finding_status(&app, KEV_CVE, "FW-EDGE").unwrap().0,
         "resolved"
     );
     let Some(View::FindingDetail { data, .. }) = app.view() else {
@@ -180,7 +180,7 @@ fn resolve_from_detail_then_reopen() {
     assert_eq!(data.finding.row.status, Status::Resolved, "詳情已重新載入");
     keys(&mut app, "u");
     press(&mut app, KeyCode::Enter);
-    assert_eq!(finding_status(&app, KEV_CVE, "PA-460").unwrap().0, "open");
+    assert_eq!(finding_status(&app, KEV_CVE, "FW-EDGE").unwrap().0, "open");
 }
 
 #[test]
@@ -220,17 +220,17 @@ fn o_opens_menu_and_y_copies() {
 }
 
 #[test]
-fn panos_findings_exist_for_pa460() {
+fn panos_findings_exist_for_fw_edge() {
     let (app, _) = open_findings();
     for cve in PANOS_CVES {
-        assert!(finding_status(&app, cve, "PA-460").is_some(), "{cve}");
+        assert!(finding_status(&app, cve, "FW-EDGE").is_some(), "{cve}");
     }
 }
 
 #[test]
 fn selection_hidden_by_search_is_not_changed() {
     let (mut app, _) = open_findings();
-    keys(&mut app, "   "); // 選取前三筆（PA-460 的 PAN-OS 命中）
+    keys(&mut app, "   "); // 選取前三筆（FW-EDGE 的 PAN-OS 命中）
     assert_eq!(app.findings.selected.len(), 3);
     keys(&mut app, "/2026-0001");
     press(&mut app, KeyCode::Enter);
@@ -240,12 +240,12 @@ fn selection_hidden_by_search_is_not_changed() {
     keys(&mut app, "r");
     press(&mut app, KeyCode::Enter);
     assert_eq!(
-        finding_status(&app, KEV_CVE, "PA-460").unwrap().0,
+        finding_status(&app, KEV_CVE, "FW-EDGE").unwrap().0,
         "resolved"
     );
     for cve in &PANOS_CVES[1..] {
         assert_eq!(
-            finding_status(&app, cve, "PA-460").unwrap().0,
+            finding_status(&app, cve, "FW-EDGE").unwrap().0,
             "open",
             "{cve} 被隱藏，不應變更"
         );
@@ -301,7 +301,7 @@ fn reload_failure_after_write_is_reported() {
     keys(&mut app, "r");
     press(&mut app, KeyCode::Enter);
     assert_eq!(
-        finding_status(&app, KEV_CVE, "PA-460").unwrap().0,
+        finding_status(&app, KEV_CVE, "FW-EDGE").unwrap().0,
         "resolved"
     );
     let msg = app.message.clone().unwrap();
@@ -333,7 +333,7 @@ fn single_change_from_detail_keeps_list_selection() {
     keys(&mut app, "r");
     press(&mut app, KeyCode::Enter);
     assert_eq!(
-        finding_status(&app, PANOS_CVES[2], "PA-460").unwrap().0,
+        finding_status(&app, PANOS_CVES[2], "FW-EDGE").unwrap().0,
         "resolved"
     );
     assert_eq!(app.findings.selected.len(), 2, "清單上的多選保留");

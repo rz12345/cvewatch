@@ -70,11 +70,11 @@ pub fn empty_world() -> World {
     world_with(None)
 }
 
-/// PA-460（PAN-OS 11.1.2，三筆命中，其一列入 KEV）、名稱很長的核心防火牆、PVE-01 與一筆僅關鍵字相符的等待區 CVE、
+/// FW-EDGE（PAN-OS 11.1.2，三筆命中，其一列入 KEV）、名稱很長的核心防火牆、PVE-01 與一筆僅關鍵字相符的等待區 CVE、
 /// 兩筆同步紀錄（cvelist 成功、osv 失敗）、一筆未辨識產品。
 pub fn seeded_world() -> World {
     let mut w = world_with(Some(PROXMOX_CNA));
-    w.asset("PA-460", "internet", &[("paloalto-panos", "11.1.2")]);
+    w.asset("FW-EDGE", "internet", &[("paloalto-panos", "11.1.2")]);
     w.asset("FW-CORE", "internal", &[("paloalto-panos", "11.1.5")]);
     w.conn
         .execute(
@@ -100,7 +100,7 @@ pub fn seeded_world() -> World {
     w.conn
         .execute(
             "INSERT INTO asset_unresolved (asset_id, product_raw, version_raw, seen_at)
-             VALUES ((SELECT id FROM asset WHERE asset_tag = 'PVE-01'), 'Synology DS920+', '7.2', ?1)",
+             VALUES ((SELECT id FROM asset WHERE asset_tag = 'PVE-01'), 'Synology XYZ-300+', '7.2', ?1)",
             params![NOW],
         )
         .expect("unresolved");
