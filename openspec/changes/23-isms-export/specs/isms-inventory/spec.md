@@ -37,7 +37,7 @@
 - **THEN** 第 5 列是 `net-hw-001`（保留原寫法），第 6 列是 `SYS-HW-002`
 
 ### Requirement: ISMS export field mapping
-每列 SHALL 依下列對應：第一欄資產編號為 ISMS 編號的系統代碼加 `-`，第二欄為其餘部分；資產類別為子類別代碼；資產說明為資產說明名稱；資產名稱為子類別名稱；權責單位、保管人、使用單位為原值，未填為空白；機密性、完整性、可用性與資產價值（三者最大值）為數字；法規遵循性與資通系統防護等級依 asset-inventory 的 Protection level，未評定時為 `-`；是否含個人資料為 `Y` 或 `N`。子類別已不在設定中時，資產名稱 SHALL 空白，完成摘要 SHALL 警告該資產讀回時會被略過。
+每列 SHALL 依下列對應：第一欄資產編號為 ISMS 編號的系統代碼加 `-`，第二欄為其餘部分；資產類別為子類別代碼；資產說明為資產說明名稱；資產名稱為子類別名稱；權責單位、保管人、使用單位為原值，未填為空白；機密性、完整性、可用性與資產價值（三者最大值）為數字；法規遵循性與資通系統防護等級依 asset-inventory 的 Protection level，未評定時為 `-`；是否含個人資料為 `Y` 或 `N`。子類別已不在設定中時，資產名稱 SHALL 空白，完成摘要 SHALL 警告該資產讀回時會被略過。文字欄位超過 Excel 儲存格上限（32,767 字）時 SHALL 截斷並在完成摘要警告該資產與欄位，匯出不中止。
 
 #### Scenario: Mapping an exported row
 - **WHEN** `FW-EDGE` 的 ISMS 編號為 `NET-HW-001`、類別 `HW02`、資產說明「NET 網路服務」、保管人「王小明」、C/I/A 2/3/4、法規遵循性未評定、不含個人資料
@@ -46,6 +46,10 @@
 #### Scenario: Compliance raises the exported protection level
 - **WHEN** 資產 C/I/A 為 2/3/3、法規遵循性為 4
 - **THEN** 該列的資產價值為 3、法規遵循性為 4、資通系統防護等級為 4
+
+#### Scenario: Cell longer than the Excel limit
+- **WHEN** 資產 `FW-EDGE` 的保管人超過 32,767 字
+- **THEN** 該儲存格截斷為 32,767 字，其他資產照常匯出，完成摘要警告 `FW-EDGE` 的保管人已截斷
 
 ### Requirement: ISMS export description
 資產描述 SHALL 以換行分隔多行。資產有廠牌或型號時，第一行 SHALL 為「廠牌型號：【廠牌 型號】」。其後 SHALL 依建立順序，每個清冊元件與未辨識產品各一行：目錄產品寫產品目錄的顯示名稱（無法解析回同一產品時寫產品 key），未辨識產品寫原文；有版本時接「（版本）」，版本待補時只寫產品。描述 MUST NOT 包含主機名稱、IP 等其他欄位，也 MUST NOT 包含主機套件元件。廠牌、型號與版本中會被 ISMS 匯入視為分隔、標籤或括號的字元 SHALL 以空白取代。
@@ -80,6 +84,10 @@
 #### Scenario: Line that cannot be read back
 - **WHEN** 資產的未辨識產品原文為 `Zyxel ABCD x2`（ISMS 匯入會去除結尾數量）
 - **THEN** 匯出照常完成，完成摘要警告該資產的「Zyxel ABCD x2」讀回時會成為「Zyxel ABCD」
+
+#### Scenario: Two unresolved products read back as one
+- **WHEN** 資產有未辨識產品 `Zyxel ABCD` 與 `zyxel abcd`（正規化後相同）
+- **THEN** 匯出照常完成，完成摘要警告這兩行以 ISMS 匯入讀回時會視為同一個未辨識產品
 
 #### Scenario: Asset with only a model
 - **WHEN** 資產有廠牌與型號，但沒有清冊元件與未辨識產品

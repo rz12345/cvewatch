@@ -1,4 +1,5 @@
-//! 資產編修（design D9）：表單儲存、退役、恢復、永久刪除、清冊匯出與範本。
+//! 資產編修（design D9）：表單儲存、退役、恢復、永久刪除、清冊匯出、ISMS 清冊匯出（23 design D7）
+//! 與範本。
 //!
 //! 寫入一律呼叫 core 的 [`edit`] 操作。編輯既有資產時把表單差異轉成 [`EditOp`]，以
 //! [`edit::apply_edits`] 在同一個交易執行：任何一步失敗就全部不寫入。寫入成功的結果標示
@@ -11,6 +12,7 @@ use cvewatch_core::assets::edit::{
     self, only_lifecycle_changed, EditOp, EditOutcome, NewComponent, NewLifecycle, PurgePreview,
 };
 use cvewatch_core::assets::export::export_inventory;
+use cvewatch_core::assets::isms::export_isms;
 use cvewatch_core::assets::plan::VersionWarning;
 use cvewatch_core::assets::template::write_template;
 use cvewatch_core::assets::validate::{validate_record, RecordContext};
@@ -428,6 +430,11 @@ impl<V> Workspace<V> {
         self.dated_xlsx_default("cvewatch-inventory")
     }
 
+    /// 匯出 ISMS 清冊的預設資料夾（「文件」）與檔名 `cvewatch-isms-YYYYMMDD.xlsx`。
+    pub fn isms_export_default(&self) -> (PathBuf, String) {
+        self.dated_xlsx_default("cvewatch-isms")
+    }
+
     /// 另存 xlsx 的預設資料夾（「文件」）與檔名 `<prefix>-YYYYMMDD.xlsx`（顯示時區的當天日期）。
     pub(super) fn dated_xlsx_default(&self, prefix: &str) -> (PathBuf, String) {
         let day = self
@@ -464,6 +471,33 @@ impl<V> Workspace<V> {
                 }
             }
             Err(e) => Report::failure("匯出清冊失敗", &e),
+        }
+    }
+
+    /// 匯出有 ISMS 編號的使用中資產（與 `cvewatch asset export-isms` 相同；不覆蓋既有檔案）。
+    /// 有略過的資產或讀回警告時以警告樣式列出。
+    pub fn export_isms(&self, path: &Path) -> Report {
+        let today = self.services.today();
+        let s = match export_isms(
+            &self.conn,
+            &self.settings.classes,
+            &self.settings.catalog,
+            path,
+            today,
+        ) {
+            Ok(s) => s,
+            Err(e) => return Report::failure("匯出 ISMS 清冊失敗", &e),
+        };
+        let done = format!(
+            "已匯出 {} 個資產至 {}（{UNENCRYPTED_NOTICE}）",
+            s.exported,
+            path.display()
+        );
+        let notes: Vec<String> = s.skipped_line().into_iter().chain(s.warnings).collect();
+        if notes.is_empty() {
+            Report::info(done)
+        } else {
+            Report::warning(format!("{done}；{}", notes.join("；")))
         }
     }
 }

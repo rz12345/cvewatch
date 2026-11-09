@@ -27,8 +27,28 @@ const USER_UNIT: &str = "使用單位";
 const COMPLIANCE: &str = "法規遵循性";
 const PERSONAL_DATA: &str = "是否含個人資料";
 
+/// ISMS 資訊資產清冊 v2.1 的 16 欄表頭（讀取端測試與 ISMS 匯出共用；23 design D2）。
+pub const ISMS_V21_HEADERS: [&str; 16] = [
+    "資產編號",
+    "資產編號",
+    "資產類別",
+    "資產說明",
+    "資產名稱",
+    "資產描述",
+    "權責單位",
+    "保管人",
+    "使用單位",
+    "機密性\n(A)",
+    "完整性\n(B)",
+    "可用性\n(C)",
+    "資產\n價值\n(MAX ABC)",
+    "法規遵循性(D)",
+    "資通系統\n防護等級\n(MAX ABCD)",
+    "是否含\n個人資料",
+];
+
 /// 判定為表頭列的欄名（同時出現）。
-const HEADER_MARKERS: [&str; 3] = [ID, CATEGORY, DESCRIPTION];
+pub(crate) const HEADER_MARKERS: [&str; 3] = [ID, CATEGORY, DESCRIPTION];
 
 /// 欄名正規化（見模組說明）。
 pub fn normalize_header(raw: &str) -> String {
@@ -230,25 +250,6 @@ pub fn parse_isms_sheets(source: &str, sheets: &[(String, Grid)]) -> Result<Isms
 mod tests {
     use super::*;
 
-    const HEADERS: [&str; 16] = [
-        "資產編號",
-        "資產編號",
-        "資產類別",
-        "資產說明",
-        "資產名稱",
-        "資產描述",
-        "權責單位",
-        "保管人",
-        "使用單位",
-        "機密性\n(A)",
-        "完整性\n(B)",
-        "可用性\n(C)",
-        "資產\n價值\n(MAX ABC)",
-        "法規遵循性(D)",
-        "資通系統\n防護等級\n(MAX ABCD)",
-        "是否含\n個人資料",
-    ];
-
     fn strings(cells: &[&str]) -> Vec<String> {
         cells.iter().map(|s| s.to_string()).collect()
     }
@@ -283,7 +284,7 @@ mod tests {
             &["文件編號：XX-0000-01"],
             &["填表日期", "2026/01/01"],
             &["填表單位", "測試單位"],
-            &HEADERS,
+            &ISMS_V21_HEADERS,
             &data,
             &[
                 "", "", "", "", "", "", "", "", "", "", "", "", "", "", "", "",
@@ -318,7 +319,7 @@ mod tests {
 
     #[test]
     fn missing_availability_is_reported() {
-        let headers: Vec<&str> = HEADERS
+        let headers: Vec<&str> = ISMS_V21_HEADERS
             .iter()
             .copied()
             .filter(|h| !h.starts_with("可用性"))
@@ -333,7 +334,7 @@ mod tests {
 
     #[test]
     fn a_single_id_column_is_missing_a_column() {
-        let missing = locate_columns(&strings(&HEADERS[1..])).unwrap_err();
+        let missing = locate_columns(&strings(&ISMS_V21_HEADERS[1..])).unwrap_err();
         assert_eq!(missing, vec!["資產編號（需要兩欄：系統代碼與流水號）"]);
     }
 
@@ -375,7 +376,7 @@ mod tests {
     #[test]
     fn header_after_row_ten_is_not_found() {
         let mut g: Grid = (1..=10).map(|n| (n, strings(&["說明"]))).collect();
-        g.push((11, strings(&HEADERS)));
+        g.push((11, strings(&ISMS_V21_HEADERS)));
         assert!(parse_isms_sheets("x.xlsx", &[("a".into(), g)]).is_err());
     }
 }

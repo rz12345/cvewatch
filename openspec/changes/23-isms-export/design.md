@@ -172,3 +172,27 @@ core 不取時間，`export_isms` 接收 `exported_on: NaiveDate`：CLI 傳 `chr
 ## Open Questions
 
 （無）使用者 2026-11-09 確認：描述行採「產品（版本）」、廠牌型號行採「廠牌型號：【…】」以保證讀回；未評定寫 `-`、未辨識產品寫進描述依本 design 進行
+
+## 實作紀錄（apply 時依建議做法決定）
+
+- **D3 補充：文件資訊第 3 列**：D3 原寫「資產描述中括號內為版本或廠牌型號」，但同一節要求三列都不含「資產描述」字樣，兩者矛盾；依較保守的後者改為「僅含有 ISMS 編號的使用中硬體與軟體資產；描述欄中括號內為版本或廠牌型號」（`export_write::EXPORT_NOTE`）。測試斷言文件資訊列的任何儲存格都不含三個表頭標記；`workbook.rs` 的 `HEADER_MARKERS` 改為 `pub(crate)` 供此測試使用。
+- **D4 補充：資產說明找不到時**：資產說明名稱取資產的 `system_code`，沒有時由 ISMS 編號的系統代碼帶出；兩者都查不到時該欄留空並警告「<資產編號> 的 ISMS 編號「…」沒有對應的資產說明，資產說明留空」（design 未規定，選擇不漏報的做法；正常資料因外鍵與 16 的驗證不會發生）。
+- **D4 補充：列的組成**：`build_export(&[ExportAsset], ExportContext)` 為純函式（單元測試不需資料庫），`isms_export_rows` 只負責讀 active 資產、資產說明與 `inventory_items_by_asset`；略過清單依資產編號不分大小寫排序；警告依匯出列的順序。
+- **D5 補充：版本替換後為空**：版本經字元替換後為空字串（例如只有括號）時與版本待補相同，只寫產品。
+- **D6 補充：檢查方式**：每一行先單獨以 `describe` 的同一組規則讀回（`describe_resolution`：與 `describe` 共用 `describe_with`，只是不計算相似產品，避免每個未辨識行都對整份別名表算相似度）（目錄產品須恰為同一 key、未辨識產品須恰為一個 `normalize` 相同的未辨識項），再對整段描述檢查合併；廠牌型號行也單獨讀回，非空即警告。警告文字：被略過「<編號> 的「X」以 ISMS 匯入讀回時會被略過」、未辨識變成目錄產品「<編號> 的未辨識產品「X」讀回時會辨識為 key」、合併「<編號> 的「A」「B」以 ISMS 匯入讀回時會合併為 key」、兩個未辨識產品正規化後相同「<編號> 的「A」「B」以 ISMS 匯入讀回時會視為同一個未辨識產品，只保留第一個」（匯入端 `conversion::described` 只保留第一個）、其他「<編號> 的「X」以 ISMS 匯入讀回時會成為「Y」」；沒有元件行的警告加上資產編號前綴「<編號> 的資產描述沒有元件行，以 ISMS 匯入建立新資產時會被略過」。同一行已有單行警告時，整段的合併檢查不再為它重複警告（例如未辨識產品讀回會成為資產已有的目錄產品，只警告「會辨識為 key」一次）。
+- **D1 補充：CLI 輸出**：略過行為「略過 N 個沒有 ISMS 編號的資產：A、B」（`IsmsExportSummary::skipped_line`，GUI 共用同一句），警告行前綴「警告：」，讀回提示為常數 `ISMS_EXPORT_HINT`；沒有略過或警告時不印對應行。
+- **D7 補充：frontend 訊息**：有略過或警告時為 `Report::warning`，內容為「已匯出 N 個資產至 <路徑>（此檔未加密，含資產清單）；略過 N 個沒有 ISMS 編號的資產：SRV-01、…；<警告>…」，以「；」連接（略過句與 CLI 相同，由 core 的 `skipped_line` 產生）。
+- **任務 3.1 的 fixture**：主機名稱 `srv01` 與 IP `192.0.2.10` 放在有 ISMS 編號、會被匯出的 `NAS-01`（`NET-HW-002`，也就是含版本待補 DSM 與未辨識產品 `Zyxel ABCD` 的資產），而不是沒有 ISMS 編號、本來就不會匯出的 `SRV-01`，讓「不含主機名稱與 IP」的斷言有意義。
+- **任務 5.3 的 GUI 測試**：新增 `crates/gui/tests/assets_isms_export.rs`（`assets_isms.rs` 是 companion 流程，分開較清楚）；種子資料加上 2 個資產，使 5 個資產都有 ISMS 編號，重現 spec 的「已匯出 5 個資產」；按鈕位置以 `rect().left()` 斷言在「從 ISMS 清冊匯入」右側。
+- **任務 6.2 的整合驗證**：自動化流程不存取 Credential Manager（開啟使用者的加密資料庫需要讀取金鑰），所以比照 18 任務 8.1，以暫時的 example 程式（未提交、執行後已刪除）在記憶體資料庫＋本機 `data/catalog.d` 先以 `import_isms` 匯入使用者的 v2.0 清冊（新增 20、略過 25 列、版本待補 22），再以 `export_isms` 匯出到 scratchpad（已刪除），結果為「匯出 20 個資產、略過 0、警告 0」；以 `import_isms --dry-run` 讀回同一資料庫為「新增 0、更新 0、未變 20、新加入待補 0、合併 0、不在清冊 0」，讀回空資料庫為「新增 20、版本待補 22、合併 0」，與原清冊匯入一致。只記錄數量，終端輸出的人名與匯出檔未寫入 repo。（數量與 18 的實測「轉換 15」不同，是 18 之後目錄與子類別的擴充所致，與本 change 無關。）
+- **code review 修正（一輪）**：
+  - 讀回檢查補上「兩個未辨識產品正規化後相同、匯入時只保留一個」的警告（`asset_unresolved` 沒有唯一限制，原本只檢查目錄產品的合併）；同一個問題不再同時出現單行警告與合併警告
+  - 讀回檢查改用不計算相似產品的 `describe_resolution`，每行只讀回一次並把結果交給警告函式；合併檢查移除多餘的 HashMap
+  - 註記括號改為單一來源 `describe::NOTE_PAIRS`：`NOTES` 規則由它組成，匯出的字元替換用 `is_note_bracket`，移除 NFKC 後不會出現的全形括號（規則本身不變，測試斷言組出的規則與原本相同）
+  - Excel 儲存格上限：資產說明、資產描述、權責單位、保管人、使用單位超過 32,767 字時截斷並警告「<編號> 的<欄位>超過 Excel 儲存格上限 32767 字，已截斷；以 ISMS 匯入讀回時會與原本不同」，避免單一資產使整個匯出失敗（spec 的 ISMS export field mapping 新增 Cell longer than the Excel limit）
+  - 只讀出有 ISMS 編號的 active 資產的元件（`export::ItemScope::ActiveWithIsmsId`，仍為兩個查詢），略過與 retired 資產不再解析產品名稱
+  - CLI 的匯出日期改用 `lifecycle::local_today()`；資產描述欄的換行格式只建立一次
+
+## 架構圖判斷
+
+架構圖：不需更新。`git diff HEAD` 沒有改動任何 `Cargo.toml`／`Cargo.lock`、workspace members、`[[bin]]` 或 `src/bin`；沒有新增或改換外部系統與本機系統服務的互動（不新增 CVE 來源、HTTP 端點、通知管道，不使用 Credential Manager 或工作排程器，GUI 的「匯出 ISMS 清冊」在行程內呼叫 core、不以子程序啟動 `cvewatch.exe`）。匯出寫本機 xlsx 檔，與既有的清冊匯出相同，沿用既有的 `rust_xlsxwriter`；變更只在 core 的 `assets/isms/` 內部模組、CLI 子命令與 GUI 按鈕。

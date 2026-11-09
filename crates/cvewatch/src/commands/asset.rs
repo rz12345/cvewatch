@@ -1,4 +1,4 @@
-//! `cvewatch asset import | import-isms | import-packages | list | show | rename | system | export | template | catalog`
+//! `cvewatch asset import | import-isms | export-isms | import-packages | list | show | rename | system | export | template | catalog`
 
 use std::path::Path;
 
@@ -51,6 +51,7 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
         AssetAction::ImportIsms { workbook, dry_run } => {
             super::asset_isms::import_isms(app, &workbook, dry_run)
         }
+        AssetAction::ExportIsms { path } => super::asset_isms::export_isms(app, &path),
         AssetAction::Template { path } => template(app, &path),
         AssetAction::Catalog { unresolved, action } => match (unresolved, action) {
             (true, _) => asset_view::catalog_unresolved(app),

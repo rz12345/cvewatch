@@ -220,6 +220,7 @@ fn asset_subcommands_support_help() {
         "rename",
         "system",
         "template",
+        "export-isms",
         "catalog",
     ] {
         cvewatch().args(["asset", sub, "--help"]).assert().success();

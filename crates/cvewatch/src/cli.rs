@@ -301,6 +301,11 @@ pub enum AssetAction {
         #[arg(long)]
         dry_run: bool,
     },
+    /// 匯出有 ISMS 編號的使用中資產為 ISMS 資訊資產清冊格式（可再以 import-isms 讀回）
+    ExportIsms {
+        /// 輸出路徑（.xlsx，不可已存在）
+        path: PathBuf,
+    },
     /// 匯出空白 Excel 範本（assets、components、systems、ips 工作表與 classes 子類別說明）
     Template {
         /// 輸出路徑（.xlsx，不可已存在）

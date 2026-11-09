@@ -11,7 +11,7 @@ use unicode_normalization::UnicodeNormalization;
 use crate::catalog::Catalog;
 
 /// 拆行的分隔字元（NFKC 之後；全形逗號、分號已轉為半形）。
-const SEPARATORS: [char; 6] = ['\n', '\r', '、', ',', ';', '，'];
+pub(crate) const SEPARATORS: [char; 6] = ['\n', '\r', '、', ',', ';', '，'];
 
 /// 結尾的數量 `*2`、`×2`，可帶單位。
 static STAR_QUANTITY: LazyLock<Regex> =
@@ -28,9 +28,28 @@ const PLATFORM_BITS: [&str; 3] = ["32", "64", "86"];
 const LABEL_MAX_CHARS: usize = 16;
 const LABEL_MAX_WORDS: usize = 2;
 
-/// 括號與括號內的註記（NFKC 之後全形括號已轉為半形）。
-static NOTES: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\([^)]*\)|\[[^\]]*\]|【[^】]*】").expect("註記規則"));
+/// 註記的括號（NFKC 之後；全形括號已轉為半形）：註記規則 [`NOTES`] 與 ISMS 匯出的字元替換
+/// （23 design D5）共用這一組，避免兩邊不一致。
+pub(crate) const NOTE_PAIRS: [(char, char); 3] = [('(', ')'), ('[', ']'), ('【', '】')];
+
+/// 括號與括號內的註記（由 [`NOTE_PAIRS`] 組成，例如 `\([^)]*\)`）。
+static NOTES: LazyLock<Regex> = LazyLock::new(|| {
+    let alternatives: Vec<String> = NOTE_PAIRS
+        .iter()
+        .map(|(open, close)| {
+            let close = regex::escape(&close.to_string());
+            format!("{}[^{close}]*{close}", regex::escape(&open.to_string()))
+        })
+        .collect();
+    Regex::new(&alternatives.join("|")).expect("註記規則")
+});
+
+/// 是否為註記的括號（NFKC 之後的字元）。
+pub(crate) fn is_note_bracket(c: char) -> bool {
+    NOTE_PAIRS
+        .iter()
+        .any(|&(open, close)| c == open || c == close)
+}
 
 /// 比對結果的一項（依描述中第一次出現的順序）。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -139,6 +158,16 @@ fn suggestions(catalog: &Catalog, text: &str) -> Vec<String> {
 
 /// 資產描述 → 比對結果；同一產品的多行合併為一項。
 pub fn describe(description: &str, catalog: &Catalog) -> Vec<DescribedItem> {
+    describe_with(description, catalog, true)
+}
+
+/// 與 [`describe`] 相同，但未辨識的行不計算相似產品（`suggestions` 為空）：ISMS 匯出的讀回檢查
+/// 只需要比對結果，不必對整份別名表計算相似度。
+pub(crate) fn describe_resolution(description: &str, catalog: &Catalog) -> Vec<DescribedItem> {
+    describe_with(description, catalog, false)
+}
+
+fn describe_with(description: &str, catalog: &Catalog, suggest: bool) -> Vec<DescribedItem> {
     let mut items: Vec<DescribedItem> = Vec::new();
     for line in split_lines(description) {
         let text = clean_line(&line);
@@ -147,7 +176,11 @@ pub fn describe(description: &str, catalog: &Catalog) -> Vec<DescribedItem> {
         }
         let Some(key) = resolve(catalog, &text) else {
             items.push(DescribedItem::Unresolved {
-                suggestions: suggestions(catalog, &text),
+                suggestions: if suggest {
+                    suggestions(catalog, &text)
+                } else {
+                    Vec::new()
+                },
                 text,
                 line,
             });
@@ -225,6 +258,13 @@ pub(crate) mod tests {
             display_name("\n *2\nSynology XYZ-200 *1"),
             "Synology XYZ-200"
         );
+    }
+
+    #[test]
+    fn note_rule_follows_the_bracket_pairs() {
+        assert_eq!(NOTES.as_str(), r"\([^\)]*\)|\[[^\]]*\]|【[^】]*】");
+        assert!(is_note_bracket('【') && is_note_bracket(')') && !is_note_bracket('〔'));
+        assert_eq!(clean_line("A (x) [y] 【z】 B"), "A B");
     }
 
     #[test]

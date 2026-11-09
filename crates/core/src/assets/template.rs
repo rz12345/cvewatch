@@ -229,7 +229,7 @@ pub fn write_template(path: &Path, classes: &AssetClasses) -> Result<(), CoreErr
 }
 
 /// 目的檔已存在（範本與清冊匯出共用的訊息）。
-fn already_exists(path: &Path) -> CoreError {
+pub(crate) fn already_exists(path: &Path) -> CoreError {
     CoreError::Invalid(format!("目的檔已存在，不覆蓋：{}", path.display()))
 }
 

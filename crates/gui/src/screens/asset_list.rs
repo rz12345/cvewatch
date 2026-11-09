@@ -1,6 +1,7 @@
 //! 資產畫面的工具列與左側資產清單（design 11 D4、D8）。
 //!
-//! 工具列分三組：新增資產說明、新增資產元件｜清冊檔案（匯入、範本、匯出、從 ISMS 清冊匯入）｜顯示已退役。
+//! 工具列分三組：新增資產說明、新增資產元件｜清冊檔案（匯入、範本、匯出、從 ISMS 清冊匯入、匯出 ISMS
+//! 清冊）｜顯示已退役。匯出 ISMS 清冊在行程內呼叫 core，不需要同資料夾的 `cvewatch.exe`（23 design D9）。
 //! 清單依資產說明分組（16 design D8；可收合，標題列出資產數與未處理命中數），組內為三欄表格（編號、
 //! 名稱、未處理），整列可點選、快速點兩下開啟編輯；名稱過長時截斷並以提示顯示全文。
 //! 清單上方的搜尋框（20 design D11）依編號、名稱、主機名稱、IP、序號、財產編號篩選；搜尋中
@@ -76,6 +77,12 @@ pub const SYSTEMS_BUTTON: &str = "新增資產說明";
 /// 「從 ISMS 清冊匯入」按鈕。
 pub const ISMS_IMPORT_BUTTON: &str = "從 ISMS 清冊匯入";
 
+/// 「匯出 ISMS 清冊」按鈕（不依賴 companion）。
+pub const ISMS_EXPORT_BUTTON: &str = "匯出 ISMS 清冊";
+
+/// 「匯出 ISMS 清冊」的滑鼠提示。
+pub const ISMS_EXPORT_HINT: &str = "只匯出有 ISMS 編號的使用中資產；可再以「從 ISMS 清冊匯入」讀回";
+
 /// 搜尋框的提示文字。
 pub const SEARCH_HINT: &str = "搜尋編號、名稱、主機名稱、IP、序號、財產編號";
 
@@ -133,6 +140,13 @@ impl GuiApp {
                 .clicked()
             {
                 self.pick_isms_workbook();
+            }
+            if ui
+                .button(ISMS_EXPORT_BUTTON)
+                .on_hover_text(ISMS_EXPORT_HINT)
+                .clicked()
+            {
+                self.export_isms();
             }
             ui.separator();
             ui.checkbox(&mut self.assets_show_retired, "顯示已退役");

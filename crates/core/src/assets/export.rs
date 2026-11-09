@@ -82,6 +82,24 @@ pub fn product_text(catalog: &Catalog, key: &str) -> String {
     }
 }
 
+/// 要讀出清冊元件的資產範圍。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ItemScope {
+    /// 所有資產（含 retired）
+    All,
+    /// 單一資產
+    Asset(i64),
+    /// 有 ISMS 編號的 active 資產（ISMS 匯出，23 design D4）
+    ActiveWithIsmsId,
+}
+
+/// SQL 條件：`?2` 為 1 時只取有 ISMS 編號的 active 資產（`column` 為資產 id 欄）。
+fn isms_active_filter(column: &str) -> String {
+    format!(
+        "(?2 = 0 OR {column} IN (SELECT id FROM asset WHERE status = 'active' AND isms_id IS NOT NULL))"
+    )
+}
+
 /// 清冊元件（依建立順序）在前、未辨識產品在後，依資產 id 分組；`asset_id` 為 None 時一次讀出
 /// 所有資產（兩個查詢，不因資產數量增加查詢次數）。
 pub(crate) fn inventory_items_by_asset(
@@ -89,15 +107,31 @@ pub(crate) fn inventory_items_by_asset(
     catalog: &Catalog,
     asset_id: Option<i64>,
 ) -> Result<HashMap<i64, Vec<InventoryItem>>, CoreError> {
+    let scope = asset_id.map_or(ItemScope::All, ItemScope::Asset);
+    inventory_items_in(conn, catalog, scope)
+}
+
+/// 依 [`ItemScope`] 讀出清冊元件與未辨識產品（兩個查詢）。
+pub(crate) fn inventory_items_in(
+    conn: &Connection,
+    catalog: &Catalog,
+    scope: ItemScope,
+) -> Result<HashMap<i64, Vec<InventoryItem>>, CoreError> {
+    let (asset_id, isms_only) = match scope {
+        ItemScope::All => (None, false),
+        ItemScope::Asset(id) => (Some(id), false),
+        ItemScope::ActiveWithIsmsId => (None, true),
+    };
     let mut out: HashMap<i64, Vec<InventoryItem>> = HashMap::new();
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT c.asset_id, p.key, c.version_raw FROM component c
          JOIN catalog_product p ON p.id = c.product_id
          WHERE (?1 IS NULL OR c.asset_id = ?1) AND c.kind = 'product' AND c.source = 'excel'
-           AND c.removed_at IS NULL
+           AND c.removed_at IS NULL AND {}
          ORDER BY c.asset_id, c.id",
-    )?;
-    let rows = stmt.query_map(params![asset_id], |r| {
+        isms_active_filter("c.asset_id")
+    ))?;
+    let rows = stmt.query_map(params![asset_id, isms_only], |r| {
         Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get(2)?))
     })?;
     for row in rows {
@@ -108,11 +142,12 @@ pub(crate) fn inventory_items_by_asset(
             version,
         });
     }
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT asset_id, product_raw, version_raw FROM asset_unresolved
-         WHERE (?1 IS NULL OR asset_id = ?1) ORDER BY asset_id, id",
-    )?;
-    let rows = stmt.query_map(params![asset_id], |r| {
+         WHERE (?1 IS NULL OR asset_id = ?1) AND {} ORDER BY asset_id, id",
+        isms_active_filter("asset_id")
+    ))?;
+    let rows = stmt.query_map(params![asset_id, isms_only], |r| {
         Ok((
             r.get::<_, i64>(0)?,
             InventoryItem {

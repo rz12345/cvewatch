@@ -242,6 +242,16 @@ impl GuiApp {
         };
         self.report(r);
     }
+
+    /// 匯出 ISMS 清冊（23 design D9）：另存新檔對話框，內容與 `cvewatch asset export-isms` 相同。
+    pub fn export_isms(&mut self) {
+        let (dir, name) = self.ws.isms_export_default();
+        let r = match self.dialogs.save_xlsx("匯出 ISMS 清冊", &dir, &name) {
+            None => Report::info("已取消匯出 ISMS 清冊"),
+            Some(path) => self.ws.export_isms(&path),
+        };
+        self.report(r);
+    }
 }
 
 /// 標題：編號與名稱（名稱與編號相同時只顯示一次），退役加標示。
