@@ -10,7 +10,7 @@ use super::conversion::{build_conversion, Conversion, ConversionContext};
 use super::report::IsmsReport;
 use super::workbook_read::read_isms_workbook;
 use crate::assets::classes::AssetClasses;
-use crate::assets::columns::SheetKind;
+use crate::assets::columns::{SheetKind, StandardField};
 use crate::assets::import::{import_inventory, ImportOptions};
 use crate::assets::model::AssetRecord;
 use crate::assets::plan::ImportPlan;
@@ -83,9 +83,16 @@ pub fn to_inventory(conversion: &Conversion) -> Inventory {
             system: s.clone(),
         })
         .collect();
+    // ISMS 清冊沒有生命週期欄位：保留資料庫中的日期與 EoL 覆寫（eol 預設為 Untouched）
     Inventory {
         assets,
         systems,
+        kept_fields: [
+            StandardField::WarrantyEnd,
+            StandardField::SupportEnd,
+            StandardField::LicenseEnd,
+        ]
+        .into(),
         ..Inventory::default()
     }
 }

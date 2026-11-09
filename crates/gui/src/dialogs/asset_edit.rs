@@ -8,7 +8,8 @@
 //! 驗證錯誤以介面用語紅字顯示在欄位下方，失敗時保留對話框與輸入內容；本地驗證失敗不寫狀態列，
 //! 以「取消」或 Esc 關閉時清除對話框留在狀態列的寫入失敗訊息（design 11 D5）。
 //! ISMS 管理欄位（資產說明、單位、法規遵循性、個資、防護等級）在 [`super::asset_admin`]，
-//! 識別欄位與 IP 在 [`super::asset_identity`]（20 design D11）。
+//! 識別欄位與 IP 在 [`super::asset_identity`]（20 design D11），生命週期日期與元件的 EoL 覆寫在
+//! [`super::asset_lifecycle`]（22 design D11）。
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -26,6 +27,7 @@ use eframe::egui;
 use super::asset_admin::{admin_fields, system_choices};
 use super::asset_components::{add_component, components, unresolved};
 use super::asset_identity::identity_fields;
+use super::asset_lifecycle::{component_eol_dialog, lifecycle_fields, ComponentEol};
 use super::product_picker::PickerState;
 use super::{escape_pressed, AssetDialog};
 use crate::app::GuiApp;
@@ -69,6 +71,8 @@ pub struct AssetEdit {
     class_options: Vec<Choice>,
     /// 資產說明選單（開啟時依資料建立一次）
     pub(super) system_options: Vec<Choice>,
+    /// 開啟中的元件 EoL 覆寫小對話框
+    pub eol_dialog: Option<ComponentEol>,
 }
 
 impl AssetEdit {
@@ -84,6 +88,7 @@ impl AssetEdit {
             unresolved_pickers: HashMap::new(),
             focus_version: None,
             focus_ip: None,
+            eol_dialog: None,
         }
     }
 
@@ -127,11 +132,13 @@ impl GuiApp {
         let classes = &self.ws.settings.classes;
         let systems = &self.ws.data.systems;
         // Esc 先用來關閉下拉選單；有未儲存的修改時不以 Esc 關閉（避免丟失輸入，請按「取消」）
-        let popup_open = egui::Popup::is_any_open(ctx);
+        // 元件 EoL 覆寫的小對話框開啟時，Esc 只關閉小對話框
+        let popup_open = egui::Popup::is_any_open(ctx) || edit.eol_dialog.is_some();
         let mut action = None;
         egui::Modal::new(egui::Id::unique("dialog-asset-edit")).show(ctx, |ui| {
             action = body(ui, &mut edit, catalog, classes, systems);
         });
+        component_eol_dialog(ctx, &mut edit);
         if action.is_none() && !popup_open && !edit.dirty() && escape_pressed(ctx) {
             action = Some(Action::Cancel);
         }
@@ -207,6 +214,7 @@ fn body(
             components(ui, edit, catalog);
             unresolved(ui, edit, catalog);
             add_component(ui, edit, catalog);
+            lifecycle_fields(ui, edit);
         });
     ui.separator();
     let marked = !edit.errors.fields.is_empty()

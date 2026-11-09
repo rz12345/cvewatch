@@ -5,6 +5,7 @@ pub mod assets;
 pub mod dashboard;
 pub mod detail;
 pub mod findings;
+pub mod lifecycle_view;
 pub mod pending;
 pub mod sync_log;
 

@@ -6,6 +6,7 @@
 //! 元件依目錄角色分組：組名為粗體小標，元件與版本歷史縮排在組名下（21 design D5）。
 //! 識別欄位與 IP 在管理欄位之後；管理介面位址為連結，點擊後經 frontend 的 Opener 開啟
 //! （20 design D11：不用 `egui::Hyperlink`，它不經過 Opener，也不會在狀態列回報結果）。
+//! 元件之後為「生命週期」區塊（[`super::lifecycle_view`]，22 design D11）。
 
 use cvewatch_core::assets::{AssetRecord, AssetStatus, Component, ComponentKind, SystemDirectory};
 use cvewatch_core::catalog::Catalog;
@@ -22,6 +23,7 @@ use cvewatch_frontend::Report;
 use eframe::egui;
 
 use super::asset_list::RETIRED_MARK;
+use super::lifecycle_view::lifecycle_section;
 use super::{heading, ALERT};
 use crate::app::GuiApp;
 use crate::text::{one_line, short_time};
@@ -46,6 +48,8 @@ enum DetailAction {
     Purge(String),
     /// 開啟管理介面位址
     OpenManagement(String),
+    /// 開啟生命週期項目的來源網址（只允許 https）
+    OpenSource(String),
 }
 
 impl GuiApp {
@@ -75,6 +79,7 @@ impl GuiApp {
             Some(DetailAction::Restore(tag)) => self.restore_asset(&tag),
             Some(DetailAction::Purge(tag)) => self.start_purge_asset(&tag),
             Some(DetailAction::OpenManagement(url)) => self.open_management_link(&url),
+            Some(DetailAction::OpenSource(url)) => self.open_link(&url),
             None => {}
         }
     }
@@ -166,6 +171,11 @@ impl GuiApp {
                 }
                 ui.add_space(6.0);
                 self.components_list(ui, a);
+                ui.add_space(6.0);
+                let window = self.ws.settings.reminder_days;
+                if let Some(url) = lifecycle_section(ui, &a.lifecycle, window) {
+                    action = Some(DetailAction::OpenSource(url));
+                }
                 ui.add_space(6.0);
                 findings_grid(ui, catalog, &findings);
                 if !a.unresolved.is_empty() {

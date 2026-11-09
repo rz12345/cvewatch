@@ -7,6 +7,7 @@
 //! 各組以另一個 id 一律展開，清除搜尋後恢復原本的收合狀態。
 
 use cvewatch_core::assets::AssetStatus;
+use cvewatch_core::lifecycle::{LifecycleFilter, LifecycleFlags};
 use cvewatch_frontend::data::{AssetEntry, AssetListFilter};
 use cvewatch_frontend::display::shown_name;
 use cvewatch_frontend::groups::AssetGroup;
@@ -28,6 +29,43 @@ pub const PENDING_MARK: &str = "（版本待補）";
 
 /// 「只顯示版本待補」篩選。
 pub const PENDING_FILTER: &str = "只顯示版本待補";
+
+/// 已 EoL（硬體或任一清冊元件）的標示（22 design D11；警示色）。
+pub const EOL_MARK: &str = "（已 EoL）";
+
+/// 即將 EoL 的標示。
+pub const EOL_SOON_MARK: &str = "（即將 EoL）";
+
+/// 保固、維護合約或軟體授權已到期的標示（警示色）。
+pub const EXPIRED_MARK: &str = "（已到期）";
+
+/// 保固、維護合約或軟體授權即將到期的標示。
+pub const EXPIRING_MARK: &str = "（即將到期）";
+
+/// 生命週期篩選下拉選單的標籤。
+pub const LIFECYCLE_FILTER_LABEL: &str = "生命週期";
+
+/// 生命週期篩選「全部」（不篩選）。
+pub const LIFECYCLE_ALL: &str = "全部";
+
+/// 使用中資產名稱後的生命週期標示（依 design D11 的順序）與是否以警示色顯示。
+pub fn lifecycle_marks(flags: LifecycleFlags) -> Vec<(&'static str, bool)> {
+    [
+        (flags.eol, EOL_MARK, true),
+        (flags.eol_soon, EOL_SOON_MARK, false),
+        (flags.expired, EXPIRED_MARK, true),
+        (flags.expiring, EXPIRING_MARK, false),
+    ]
+    .into_iter()
+    .filter(|(on, _, _)| *on)
+    .map(|(_, mark, alert)| (mark, alert))
+    .collect()
+}
+
+/// 生命週期篩選的顯示文字（None 為「全部」）。
+pub fn lifecycle_filter_text(filter: Option<LifecycleFilter>) -> &'static str {
+    filter.map_or(LIFECYCLE_ALL, LifecycleFilter::label)
+}
 
 /// 「新增資產元件」按鈕（開啟新增資產的對話框）。
 pub const NEW_ASSET_BUTTON: &str = "新增資產元件";
@@ -99,6 +137,7 @@ impl GuiApp {
             ui.separator();
             ui.checkbox(&mut self.assets_show_retired, "顯示已退役");
             ui.checkbox(&mut self.assets_pending_only, PENDING_FILTER);
+            lifecycle_combo(ui, &mut self.assets_lifecycle);
         });
     }
 
@@ -116,6 +155,7 @@ impl GuiApp {
                     pending_only: self.assets_pending_only,
                     class: None,
                     search: self.assets_search.clone(),
+                    lifecycle: self.assets_lifecycle,
                 };
                 let searching = !filter.search.trim().is_empty();
                 let groups = self.ws.data.asset_groups(&filter);
@@ -158,6 +198,20 @@ pub fn group_id(key: &str) -> egui::Id {
 /// 搜尋中組的收合狀態 id（與 [`group_id`] 分開：搜尋時一律展開，原本的收合狀態不受影響）。
 pub fn search_group_id(key: &str) -> egui::Id {
     egui::Id::unique(("asset-search", key))
+}
+
+/// 工具列的生命週期篩選：「生命週期：全部／已 EoL／即將 EoL／保固或合約到期」。
+fn lifecycle_combo(ui: &mut egui::Ui, value: &mut Option<LifecycleFilter>) {
+    let l = ui.label(LIFECYCLE_FILTER_LABEL);
+    let combo = egui::ComboBox::from_id_salt("assets-lifecycle-filter")
+        .selected_text(lifecycle_filter_text(*value))
+        .show_ui(ui, |ui| {
+            let choices = std::iter::once(None).chain(LifecycleFilter::ALL.map(Some));
+            for choice in choices {
+                ui.selectable_value(value, choice, lifecycle_filter_text(choice));
+            }
+        });
+    combo.response.labelled_by(l.id);
 }
 
 /// 搜尋框與「清除」按鈕；搜尋框取得焦點時清單的 Enter／Delete 不作用（`assets_keys`）。
@@ -258,7 +312,7 @@ fn list_table(
     picked
 }
 
-/// 一列：編號、名稱（與編號相同時留空；退役加標示）、未處理數（靠右，大於 0 時醒目；
+/// 一列：編號、名稱（與編號相同時留空；退役、版本待補與生命週期加標示）、未處理數（靠右，大於 0 時醒目；
 /// 選取列的底色已醒目，數字改用粗體不加警示色以免對比不足）。
 fn list_row(
     row: &mut egui_extras::TableRow<'_, '_>,
@@ -276,17 +330,12 @@ fn list_row(
             t
         }
     };
-    let name = shown_name(r).map(one_line).unwrap_or_default();
-    let name = match (retired, a.has_pending()) {
-        (true, _) => format!("{name}{RETIRED_MARK}"),
-        (false, true) => format!("{name}{PENDING_MARK}"),
-        (false, false) => name,
-    };
     row.col(|ui| {
         ui.add(egui::Label::new(paint(one_line(&r.asset_tag))).selectable(false));
     });
     row.col(|ui| {
-        ui.add(egui::Label::new(paint(name)).selectable(false).truncate());
+        let text = name_text(ui, a, weak, selected);
+        ui.add(egui::Label::new(text).selectable(false).truncate());
     });
     row.col(|ui| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -300,4 +349,43 @@ fn list_row(
             ui.add(egui::Label::new(count).selectable(false));
         });
     });
+}
+
+/// 名稱欄：名稱（與編號相同時留空）與標示。退役資產整列弱化並加「（已退役）」；使用中資產依序加
+/// 版本待補與生命週期標示，已 EoL／已到期以警示色顯示（其餘沿用列的文字色；選取列與未處理數
+/// 相同改用粗體，以免對比不足）。
+fn name_text(
+    ui: &egui::Ui,
+    a: &AssetEntry,
+    weak: egui::Color32,
+    selected: bool,
+) -> egui::text::LayoutJob {
+    let name = shown_name(&a.asset.record)
+        .map(one_line)
+        .unwrap_or_default();
+    let mut job = egui::text::LayoutJob::default();
+    let style = ui.style();
+    let mut push = |text: egui::RichText| {
+        text.append_to(
+            &mut job,
+            style,
+            egui::FontSelection::Default,
+            egui::Align::Center,
+        );
+    };
+    if a.asset.status == AssetStatus::Retired {
+        push(egui::RichText::new(format!("{name}{RETIRED_MARK}")).color(weak));
+        return job;
+    }
+    let pending = if a.has_pending() { PENDING_MARK } else { "" };
+    push(egui::RichText::new(format!("{name}{pending}")));
+    for (mark, alert) in lifecycle_marks(a.lifecycle.flags()) {
+        let text = egui::RichText::new(mark);
+        push(match (alert, selected) {
+            (true, true) => text.strong(),
+            (true, false) => text.color(ALERT),
+            (false, _) => text,
+        });
+    }
+    job
 }

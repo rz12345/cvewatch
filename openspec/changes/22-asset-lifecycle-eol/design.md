@@ -119,13 +119,13 @@ source = "https://vendor.example/eol/xyz-100"
 
 ### D5. 硬體型號比對（`lifecycle/hardware.rs`）
 
-- 資產的廠牌、型號取自 20 新增的欄位（20 design 決定的識別字；下文暫稱 `brand`、`model`）
+- 資產的廠牌、型號取自 20 新增的欄位 `AssetRecord.brand`、`AssetRecord.model`（apply 時依 20 封存後的程式確認；廠牌以 `normalize_vendor`、型號以 `normalize` 正規化）
 - 廠牌與型號都有值才比對：`normalize_vendor(brand)` 等於型號的 `vendor` 或任一 `vendor_aliases` 的正規化值，且 `normalize(model)` 等於型號或任一別名的正規化值
 - 只有型號沒有廠牌 → 「未填廠牌或型號」（不嘗試只用型號比對，避免不同廠牌同名型號誤對）
 
 ### D6. 資料模型與 migration
 
-Migration 編號為 20-asset-identity-network 實際使用的下一號（預期 `0010_lifecycle.sql`；19、21 不新增 migration）：
+Migration 編號為 20-asset-identity-network 實際使用的下一號：`0010_lifecycle.sql`（apply 時確認 20 使用 0009；19、21 不新增 migration）：
 
 ```sql
 ALTER TABLE asset ADD COLUMN warranty_end TEXT;       -- YYYY-MM-DD
@@ -177,7 +177,7 @@ CREATE TABLE eol_release (
 ### D8. 日期解析（`assets/dates.rs`）
 
 - 接受 `YYYY-MM-DD`、`YYYY/MM/DD`（月日可為一位數），以 `NaiveDate::from_ymd_opt` 驗證存在；其他寫法（含 `2027-02-30`、`27/1/1`、民國年）→ 欄位錯誤「不是有效日期（請用 YYYY-MM-DD）」
-- `sheet.rs::cell_text`：`Data::DateTime(dt)` 改為以 calamine 的 `as_datetime()` 轉成 `YYYY-MM-DD`（只有日期部分；時間部分非 0 時仍只取日期）。目前沒有任何欄位依賴舊的 `to_string` 輸出（任務 3.1 以 grep 與測試確認）；`Data::DateTimeIso` 取前 10 字元
+- `sheet.rs::cell_text`：`Data::DateTime(dt)`（日期時間類型）改為以 calamine 的 `to_ymd_hms_milli()` 轉成 `YYYY-MM-DD`（只有日期部分；時間部分非 0 時仍只取日期；apply 時改用此函式，不需開啟 calamine 的 `chrono` feature）；duration 類型維持原寫法。目前沒有任何欄位依賴舊的 `to_string` 輸出（任務 3.1 以 grep 與測試確認）；`Data::DateTimeIso` 取前 10 字元
 - 匯出寫成文字 `YYYY-MM-DD`（不用 Excel 日期格式，避免地區設定改變顯示）
 
 ### D9. 生命週期判定（`crates/core/src/lifecycle/`）
@@ -267,3 +267,55 @@ eol_enabled = true
 - [日期以本機時區計算] 筆電時區錯誤會差一天 → 可接受；測試注入固定日期
 - [`cell_text` 日期格式改變] 若其他欄位曾依賴 Excel 日期儲存格的舊字串 → 任務 3.1 確認並以測試涵蓋
 - [不影響比對] EoL 資料變更不重新比對，比對結果與 EoL 狀態是兩件事；畫面上分開呈現
+
+## Apply 紀錄（2026-11-09～10，`/opsx-auto`；需要確認處一律依建議進行）
+
+### 種子資料的查證（D15、任務 6.1、6.2）
+
+- endoflife.date 代稱：2026-11-09 以 `curl https://endoflife.date/api/v1/products/<slug>` 逐一查證 D15 列出的 41 個代稱，全部回 200，分支名稱可依 D3 對應種子的版本寫法；`seed.toml` 每個產品的註解寫查證日期。另查 `tinymce`、`lodash`、`momentjs`、`openssh`、`freeradius` 皆為 404，不宣告
+- Java SE：宣告 `oracle-jdk`（種子 `java-se` 的 CPE 為 Oracle；分支為 `8`、`17`、`21`…，`17.0.12` 對應 `17`，`8u421` 依數字段規則對應 `8`）
+- Synology DSM：依 Synology「Software Life Cycle Policy」（KB https://kb.synology.com/en-global/WP/Software_Life_Cycle_Policy/1 ，其 PDF 標示 Last updated: Oct 13, 2026，2026-11-09 查證）與「End-of-Life Announcement for DSM 6.2」（https://www.synology.com/en-global/products/status/eol-dsm62 ，公告日 2023-10-01）。政策表只寫到月份且註明為近似日期：
+  - **自行決定**：一律取該月 1 日（寧可提早提醒，不晚報）；有 Extended Life Phase 者取其結束月份，否則取 End of Maintenance Phase
+  - **自行決定**：DSM 7.1 的 Extended Life（2025-06）依附註只適用部分機型，取 End of Maintenance（2024-06-01）；適用延伸支援的機型由使用者以元件覆寫
+  - DSM 6.2 採公告原文的 2024-10-01（政策表為「Sep 2024」，公告寫明 October 1, 2024）
+  - 建立的分支：7.4 2028-06-01、7.3 2028-10-01、7.2 2025-12-01、7.1 2024-06-01、7.0 2023-06-01、6.2 2024-10-01、6.1 2019-06-01、6.0 2018-06-01
+- 使用說明 `docs/user-guide/lifecycle.md` 列出種子代稱與 DSM 分支；`tests/catalog_lifecycle.rs` 斷言兩者與 `seed.toml` 一致
+
+### 實作上的決定
+
+- **Spec delta 補 MODIFIED**（tasks 前提）：封存後的主 spec `asset-inventory` 的 Blank template export、Inventory export 列舉了工作表，改以 MODIFIED 區塊加入 `eol` 工作表與三個日期欄（整段複製主 spec 後修改）
+- **覆寫的畫面編修 API**：`EditOp::SetHardwareEol(Option<EolOverride>)` 與 `EditOp::SetComponentEol { product_key, value }`（以產品 key 指定，同次新增的元件也能設定）；新增資產用 `create_asset_with(…, &NewLifecycle, …)`（`create_asset` 保留並委派）。`EditOp::Fields` 不含硬體覆寫，寫入時沿用資料庫中的值（含同次 `SetHardwareEol` 寫入者）
+- **只改生命週期日期不標記「比對待補」**：`apply_edits`／`update_asset` 的 `Fields` 步驟只在不只改生命週期日期時記錄比對待補（spec Editing lifecycle fields）；frontend 以「修改生命週期日期」步驟標示，不觸發比對
+- **ISMS 清冊匯入**：ISMS 清冊沒有生命週期欄位，`to_inventory` 把三個日期列入 `kept_fields`、`eol` 為 `Untouched`，保留既有日期與覆寫且不提醒（否則 ISMS 匯入會清空日期）
+- **缺欄與缺工作表的提醒**：日期欄併入既有「清冊沒有 … 欄，保留資料庫中既有資產的值」提醒（與 20 的識別欄位相同作法）；沒有 `eol` 工作表另有一則「清冊沒有 eol 工作表，保留資料庫中既有資產的 EoL 覆寫」（與 `ips` 相同作法，只在既有資產有覆寫時給出）
+- **`eol` 工作表只認標準欄名**（與 `systems`、`ips` 相同，不套用 `[import.columns]`）；表頭四欄都必須存在；產品寫法在規劃階段以目錄解析，同一資產以不同寫法指到同一產品視為重複
+- **範本與匯出的日期欄設為文字格式**（避免 Excel 依地區設定改變顯示）
+- **404 代稱的既有資料**：endoflife.date 回 404 時保留先前的分支資料；判定時若仍有分支資料就繼續使用（寧可提醒），沒有資料才顯示「endoflife.date 查無此產品」
+- **規則二只在規則一完全沒有符合時使用**：規則一有符合但最長者不唯一時直接「無法對應」，不再以最新版本名稱猜測
+- **ESXi 版本**：可解析的名稱一律換成「主.次」再比對（含 `ESXi80U3d-24585383` 精簡寫法）；只填 build 時以目錄 `esxi_build` 對照，對照不到為「無法對應」
+- **摘要的軟體項目寫法**：「FW-EDGE PAN-OS 10.2.9（分支 10.2）EoL 2027-03-01（剩 50 天）」；到期列「SW-CORE 硬體 EoL 已於 2027-01-10 到期」；摘要主旨在有生命週期新事項時加上「生命週期提醒」
+- **`Notifier` 的生命週期輸入**：`Notifier.lifecycle: Option<NotifyLifecycle { catalog, window }>`，CLI `notify digest` 以 `with_lifecycle` 傳入目錄與提醒天數；`digest::collect` 新增 `Option<LifecycleInput>` 參數（None 時不含段落），日期以 Notifier 的時區換成日曆日
+- **`config.rs` 接近 800 行**：`example_config()` 移到新檔 `config_example.rs`（由 `config` 重新匯出），`[lifecycle]` 的型別與驗證放在 `lifecycle/config.rs`
+- **表單錯誤**：元件覆寫的錯誤併入 `FormErrors.components`（以「EoL 覆寫：」前綴），避免 `FormErrors` 超過 clippy `result_large_err` 門檻
+- **檔案拆分**：測試另開新檔以維持各檔 < 800 行——`tests/catalog_lifecycle.rs`（任務 1.4 的目錄測試）、`tests/assets_repo_lifecycle.rs`（2.3）、`tests/assets_import_lifecycle.rs`、`tests/asset_edit_lifecycle.rs`（3.5）、`tests/notify_lifecycle.rs`（7.1）、frontend `tests/asset_lifecycle.rs`（8.1、8.2）；CLI 的生命週期輸出放 `commands/lifecycle_view.rs`（`asset_view.rs` 已近 600 行）；`ingest/eol.rs` 的單元測試移到 `eol_tests.rs`（本檔 < 400 行）
+- **fixture 重新產生**：`gen_inventory_fixtures` 新增 `inventory_lifecycle.xlsx`（含 Excel 日期儲存格與大寫 `EOL` 工作表名稱）；重新產生時其他 xlsx 只因內嵌時間戳改變，已還原為版控中的檔案，`git diff --stat tests/fixtures` 只有新檔
+- **GUI**：清單標示接在「（版本待補）」之後、依 D11 順序，已 EoL／已到期用 `ALERT`（選取列改粗體）；退役列不標示。詳情的「生命週期」區塊放在 `screens/assets.rs` 的元件之後（資產詳情在此，`detail.rs` 為命中詳情），網址來源以連結呈現、經 `Workspace::open_url`（GUI 只開 https）。對話框的生命週期區塊放在捲動區底部（放中間欄會把元件區擠出 560px 捲動區）；元件列「EoL 覆寫…」開小對話框編輯副本，「套用」驗證、「清除覆寫」清除、Esc 只關小對話框。Dashboard 的 `Jump::PendingVersions` 也清除生命週期篩選，避免殘留篩選把待補資產藏起來；切到資產或 Dashboard 時呼叫 `refresh_lifecycle`
+- **GUI 既有測試調整**：`asset_identity.rs::asset_without_a_management_address` 原本斷言畫面沒有任何 "http"，NAS-01 的 DSM 現在在生命週期區塊有種子來源連結，改為只要求 "http" 都在「生命週期（提醒」標題之下
+- **TUI**：「週期」欄只在已到狀態（已 EoL、已到期）加警示字元（加在「即將」狀態會超過 8 欄寬被截斷）；Dashboard 行只列非 0 的計數（「即將 EoL 1、保固或合約到期 3（提醒 90 天）」），全為 0 時不顯示；標題只在有篩選時顯示「資產（生命週期：X）」；按 `l` 時游標回到第一列；詳情最多 10 列，超過時提示以 `cvewatch asset show` 檢視；覆寫來源是使用者輸入，經 `sanitize()` 後顯示；`?` 說明把「?」「q」合併成一列以免說明框蓋過下框線。TUI 不在切換畫面時重算跨日（D11 只對 GUI 規定），依既有重新載入更新
+- **core 修正**：`catalog::lifecycle::is_http_url` 以位元組切片判斷前綴，遇到非 ASCII 的覆寫來源（例如「延長支援合約」）會 panic，改用 `str::get` 並補單元測試（GUI 實作時發現）
+
+### Code review 修正（一輪）
+
+- `notify digest`：產品目錄載入失敗時摘要照寄（命中、等待區、同步狀態與目錄無關），只略過生命週期段落並警告，不讓 `catalog.d` 的錯誤擋下整封摘要
+- `eol` 來源：404 時移除該代稱的 ETag，之後恢復時以無條件請求取得；304 時狀態設回 `ok`（避免暫時性 404 後一直顯示「查無此產品」）；新增回歸測試 `product_recovers_after_a_transient_404`
+- frontend：是否需要重新比對由 `edit_steps` 隨步驟回傳（不再比對步驟的顯示文字）
+- Dashboard 與摘要的計數共用 `LifecycleCounts::from_flags`；`AssetEntry.lifecycle_flags` 快取旗標（清單篩選與重繪不重算）
+- 匯入只寫入有變更的元件覆寫（與既有值比較）
+- `eol` 工作表的重複列訊息指向第一次出現的列
+- `cell_text` 的 ISO 日期時間只在時間為零點時取日期，其他欄位的日期時間保留原文
+- 日期 helper 收斂：`dates::format_opt`、`dates::calendar_date`（摘要的 `Zone` 與 frontend 的 `DisplayTz` 共用）
+- `gen_inventory_fixtures.rs` 超過 800 行：生命週期清冊移到 `examples/support/lifecycle_fixture.rs`
+
+### 架構圖判斷
+
+架構圖：需更新。新增外部整合 endoflife.date API（HTTPS GET，`ingest/endpoints.rs` 的 `Endpoints.endoflife`、`ingest/sync.rs` 的 `eol` 來源）。crate 結構與相依不變（沒有新增 crate、執行檔或 workspace 內部 `path` 相依）；`lifecycle/` 為 core 內部模組、資料表與畫面欄位的變更不算架構變更。

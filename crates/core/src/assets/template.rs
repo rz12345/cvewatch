@@ -31,7 +31,7 @@ pub struct SheetData<'a> {
 
 /// 範本範例列（欄位順序同 [`SheetKind::columns`]；C/I/A 與 personal_data 留空表示依子類別）。
 fn example_assets() -> Vec<Vec<String>> {
-    let rows: [[&str; 24]; 3] = [
+    let rows: [[&str; 27]; 3] = [
         [
             "FW-01",
             "fw01",
@@ -55,6 +55,9 @@ fn example_assets() -> Vec<Vec<String>> {
             "P-0001",
             "fw01",
             "https://192.0.2.1/",
+            "",
+            "",
+            "",
             "機房 A",
             "",
         ],
@@ -80,6 +83,9 @@ fn example_assets() -> Vec<Vec<String>> {
             "",
             "",
             "",
+            "",
+            "2027-12-31",
+            "2027-06-30",
             "",
             "機房 A",
             "",
@@ -107,6 +113,9 @@ fn example_assets() -> Vec<Vec<String>> {
             "",
             "",
             "",
+            "",
+            "",
+            "",
             "機房 B",
             "",
         ],
@@ -119,6 +128,17 @@ fn example_assets() -> Vec<Vec<String>> {
 /// `ips` 工作表的範例列（asset_tag、ip、purpose；20 design D13）。
 fn example_ips() -> Vec<Vec<String>> {
     vec![vec!["FW-01".into(), "192.0.2.1".into(), "管理介面".into()]]
+}
+
+/// `eol` 工作表的範例列（asset_tag、product、eol、source；22 design D7）：沿用 assets 的範例資產，
+/// 讓範本本身可以 `--dry-run` 匯入。
+fn example_eol() -> Vec<Vec<String>> {
+    vec![vec![
+        "SRV-01".into(),
+        "ESXi".into(),
+        "2030-12-31".into(),
+        "範例：延長支援合約".into(),
+    ]]
 }
 
 /// `systems` 工作表的範例列（代碼與名稱）。
@@ -152,6 +172,18 @@ fn example_components() -> Vec<Vec<String>> {
     vec![vec!["SRV-01".into(), "iDRAC9".into(), "7.10.30.00".into()]]
 }
 
+/// 以文字格式寫出的欄位。
+fn is_text_column(field: StandardField) -> bool {
+    matches!(
+        field,
+        StandardField::Version
+            | StandardField::WarrantyEnd
+            | StandardField::SupportEnd
+            | StandardField::LicenseEnd
+            | StandardField::Eol
+    )
+}
+
 /// 標準欄名表頭。
 pub(crate) fn headers(kind: SheetKind) -> Vec<String> {
     kind.columns()
@@ -160,7 +192,7 @@ pub(crate) fn headers(kind: SheetKind) -> Vec<String> {
         .collect()
 }
 
-/// 寫出含 `assets`、`components`、`systems` 與 `ips` 工作表（標準欄名與範例列）及
+/// 寫出含 `assets`、`components`、`systems`、`ips` 與 `eol` 工作表（標準欄名與範例列）及
 /// `classes` 子類別說明的範本；目的檔已存在時拒絕。
 pub fn write_template(path: &Path, classes: &AssetClasses) -> Result<(), CoreError> {
     write_sheets(
@@ -186,6 +218,11 @@ pub fn write_template(path: &Path, classes: &AssetClasses) -> Result<(), CoreErr
                 headers: headers(SheetKind::Ips),
                 rows: example_ips(),
             },
+            SheetData {
+                name: SheetKind::Eol.sheet_name(),
+                headers: headers(SheetKind::Eol),
+                rows: example_eol(),
+            },
             class_sheet(classes),
         ],
     )
@@ -202,7 +239,8 @@ pub fn ensure_absent(path: &Path) -> Result<(), CoreError> {
 }
 
 /// 寫出 xlsx（design D6）：先在記憶體中產生，再以 `create_new` 寫檔，目的檔已存在時不覆蓋。
-/// `version` 欄設為文字格式，避免 Excel 把 `7.10` 轉成數字 `7.1`。
+/// `version` 欄設為文字格式，避免 Excel 把 `7.10` 轉成數字 `7.1`；日期欄也設為文字格式，
+/// 避免地區設定改變顯示（22 design D8）。
 pub fn write_sheets(path: &Path, sheets: &[SheetData<'_>]) -> Result<(), CoreError> {
     let xlsx_error = |e: rust_xlsxwriter::XlsxError| {
         CoreError::Invalid(format!("無法寫出 {}：{e}", path.display()))
@@ -217,7 +255,7 @@ pub fn write_sheets(path: &Path, sheets: &[SheetData<'_>]) -> Result<(), CoreErr
             let col = u16::try_from(col).map_err(|_| CoreError::Invalid("欄位過多".into()))?;
             ws.set_column_width(col, HEADER_COLUMN_WIDTH)
                 .map_err(xlsx_error)?;
-            if StandardField::parse(header) == Some(StandardField::Version) {
+            if StandardField::parse(header).is_some_and(is_text_column) {
                 ws.set_column_format(col, &text).map_err(xlsx_error)?;
             }
             ws.write_string_with_format(0, col, header, &bold)

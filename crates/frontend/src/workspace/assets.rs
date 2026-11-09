@@ -7,7 +7,9 @@
 use std::path::{Path, PathBuf};
 
 use cvewatch_core::assets::columns::StandardField;
-use cvewatch_core::assets::edit::{self, EditOp, EditOutcome, NewComponent, PurgePreview};
+use cvewatch_core::assets::edit::{
+    self, only_lifecycle_changed, EditOp, EditOutcome, NewComponent, NewLifecycle, PurgePreview,
+};
 use cvewatch_core::assets::export::export_inventory;
 use cvewatch_core::assets::plan::VersionWarning;
 use cvewatch_core::assets::template::write_template;
@@ -36,20 +38,55 @@ pub const UNENCRYPTED_NOTICE: &str = "此檔未加密，含資產清單";
 /// 一個步驟與其說明（成功訊息用；產品以顯示名稱呈現）。
 type Step<'a> = (String, EditOp<'a>);
 
-/// 資產欄位是否與資料庫不同（以與 core 相同的驗證結果比較，忽略前後空白）。
-/// 編號另由更名步驟處理，比較時換回原編號（12 design D3）。
-fn fields_changed(form: &AssetForm, entry: &AssetEntry, ctx: &RecordContext<'_>) -> bool {
+/// 資產欄位與資料庫的差異（以與 core 相同的驗證結果比較，忽略前後空白）：None 為沒有變更，
+/// `Some(true)` 為需要重新比對（不只改生命週期日期；22 design D11）。編號另由更名步驟處理，
+/// 比較時換回原編號（12 design D3）；硬體 EoL 覆寫另由 [`EditOp::SetHardwareEol`] 處理。
+fn fields_change(form: &AssetForm, entry: &AssetEntry, ctx: &RecordContext<'_>) -> Option<bool> {
     match validate_record(&form.record_input(), ctx) {
         Ok(record) => {
+            let old = &entry.asset.record;
             let record = AssetRecord {
-                asset_tag: entry.asset.record.asset_tag.clone(),
+                asset_tag: old.asset_tag.clone(),
+                hw_eol_override: old.hw_eol_override.clone(),
                 ..record
             };
-            record != entry.asset.record
+            (record != *old).then(|| !only_lifecycle_changed(old, &record))
         }
         // 驗證失敗時交給 core 回報錯誤
-        Err(_) => true,
+        Err(_) => Some(true),
     }
+}
+
+/// EoL 覆寫的變更（硬體與各清冊元件；本地驗證已通過）。
+fn eol_steps<'a>(
+    form: &'a AssetForm,
+    entry: Option<&AssetEntry>,
+    catalog: &Catalog,
+) -> Vec<Step<'a>> {
+    let mut steps = Vec::new();
+    let hardware = form.lifecycle.hardware_override().ok().flatten();
+    let old = entry.and_then(|e| e.asset.record.hw_eol_override.clone());
+    if hardware != old {
+        let label = if hardware.is_some() {
+            "設定硬體 EoL 覆寫"
+        } else {
+            "清除硬體 EoL 覆寫"
+        };
+        steps.push((label.to_string(), EditOp::SetHardwareEol(hardware)));
+    }
+    for d in form.components.iter().filter(|d| !d.package && !d.removed) {
+        if let Some(value) = d.eol.change() {
+            let verb = if value.is_some() { "設定" } else { "清除" };
+            steps.push((
+                format!("{verb} {} 的 EoL 覆寫", d.name(catalog)),
+                EditOp::SetComponentEol {
+                    product_key: d.product_key.clone(),
+                    value,
+                },
+            ));
+        }
+    }
+    steps
 }
 
 /// 移除元件與刪除未辨識產品（先執行：之後可加回同一產品；「至少一個元件」在最後才檢查）。
@@ -116,21 +153,29 @@ fn component_steps<'a>(form: &'a AssetForm, catalog: &Catalog) -> Vec<Step<'a>> 
     steps
 }
 
-/// 編輯既有資產時，表單與資料庫目前內容的差異。
+/// 編輯既有資產時，表單與資料庫目前內容的差異，與這些步驟是否需要重新比對（修改欄位只改
+/// 生命週期日期時不需要；其他步驟依 [`EditOp::affects_matching`]）。
 fn edit_steps<'a>(
     form: &'a AssetForm,
     entry: &AssetEntry,
     catalog: &Catalog,
     ctx: &RecordContext<'_>,
-) -> Vec<Step<'a>> {
+) -> (Vec<Step<'a>>, bool) {
     let mut steps = Vec::new();
+    let mut needs_match = false;
     if let Some(new_tag) = form.renamed_to() {
         let old = &entry.asset.record.asset_tag;
         steps.push((format!("更名 {old} → {new_tag}"), EditOp::Rename(new_tag)));
     }
-    if fields_changed(form, entry, ctx) {
+    if let Some(affects) = fields_change(form, entry, ctx) {
+        needs_match = affects;
+        let label = if affects {
+            "修改資產欄位"
+        } else {
+            "修改生命週期日期"
+        };
         steps.push((
-            "修改資產欄位".to_string(),
+            label.to_string(),
             EditOp::Fields(Box::new(form.record_input())),
         ));
     }
@@ -140,7 +185,28 @@ fn edit_steps<'a>(
     }
     steps.extend(removal_steps(form, catalog));
     steps.extend(component_steps(form, catalog));
-    steps
+    // 覆寫放在最後：新加入的元件也可以同次設定覆寫
+    steps.extend(eol_steps(form, Some(entry), catalog));
+    needs_match |= steps
+        .iter()
+        .any(|(_, op)| !matches!(op, EditOp::Fields(_)) && op.affects_matching());
+    (steps, needs_match)
+}
+
+/// 新增資產時一併寫入的 EoL 覆寫。
+fn new_lifecycle(form: &AssetForm) -> NewLifecycle {
+    NewLifecycle {
+        hardware: form.lifecycle.hardware_override().ok().flatten(),
+        components: form
+            .components
+            .iter()
+            .filter(|d| !d.package && !d.removed)
+            .filter_map(|d| {
+                let value = d.eol.parsed().ok().flatten()?;
+                Some((d.product_key.clone(), value))
+            })
+            .collect(),
+    }
 }
 
 fn new_components(form: &AssetForm) -> Vec<NewComponent> {
@@ -222,13 +288,14 @@ impl<V: ListView> Workspace<V> {
 
     fn save_new_asset(&mut self, form: &AssetForm, open: &[i64]) -> Refreshed {
         let tag = form.asset_tag.trim().to_string();
-        let result = edit::create_asset(
+        let result = edit::create_asset_with(
             &mut self.conn,
             &self.settings.catalog,
             &self.settings.classes,
             &form.record_input(),
             &new_components(form),
             &form.ip_inputs(),
+            &new_lifecycle(form),
             self.services.now(),
         );
         self.after_save(format!("已新增資產 {tag}"), &tag, result, open)
@@ -247,7 +314,7 @@ impl<V: ListView> Workspace<V> {
             classes,
             systems: &self.data.systems,
         };
-        let steps = edit_steps(form, entry, catalog, &ctx);
+        let (steps, needs_match) = edit_steps(form, entry, catalog, &ctx);
         if steps.is_empty() {
             return Refreshed::unchanged(Report::info(format!("{original} 沒有變更")), open);
         }
@@ -255,7 +322,6 @@ impl<V: ListView> Workspace<V> {
         let labels: Vec<String> = steps.iter().map(|(l, _)| l.clone()).collect();
         let done = format!("已儲存 {shown}（{}）", labels.join("、"));
         let ops: Vec<EditOp<'_>> = steps.into_iter().map(|(_, op)| op).collect();
-        let needs_match = ops.iter().any(EditOp::affects_matching);
         let result = edit::apply_edits(
             &mut self.conn,
             catalog,

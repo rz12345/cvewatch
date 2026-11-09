@@ -133,6 +133,7 @@ fn notifier(mail: Endpoint<dyn MailTransport>) -> Notifier {
             ..NotifyConfig::default()
         },
         stale_days: 14,
+        lifecycle: None,
         zone: zone(),
         mail,
         redmine: Endpoint::Disabled,
@@ -270,6 +271,7 @@ fn digest_content_has_five_sections() {
         at("2026-11-06T00:00:00+00:00"),
         at("2026-11-07T00:00:00+00:00"),
         14,
+        None,
     )
     .unwrap();
     assert!(!data.is_empty());
@@ -295,6 +297,7 @@ fn empty_digest_says_nothing_new_with_sync_status() {
         at("2026-11-06T00:00:00+00:00"),
         at("2026-11-07T00:00:00+00:00"),
         14,
+        None,
     )
     .unwrap();
     assert!(data.is_empty());
@@ -320,6 +323,7 @@ fn pending_versions_in_the_digest() {
         at("2026-11-06T00:00:00+00:00"),
         at("2026-11-07T00:00:00+00:00"),
         14,
+        None,
     )
     .unwrap();
     assert!(data.is_empty(), "版本待補不算新事項");
@@ -337,6 +341,7 @@ fn pending_versions_in_the_digest() {
         at("2026-11-06T00:00:00+00:00"),
         at("2026-11-07T00:00:00+00:00"),
         14,
+        None,
     )
     .unwrap();
     let mail = content::digest_mail(&empty, &Default::default(), zone());

@@ -3,6 +3,8 @@
 //! 載入順序：內嵌種子 → `<data_dir>\catalog.d\*.toml`（依檔名排序）。
 
 pub mod file;
+pub mod hardware;
+pub mod lifecycle;
 pub mod normalize;
 pub mod role;
 pub mod scheme;
@@ -13,6 +15,9 @@ use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use file::{CatalogFile, CpeDef, EsxiBuildDef, NameDef, ProductDef};
+use hardware::HardwareBuilder;
+pub use hardware::{HardwareCatalog, HardwareModel};
+pub use lifecycle::EolCycle;
 pub use normalize::{normalize, normalize_vendor};
 pub use role::ComponentRole;
 use scheme::{scheme_by_name, VersionScheme};
@@ -54,6 +59,10 @@ pub struct Product {
     pub csaf: Vec<NamePair>,
     /// 英文描述關鍵字（原始寫法）
     pub keywords: Vec<String>,
+    /// endoflife.date 產品代稱（不影響比對，不納入指紋）
+    pub endoflife: Option<String>,
+    /// 目錄宣告的版本分支 EoL（不影響比對，不納入指紋）
+    pub eol_cycles: Vec<EolCycle>,
 }
 
 impl Product {
@@ -75,6 +84,8 @@ pub struct Catalog {
     by_alias: HashMap<String, usize>,
     /// ESXi build → 版本名稱；後載入的來源覆寫相同 build
     esxi_builds: BTreeMap<u64, String>,
+    /// 硬體型號 EoL 清單（22 design D4）
+    hardware: HardwareCatalog,
 }
 
 fn catalog_error(source: &str, message: impl std::fmt::Display) -> CoreError {
@@ -97,16 +108,21 @@ impl Catalog {
     pub fn from_sources(sources: &[CatalogSource]) -> Result<Self, CoreError> {
         let mut merged: Vec<(ProductDef, String)> = Vec::new();
         let mut esxi_builds = BTreeMap::new();
+        let mut hardware = HardwareBuilder::default();
         for source in sources {
             let parsed: CatalogFile =
                 toml::from_str(&source.text).map_err(|e| catalog_error(&source.name, e))?;
             for def in parsed.product {
                 validate_role(&def, &source.name)?;
+                lifecycle::validate(&def, &source.name)?;
                 merge_into(&mut merged, def, &source.name);
             }
             for def in parsed.esxi_build {
                 let (build, version) = esxi_build(def, &source.name)?;
                 esxi_builds.insert(build, version);
+            }
+            for def in parsed.hardware {
+                hardware.add(def, &source.name)?;
             }
         }
         let products = merged
@@ -115,6 +131,7 @@ impl Catalog {
             .collect::<Result<Vec<_>, _>>()?;
         let mut catalog = index(products)?;
         catalog.esxi_builds = esxi_builds;
+        catalog.hardware = hardware.build()?;
         Ok(catalog)
     }
 
@@ -145,6 +162,11 @@ impl Catalog {
     /// ESXi build 對照表（build → 版本名稱）。
     pub fn esxi_builds(&self) -> &BTreeMap<u64, String> {
         &self.esxi_builds
+    }
+
+    /// 硬體型號 EoL 清單（種子沒有任何型號）。
+    pub fn hardware(&self) -> &HardwareCatalog {
+        &self.hardware
     }
 
     pub fn products(&self) -> &[Product] {
@@ -260,6 +282,8 @@ fn merge_into(merged: &mut Vec<(ProductDef, String)>, def: ProductDef, origin: &
         cna: def.cna.or(existing.cna.take()),
         csaf: def.csaf.or(existing.csaf.take()),
         keywords: def.keywords.or(existing.keywords.take()),
+        endoflife: def.endoflife.or(existing.endoflife.take()),
+        eol_cycles: lifecycle::merge_cycles(existing.eol_cycles.take(), def.eol_cycles),
     };
     *existing = combined;
 }
@@ -301,7 +325,15 @@ fn build_product(def: ProductDef, origin: &str) -> Result<Product, CoreError> {
     let display_name = required(def.display_name, "display_name", &key, origin)?;
     let mut aliases = vec![key.clone(), display_name.clone()];
     aliases.extend(def.aliases);
+    let eol_cycles = def
+        .eol_cycles
+        .unwrap_or_default()
+        .iter()
+        .map(|c| lifecycle::build_cycle(c, &key, origin))
+        .collect::<Result<Vec<_>, _>>()?;
     Ok(Product {
+        endoflife: lifecycle::slug(def.endoflife),
+        eol_cycles,
         vendor_display: required(def.vendor_display, "vendor_display", &key, origin)?,
         cpe: build_cpes(def.cpe.unwrap_or_default(), &key, origin)?,
         cna: name_pairs(def.cna.unwrap_or_default()),
@@ -378,5 +410,6 @@ fn index(products: Vec<Product>) -> Result<Catalog, CoreError> {
         by_key,
         by_alias,
         esxi_builds: BTreeMap::new(),
+        hardware: HardwareCatalog::default(),
     })
 }

@@ -2,6 +2,7 @@
 
 mod detail;
 mod findings;
+mod lifecycle;
 mod overlay;
 mod screens;
 mod settings;
@@ -78,7 +79,11 @@ fn title(app: &App) -> String {
     let sub = match app.view() {
         Some(View::FindingDetail { data, .. }) => format!("命中 #{}", data.finding.row.id),
         Some(View::AssetDetail { asset_tag, .. }) => format!("資產 {asset_tag}"),
-        None => app.screen.title().to_string(),
+        // 生命週期篩選顯示在標題（22 design D11）
+        None => match (app.screen, app.assets_lifecycle_filter) {
+            (Screen::Assets, Some(f)) => format!("資產（生命週期：{}）", f.label()),
+            (screen, _) => screen.title().to_string(),
+        },
     };
     format!(" cvewatch {} {sub} ", app.glyphs.separator)
 }
@@ -160,7 +165,7 @@ fn hint(app: &App) -> String {
             Screen::Findings => {
                 "Enter 詳情  Space 多選  / 搜尋  f 篩選  s 排序  r/i/u 狀態  o 連結  E 匯出"
             }
-            Screen::Assets => "Enter 資產詳情（元件、命中、未辨識產品）",
+            Screen::Assets => "Enter 資產詳情（元件、命中、未辨識產品）  l 生命週期篩選",
             Screen::Pending => "a 套用到資產  d 標為不相關  o 開啟連結  y 複製",
             Screen::SyncLog => "",
             Screen::Settings => {

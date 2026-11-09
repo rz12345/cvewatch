@@ -10,6 +10,8 @@
 //!   （含沒有使用中資產者，16 design D3）
 //! - 識別欄位寫原值（未填為空白）；`ips` 工作表依資產編號、儲存順序每筆 IP 一列
 //!   （20 design D13）
+//! - 生命週期日期寫 `YYYY-MM-DD` 文字；`eol` 工作表寫出使用中資產的硬體覆寫（product 空白）與
+//!   清冊元件覆寫（product 寫顯示名稱，22 design D7、D8）
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -17,6 +19,7 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 
 use super::columns::{SheetKind, StandardField};
+use super::dates::{format_date, format_opt};
 use super::ips::AssetIpRepo;
 use super::model::{Asset, AssetRecord};
 use super::repo::{AssetFilter, AssetRepo};
@@ -41,6 +44,8 @@ pub struct InventoryRows {
     pub systems: Vec<Vec<String>>,
     /// `ips` 工作表（asset_tag、ip、purpose）
     pub ips: Vec<Vec<String>>,
+    /// `eol` 工作表（asset_tag、product、eol、source）
+    pub eol: Vec<Vec<String>>,
     pub warnings: Vec<String>,
 }
 
@@ -139,6 +144,50 @@ fn text(v: &Option<String>) -> String {
     v.clone().unwrap_or_default()
 }
 
+/// 一筆元件覆寫：(product key, 日期, 來源)。
+type OverrideRow = (String, String, String);
+
+/// 使用中清冊元件的軟體 EoL 覆寫：asset_id → 覆寫（依建立順序）。
+fn component_overrides(conn: &Connection) -> Result<HashMap<i64, Vec<OverrideRow>>, CoreError> {
+    let mut stmt = conn.prepare(
+        "SELECT c.asset_id, p.key, c.eol_override, c.eol_override_source FROM component c
+         JOIN catalog_product p ON p.id = c.product_id
+         WHERE c.kind = 'product' AND c.source = 'excel' AND c.removed_at IS NULL
+           AND c.eol_override IS NOT NULL AND c.eol_override_source IS NOT NULL
+         ORDER BY c.asset_id, c.id",
+    )?;
+    let rows = stmt.query_map([], |r| {
+        Ok((r.get::<_, i64>(0)?, (r.get(1)?, r.get(2)?, r.get(3)?)))
+    })?;
+    let mut out: HashMap<i64, Vec<OverrideRow>> = HashMap::new();
+    for row in rows {
+        let (id, item) = row?;
+        out.entry(id).or_default().push(item);
+    }
+    Ok(out)
+}
+
+/// 一個資產的 `eol` 工作表列：硬體覆寫在前，元件覆寫在後。
+fn eol_rows(r: &AssetRecord, catalog: &Catalog, components: Vec<OverrideRow>) -> Vec<Vec<String>> {
+    let hardware = r.hw_eol_override.iter().map(|o| {
+        vec![
+            r.asset_tag.clone(),
+            String::new(),
+            format_date(o.date),
+            o.source.clone(),
+        ]
+    });
+    let software = components.into_iter().map(|(key, date, source)| {
+        vec![
+            r.asset_tag.clone(),
+            product_text(catalog, &key),
+            date,
+            source,
+        ]
+    });
+    hardware.chain(software).collect()
+}
+
 /// `assets` 工作表一列（欄位順序同 [`SheetKind::columns`]）；`first` 為第一個元件。
 pub(crate) fn asset_row(r: &AssetRecord, first: Option<&InventoryItem>) -> Vec<String> {
     let (product, version) = first
@@ -171,6 +220,9 @@ pub(crate) fn asset_row(r: &AssetRecord, first: Option<&InventoryItem>) -> Vec<S
             StandardField::PropertyNumber => text(&r.property_number),
             StandardField::Hostname => text(&r.hostname),
             StandardField::ManagementUrl => text(&r.management_url),
+            StandardField::WarrantyEnd => format_opt(r.warranty_end),
+            StandardField::SupportEnd => format_opt(r.support_end),
+            StandardField::LicenseEnd => format_opt(r.license_end),
             StandardField::Location => text(&r.location),
             StandardField::Notes => text(&r.notes),
             // 停用欄位、舊欄名與其他工作表的欄位不在 columns() 中
@@ -178,7 +230,9 @@ pub(crate) fn asset_row(r: &AssetRecord, first: Option<&InventoryItem>) -> Vec<S
             | StandardField::Owner
             | StandardField::Code
             | StandardField::Ip
-            | StandardField::Purpose => String::new(),
+            | StandardField::Purpose
+            | StandardField::Eol
+            | StandardField::Source => String::new(),
         })
         .collect()
 }
@@ -195,6 +249,7 @@ pub(crate) fn component_rows<'a>(
 pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryRows, CoreError> {
     let assets: Vec<Asset> = AssetRepo::new(conn).list(&AssetFilter::default())?;
     let mut ips = AssetIpRepo::new(conn).all_by_asset()?;
+    let mut overrides = component_overrides(conn)?;
     let mut rows = InventoryRows::default();
     for asset in &assets {
         let r = &asset.record;
@@ -220,6 +275,11 @@ pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryR
                     ]
                 }),
         );
+        rows.eol.extend(eol_rows(
+            r,
+            catalog,
+            overrides.remove(&asset.id).unwrap_or_default(),
+        ));
     }
     rows.systems = SystemRepo::new(conn)
         .list()?
@@ -229,7 +289,7 @@ pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryR
     Ok(rows)
 }
 
-/// `assets`、`components`、`systems`、`ips` 四個工作表（標準欄名表頭）。
+/// `assets`、`components`、`systems`、`ips`、`eol` 五個工作表（標準欄名表頭）。
 pub(crate) fn inventory_sheets(rows: InventoryRows) -> Vec<SheetData<'static>> {
     vec![
         SheetData {
@@ -251,6 +311,11 @@ pub(crate) fn inventory_sheets(rows: InventoryRows) -> Vec<SheetData<'static>> {
             name: SheetKind::Ips.sheet_name(),
             headers: headers(SheetKind::Ips),
             rows: rows.ips,
+        },
+        SheetData {
+            name: SheetKind::Eol.sheet_name(),
+            headers: headers(SheetKind::Eol),
+            rows: rows.eol,
         },
     ]
 }

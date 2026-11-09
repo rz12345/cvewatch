@@ -32,7 +32,12 @@ pub const LONG_NAME: &str = "資訊所機房核心防火牆主機";
 
 /// 外部效果替身（與 GUI 測試共用，見 `cvewatch_frontend::test_support`）。
 pub fn services(rec: &Recorder) -> Services {
-    test_support::services(rec, at(NOW))
+    services_at(rec, NOW)
+}
+
+/// 時鐘固定在 `now`（RFC 3339）的外部效果替身。
+pub fn services_at(rec: &Recorder, now: &str) -> Services {
+    test_support::services(rec, at(now))
 }
 
 /// 以 World 的資料庫與設定開啟 App（Unicode 框線）。
@@ -44,8 +49,23 @@ pub fn app_with_glyphs(world: World, glyphs: glyphs::Glyphs) -> (App, Recorder) 
     app_with_config(world, glyphs, &cvewatch_core::config::example_config())
 }
 
+/// 以指定的時鐘開啟 App（生命週期以此時間在 UTC 顯示時區的日期為今天）。
+pub fn app_at(world: World, now: &str) -> (App, Recorder) {
+    let config = cvewatch_core::config::example_config();
+    app_with_config_at(world, glyphs::UNICODE, &config, now)
+}
+
 /// 以指定的設定檔內容開啟 App（設定檔寫入臨時目錄，設定畫面寫回此檔）。
 pub fn app_with_config(world: World, glyphs: glyphs::Glyphs, config_text: &str) -> (App, Recorder) {
+    app_with_config_at(world, glyphs, config_text, NOW)
+}
+
+fn app_with_config_at(
+    world: World,
+    glyphs: glyphs::Glyphs,
+    config_text: &str,
+    now: &str,
+) -> (App, Recorder) {
     let rec = Recorder::default();
     std::fs::write(rec.config_path(), config_text).expect("write config");
     let (config, _) =
@@ -59,8 +79,9 @@ pub fn app_with_config(world: World, glyphs: glyphs::Glyphs, config_text: &str) 
             classes: world.classes,
             scoring: world.settings.scoring.clone(),
             stale_days: world.settings.stale_days,
+            reminder_days: cvewatch_core::lifecycle::DEFAULT_REMINDER_DAYS,
         },
-        services: services(&rec),
+        services: services_at(&rec, now),
     };
     let ctx = Context { base, glyphs };
     (App::new(ctx).expect("app"), rec)

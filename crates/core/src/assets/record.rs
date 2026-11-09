@@ -6,6 +6,7 @@ use super::columns::StandardField;
 use super::model::{AssetRecord, Exposure};
 use super::record_admin::{parse_compliance, parse_personal_data, resolve_system};
 use super::record_identity::parse_identity;
+use super::record_lifecycle::parse_dates;
 use super::systems::SystemDirectory;
 
 /// 單筆資產欄位的原始輸入（清冊儲存格或畫面輸入框）；前後空白在驗證時去除。
@@ -39,6 +40,10 @@ pub struct RecordInput<'a> {
     pub property_number: &'a str,
     pub hostname: &'a str,
     pub management_url: &'a str,
+    /// 生命週期日期（22 design D8；空白為未填）
+    pub warranty_end: &'a str,
+    pub support_end: &'a str,
+    pub license_end: &'a str,
     pub location: &'a str,
     pub notes: &'a str,
 }
@@ -67,6 +72,9 @@ impl RecordInput<'_> {
             StandardField::PropertyNumber => self.property_number,
             StandardField::Hostname => self.hostname,
             StandardField::ManagementUrl => self.management_url,
+            StandardField::WarrantyEnd => self.warranty_end,
+            StandardField::SupportEnd => self.support_end,
+            StandardField::LicenseEnd => self.license_end,
             StandardField::Location => self.location,
             StandardField::Notes => self.notes,
             StandardField::Product
@@ -74,7 +82,9 @@ impl RecordInput<'_> {
             | StandardField::Criticality
             | StandardField::Code
             | StandardField::Ip
-            | StandardField::Purpose => "",
+            | StandardField::Purpose
+            | StandardField::Eol
+            | StandardField::Source => "",
         }
     }
 }
@@ -226,6 +236,7 @@ fn validate_with(
     let compliance = parse_compliance(input.compliance.trim(), &mut errors);
     let personal_data = parse_personal_data(input.personal_data.trim(), class, &mut errors);
     let identity = parse_identity(input, &mut errors);
+    let dates = parse_dates(input, &mut errors);
     match (errors.is_empty(), resolved, cia, personal_data) {
         (true, Some(resolved), Some(cia), Some(personal_data)) => Ok(ValidRecord {
             record: AssetRecord {
@@ -248,6 +259,11 @@ fn validate_with(
                 property_number: identity.property_number,
                 hostname: identity.hostname,
                 management_url: identity.management_url,
+                warranty_end: dates.warranty_end,
+                support_end: dates.support_end,
+                license_end: dates.license_end,
+                // 硬體覆寫不在資產欄位中輸入：清冊由 eol 工作表、畫面由生命週期區塊另外帶入
+                hw_eol_override: None,
                 notes: optional_text(input.notes),
             },
             legacy: resolved.legacy,

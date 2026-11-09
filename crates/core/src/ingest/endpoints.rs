@@ -16,6 +16,8 @@ pub struct Endpoints {
     pub epss: String,
     /// OSV API base，例如 `https://api.osv.dev/v1`
     pub osv: String,
+    /// endoflife.date API v1 base（22 design D1）
+    pub endoflife: String,
 }
 
 impl Default for Endpoints {
@@ -29,6 +31,7 @@ impl Default for Endpoints {
                 .into(),
             epss: "https://api.first.org/data/v1/epss".into(),
             osv: "https://api.osv.dev/v1".into(),
+            endoflife: "https://endoflife.date/api/v1".into(),
         }
     }
 }
@@ -45,6 +48,7 @@ impl Endpoints {
             kev: format!("{base}/kev.json"),
             epss: format!("{base}/epss"),
             osv: format!("{base}/osv"),
+            endoflife: format!("{base}/eol"),
         }
     }
 
@@ -53,6 +57,11 @@ impl Endpoints {
             "{}/repos/{CVELIST_REPO}/releases?per_page={per_page}",
             self.github_api
         )
+    }
+
+    /// `GET /products/{slug}`（代稱已在目錄載入時驗證為 `[a-z0-9-]+`，不需要跳脫）。
+    pub fn endoflife_product_url(&self, slug: &str) -> String {
+        format!("{}/products/{slug}", self.endoflife)
     }
 
     pub fn download_url(&self, tag: &str, asset: &str) -> String {
@@ -112,5 +121,13 @@ mod tests {
         assert!(e
             .releases_url(30)
             .starts_with("http://127.0.0.1:9/gh-api/repos/"));
+        assert_eq!(
+            e.endoflife_product_url("panos"),
+            "http://127.0.0.1:9/eol/products/panos"
+        );
+        assert_eq!(
+            Endpoints::default().endoflife_product_url("panos"),
+            "https://endoflife.date/api/v1/products/panos"
+        );
     }
 }

@@ -1,6 +1,6 @@
 //! 對話框：忽略原因與理由（[`reason`]）、備註（[`note`]）、等待區套用目標（[`pending_target`]）、
 //! 未儲存變更確認（[`confirm_leave`]）、清冊匯入（[`import`]）、資產編輯（[`asset_edit`]、
-//! [`asset_admin`]、[`asset_components`]、產品選擇器 [`product_picker`]）、資產說明管理
+//! [`asset_admin`]、[`asset_components`]、[`asset_lifecycle`]、產品選擇器 [`product_picker`]）、資產說明管理
 //! （[`asset_systems`]）、退役與永久刪除確認（[`purge`]）。
 //!
 //! 對話框只回傳 [`Outcome`]；寫入由 `GuiApp` 經 `Workspace` 執行。
@@ -9,6 +9,7 @@ pub mod asset_admin;
 pub mod asset_components;
 pub mod asset_edit;
 pub mod asset_identity;
+pub mod asset_lifecycle;
 pub mod asset_systems;
 pub mod confirm_leave;
 pub mod import;

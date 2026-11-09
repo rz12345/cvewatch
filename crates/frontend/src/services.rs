@@ -89,11 +89,25 @@ impl DisplayTz {
             DisplayTz::Fixed(offset) => t.with_timezone(&offset).format(fmt).to_string(),
         }
     }
+
+    /// 該時區的日曆日（生命週期的「今天」）。
+    pub fn date(self, t: DateTime<Utc>) -> chrono::NaiveDate {
+        let offset = match self {
+            DisplayTz::Local => None,
+            DisplayTz::Fixed(offset) => Some(offset),
+        };
+        cvewatch_core::assets::dates::calendar_date(t, offset)
+    }
 }
 
 impl Services {
     pub fn now(&self) -> DateTime<Utc> {
         (self.clock)()
+    }
+
+    /// 顯示時區的今天（EoL 與到期日以使用者的日曆日判斷）。
+    pub fn today(&self) -> chrono::NaiveDate {
+        self.tz.date(self.now())
     }
 }
 

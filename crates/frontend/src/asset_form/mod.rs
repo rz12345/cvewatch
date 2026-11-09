@@ -9,6 +9,7 @@ mod admin;
 mod conflicts;
 mod errors;
 mod identity;
+mod lifecycle;
 
 pub use conflicts::{isms_conflict, rename_conflict};
 
@@ -22,6 +23,11 @@ use errors::field_message;
 pub use identity::{
     hostname_too_long, property_number_conflict, IpDraft, HOSTNAME_FORMAT, IP_INVALID, IP_REQUIRED,
     IP_SINGLE_ADDRESS, MANAGEMENT_URL_FORMAT, URL_CREDENTIALS,
+};
+
+pub use lifecycle::{
+    override_texts, EolDraft, LifecycleDraft, DATE_INVALID, EOL_ERROR_PREFIX,
+    OVERRIDE_DATE_REQUIRED, OVERRIDE_SOURCE_REQUIRED,
 };
 
 pub use admin::{
@@ -62,6 +68,8 @@ pub struct ComponentDraft {
     pub package: bool,
     /// 已按「移除」（儲存時才寫入）
     pub removed: bool,
+    /// 軟體 EoL 覆寫（22 design D11；套件元件不使用）
+    pub eol: EolDraft,
 }
 
 impl ComponentDraft {
@@ -83,6 +91,7 @@ impl ComponentDraft {
             original_version: None,
             package: false,
             removed: false,
+            eol: EolDraft::default(),
         }
     }
 
@@ -151,6 +160,8 @@ pub struct AssetForm {
     pub unresolved: Vec<UnresolvedDraft>,
     /// IP 列（完全空白的列儲存時忽略）
     pub ips: Vec<IpDraft>,
+    /// 生命週期日期與硬體 EoL 覆寫（22 design D11）
+    pub lifecycle: LifecycleDraft,
 }
 
 /// 新增時的預設值（與清冊匯入相同：曝露度 internal、C/I/A 依類別）。
@@ -192,6 +203,7 @@ impl AssetForm {
             components: Vec::new(),
             unresolved: Vec::new(),
             ips: Vec::new(),
+            lifecycle: LifecycleDraft::default(),
         }
     }
 
@@ -233,6 +245,7 @@ impl AssetForm {
             location: text(&r.location),
             notes: text(&r.notes),
             ips: entry.ips.iter().map(IpDraft::from_ip).collect(),
+            lifecycle: LifecycleDraft::from_record(r),
             components: entry
                 .components
                 .iter()
@@ -243,6 +256,7 @@ impl AssetForm {
                     original_version: Some(c.version_raw.clone()),
                     package: !c.is_inventory_product(),
                     removed: false,
+                    eol: EolDraft::from_override(c.eol_override.as_ref()),
                 })
                 .collect(),
             unresolved: entry
@@ -299,6 +313,9 @@ impl AssetForm {
             property_number: &self.property_number,
             hostname: &self.hostname,
             management_url: &self.management_url,
+            warranty_end: &self.lifecycle.warranty_end,
+            support_end: &self.lifecycle.support_end,
+            license_end: &self.lifecycle.license_end,
             location: &self.location,
             notes: &self.notes,
         }
@@ -377,10 +394,18 @@ impl AssetForm {
             errors.fields = fields.iter().map(|e| (e.field, field_message(e))).collect();
         }
         errors.ips = self.ip_errors();
+        if let Err(e) = self.lifecycle.hardware_override() {
+            errors.fields.push(e);
+        }
         let mut seen: Vec<&str> = Vec::new();
         for (i, c) in self.components.iter().enumerate() {
             if !c.is_kept_product() {
                 continue;
+            }
+            if let Err((_, message)) = c.eol.parsed() {
+                errors
+                    .components
+                    .push((i, format!("{EOL_ERROR_PREFIX}{message}")));
             }
             // 已知版本不能清成空白、新加入的元件須填版本；未修改的待補元件可以儲存
             if c.version.trim().is_empty() && !c.is_untouched_pending() {

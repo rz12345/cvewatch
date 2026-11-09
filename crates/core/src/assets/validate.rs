@@ -8,10 +8,12 @@ use super::classes::AssetClasses;
 use super::columns::{ColumnMap, SheetKind, StandardField, KEEPABLE_FIELDS};
 use super::model::AssetRecord;
 use super::sheet::{Sheet, SheetRow, Workbook};
+use super::validate_eol::parse_eol;
 use super::validate_ips::parse_ips;
 use super::validate_systems::parse_systems;
 use crate::error::CoreError;
 
+pub use super::validate_eol::{EolInput, IncomingEol};
 pub use super::validate_ips::IpsInput;
 pub use super::validate_systems::IncomingSystem;
 
@@ -37,6 +39,7 @@ impl fmt::Display for RowRef {
             SheetKind::Components => write!(f, "components 工作表第 {} 列", self.number),
             SheetKind::Systems => write!(f, "systems 工作表第 {} 列", self.number),
             SheetKind::Ips => write!(f, "ips 工作表第 {} 列", self.number),
+            SheetKind::Eol => write!(f, "eol 工作表第 {} 列", self.number),
         }
     }
 }
@@ -100,12 +103,19 @@ pub struct Inventory {
     pub kept_fields: BTreeSet<StandardField>,
     /// `ips` 工作表的 IP（20 design D5；預設為不處理）
     pub ips: IpsInput,
+    /// `eol` 工作表的 EoL 覆寫（22 design D7；預設為不處理）
+    pub eol: EolInput,
 }
 
 impl Inventory {
     /// 某欄是否因清冊沒有而保留既有值。
     pub fn keeps(&self, field: StandardField) -> bool {
         self.kept_fields.contains(&field)
+    }
+
+    /// 不處理生命週期欄位（ISMS 匯入：保留既有日期與覆寫，不提醒）。
+    pub fn lifecycle_untouched(&self) -> bool {
+        matches!(self.eol, EolInput::Untouched)
     }
 }
 
@@ -185,6 +195,15 @@ pub fn parse_inventory(
         }
         None => IpsInput::Missing,
     };
+    let eol = match &book.eol {
+        Some(sheet) => {
+            let cols = columns.locate(&sheet.headers, SheetKind::Eol)?;
+            let incoming: HashSet<String> =
+                assets.iter().map(|a| a.record.asset_tag.clone()).collect();
+            EolInput::Sheet(parse_eol(sheet, &cols, &incoming, &known, &mut errors))
+        }
+        None => EolInput::Missing,
+    };
     if !errors.is_empty() {
         return Err(CoreError::ImportRejected(errors));
     }
@@ -198,6 +217,7 @@ pub fn parse_inventory(
         notices,
         kept_fields,
         ips,
+        eol,
     })
 }
 
@@ -283,6 +303,9 @@ fn row_input<'a>(r: &'a RowReader<'_>) -> RecordInput<'a> {
         property_number: r.get(StandardField::PropertyNumber),
         hostname: r.get(StandardField::Hostname),
         management_url: r.get(StandardField::ManagementUrl),
+        warranty_end: r.get(StandardField::WarrantyEnd),
+        support_end: r.get(StandardField::SupportEnd),
+        license_end: r.get(StandardField::LicenseEnd),
         location: r.get(StandardField::Location),
         notes: r.get(StandardField::Notes),
     }
@@ -419,6 +442,7 @@ mod tests {
 
     fn parse(rows: &[&[&str]]) -> Result<Inventory, CoreError> {
         let book = Workbook {
+            eol: None,
             assets: sheet(&HEADERS, rows),
             components: None,
             systems: None,

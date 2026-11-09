@@ -84,8 +84,9 @@ impl App {
 
     /// 重新載入後：修正各清單游標、更新或關閉開啟中的詳情，並顯示結果。
     fn apply_refresh(&mut self, r: Refreshed) {
+        let assets = self.visible_assets().len();
+        self.assets_cursor = self.assets_cursor.min(assets.saturating_sub(1));
         let data = &self.ws.data;
-        self.assets_cursor = self.assets_cursor.min(data.assets.len().saturating_sub(1));
         self.pending_cursor = self
             .pending_cursor
             .min(data.pending.len().saturating_sub(1));

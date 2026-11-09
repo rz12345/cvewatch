@@ -1,4 +1,4 @@
-//! `cvewatch sync` 的來源排程：`cvelist → nvd → csaf:* → kev → epss → osv`。
+//! `cvewatch sync` 的來源排程：`cvelist → nvd → csaf:* → kev → epss → osv → eol`。
 //!
 //! 每個來源各自交易、各自寫 `sync_run`；失敗的來源保留先前資料與游標，其他來源照常進行，
 //! 最後以 [`SyncReport::exit_code`] 回報（有任何失敗 → 結束碼 4）。
@@ -7,12 +7,12 @@ use rusqlite::Connection;
 
 use super::csaf::{self, AdvisorySource, CsafReader};
 use super::source::{SyncCtx, SyncStats};
-use super::{cvelist, epss, kev, nvd, osv, runlog};
+use super::{cvelist, eol, epss, kev, nvd, osv, runlog};
 use crate::config::{CsafSourceConfig, SourcesConfig};
 use crate::error::{CoreError, ExitCode};
 
 /// `--source` 可用的名稱（另可用 `csaf:<id>`）。
-pub const SOURCE_NAMES: [&str; 6] = ["cvelist", "nvd", "csaf", "kev", "epss", "osv"];
+pub const SOURCE_NAMES: [&str; 7] = ["cvelist", "nvd", "csaf", "kev", "epss", "osv", "eol"];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SourceKind {
@@ -22,6 +22,8 @@ pub enum SourceKind {
     Kev,
     Epss,
     Osv,
+    /// endoflife.date（與 CVE 無關，最後執行；22 design D2）
+    Eol,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -108,6 +110,9 @@ pub fn plan(sources: &SourcesConfig, selected: &[String]) -> Result<Vec<SourcePl
     if wanted("osv", sources.osv_enabled) {
         push("osv".into(), SourceKind::Osv);
     }
+    if wanted("eol", sources.eol_enabled) {
+        push("eol".into(), SourceKind::Eol);
+    }
     Ok(out)
 }
 
@@ -128,6 +133,7 @@ async fn run_one(
         SourceKind::Kev => kev::sync(ctx, conn).await,
         SourceKind::Epss => epss::sync(ctx, conn).await,
         SourceKind::Osv => osv::sync(ctx, conn).await,
+        SourceKind::Eol => eol::sync(ctx, conn).await,
     }
 }
 
@@ -179,7 +185,15 @@ mod tests {
         let p = plan(&SourcesConfig::default(), &[]).unwrap();
         assert_eq!(
             names(&p),
-            vec!["cvelist", "nvd", "csaf:paloalto", "kev", "epss", "osv"]
+            vec![
+                "cvelist",
+                "nvd",
+                "csaf:paloalto",
+                "kev",
+                "epss",
+                "osv",
+                "eol"
+            ]
         );
     }
 
@@ -188,6 +202,7 @@ mod tests {
         let cfg = SourcesConfig {
             nvd_enabled: false,
             osv_enabled: false,
+            eol_enabled: false,
             ..SourcesConfig::default()
         };
         assert_eq!(
@@ -195,6 +210,7 @@ mod tests {
             vec!["cvelist", "csaf:paloalto", "kev", "epss"]
         );
         assert_eq!(names(&plan(&cfg, &["nvd".into()]).unwrap()), vec!["nvd"]);
+        assert_eq!(names(&plan(&cfg, &["eol".into()]).unwrap()), vec!["eol"]);
         let no_pa = SourcesConfig {
             paloalto_enabled: false,
             ..SourcesConfig::default()

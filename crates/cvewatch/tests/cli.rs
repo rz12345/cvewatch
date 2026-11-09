@@ -359,6 +359,12 @@ fn sync_and_cve_help_list_options() {
 {text}"
         );
     }
+    // 22 任務 7.3：來源清單含 eol
+    assert!(
+        text.contains("osv、eol"),
+        "sync --help 缺少 eol：
+{text}"
+    );
     for sub in ["show", "search"] {
         cvewatch().args(["cve", sub, "--help"]).assert().success();
     }

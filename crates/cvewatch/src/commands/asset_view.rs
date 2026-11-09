@@ -83,6 +83,7 @@ pub fn plan_detail_lines_with(plan: &ImportPlan, fields: FieldDetail<'_>) -> Vec
         if let Some(c) = &u.ip_change {
             notes.push(format!("IP {}", c.describe()));
         }
+        notes.extend(u.eol_changes.iter().map(|c| c.describe()));
         if !u.components_added.is_empty() {
             notes.push(format!("新增元件：{}", u.components_added.join("、")));
         }
@@ -208,6 +209,20 @@ pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
     for line in identity_lines(r, &AssetIpRepo::new(&conn).for_asset(asset.id)?) {
         println!("  {line}");
     }
+    let repo = ComponentRepo::new(&conn);
+    let components = repo.for_asset(asset.id)?;
+    let window = app.loaded.config.lifecycle.reminder_days;
+    let lifecycle = cvewatch_core::lifecycle::evaluate(
+        &asset,
+        &components,
+        &catalog,
+        &cvewatch_core::lifecycle::load_eol(&conn)?,
+        cvewatch_core::lifecycle::local_today(),
+        window,
+    );
+    for line in super::lifecycle_view::lifecycle_lines(&lifecycle, window) {
+        println!("  {line}");
+    }
     for (label, value) in [("地點", &r.location), ("備註", &r.notes)] {
         if let Some(v) = value {
             println!("  {label}：{v}");
@@ -220,8 +235,6 @@ pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
     if let Some(at) = &asset.retired_at {
         println!("  退役於 {at}");
     }
-    let repo = ComponentRepo::new(&conn);
-    let components = repo.for_asset(asset.id)?;
     let history = repo.history_for_asset(asset.id)?;
     let unresolved: Vec<_> = AssetRepo::new(&conn)
         .unresolved()?
@@ -358,6 +371,9 @@ fn print_product(p: &Product) {
             p.keywords.join("、")
         }
     );
+    for line in super::lifecycle_view::catalog_lifecycle_lines(p) {
+        println!("{line}");
+    }
 }
 
 pub fn catalog_unresolved(app: &App) -> Result<ExitCode, CoreError> {

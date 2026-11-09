@@ -81,6 +81,7 @@ fn notifier(e: &Env, script: Vec<(u16, String)>) -> (Notifier, Requests) {
     let n = Notifier {
         config: cfg,
         stale_days: 14,
+        lifecycle: None,
         zone: Zone::Local,
         mail: Endpoint::Disabled,
         redmine: Endpoint::Ready(Box::new(api)),
@@ -528,6 +529,7 @@ fn missing_api_key_keeps_items_queued_without_using_attempts() {
     let n = Notifier {
         config: notify_cfg(443, None),
         stale_days: 14,
+        lifecycle: None,
         zone: Zone::Local,
         mail: Endpoint::Disabled,
         redmine: Endpoint::Broken("Credential Manager 中沒有 redmine_api_key".into()),

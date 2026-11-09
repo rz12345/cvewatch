@@ -206,8 +206,11 @@ fn asset_without_a_management_address() {
     select_asset(&mut h, "NAS-01");
     assert!(shows(&h, "主機名稱 -｜管理介面位址"));
     assert!(shows(&h, "IP -"));
+    // 生命週期區塊（在識別欄位之後）的來源網址不是管理介面連結（22 design D11）
+    let lifecycle_top = h.get_by_label_contains("生命週期（提醒").rect().top();
     assert!(
-        h.query_all_by_label_contains("http").next().is_none(),
+        h.query_all_by_label_contains("http")
+            .all(|n| n.rect().top() > lifecycle_top),
         "不顯示連結"
     );
 }

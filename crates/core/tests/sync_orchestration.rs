@@ -105,7 +105,15 @@ async fn nvd_failure_does_not_stop_other_sources() {
     let names: Vec<&str> = report.outcomes.iter().map(|o| o.name.as_str()).collect();
     assert_eq!(
         names,
-        vec!["cvelist", "nvd", "csaf:paloalto", "kev", "epss", "osv"]
+        vec![
+            "cvelist",
+            "nvd",
+            "csaf:paloalto",
+            "kev",
+            "epss",
+            "osv",
+            "eol"
+        ]
     );
 
     // 其他來源已更新
@@ -133,8 +141,8 @@ async fn nvd_failure_does_not_stop_other_sources() {
     assert!(nvd.finished_at.is_some());
     assert_eq!(
         runs.iter().filter(|r| r.status == "success").count(),
-        5,
-        "{runs:?}"
+        6,
+        "{runs:?}（eol 沒有要查詢的代稱，仍成功）"
     );
 }
 

@@ -120,11 +120,16 @@ mod tests {
                 property_number: None,
                 hostname: None,
                 management_url: None,
+                warranty_end: None,
+                support_end: None,
+                license_end: None,
+                hw_eol_override: None,
                 notes: None,
             },
             status: AssetStatus::Active,
             components: Default::default(),
             ips: vec![ip.clone()],
+            component_eol: Default::default(),
         };
         assert_eq!(ip_change(&existing, Some(std::slice::from_ref(&ip))), None);
         assert_eq!(ip_change(&existing, None), None);

@@ -25,6 +25,7 @@ fn open(w: World) -> (Workspace, Recorder) {
             classes: w.classes,
             scoring: w.settings.scoring.clone(),
             stale_days: w.settings.stale_days,
+            reminder_days: cvewatch_core::lifecycle::DEFAULT_REMINDER_DAYS,
         },
         config: cvewatch_core::config::Config::default(),
         config_path: rec.config_path(),

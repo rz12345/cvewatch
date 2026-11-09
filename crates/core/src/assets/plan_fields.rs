@@ -74,6 +74,11 @@ pub fn field_label(field: StandardField) -> &'static str {
         StandardField::PropertyNumber => "財產編號",
         StandardField::Hostname => "主機名稱",
         StandardField::ManagementUrl => "管理介面位址",
+        StandardField::WarrantyEnd => "保固到期",
+        StandardField::SupportEnd => "維護合約到期",
+        StandardField::LicenseEnd => "軟體授權到期",
+        StandardField::Eol => "EoL",
+        StandardField::Source => "來源",
         StandardField::Location => "地點",
         StandardField::Notes => "備註",
         StandardField::Criticality => "重要性",
@@ -96,6 +101,11 @@ fn opt(field: StandardField, v: &Option<String>) -> (StandardField, String, Stri
     value(field, format!("{v:?}"), text(v))
 }
 
+fn date(field: StandardField, v: Option<chrono::NaiveDate>) -> (StandardField, String, String) {
+    let shown = v.map_or_else(|| BLANK_VALUE.to_string(), super::dates::format_date);
+    value(field, format!("{v:?}"), shown)
+}
+
 fn yes_no(v: bool) -> String {
     if v { "是" } else { "否" }.to_string()
 }
@@ -106,7 +116,7 @@ pub(super) fn changed_fields(old: &AssetRecord, new: &AssetRecord) -> Vec<FieldC
     use StandardField as F;
     let rated = |v: Option<u8>| v.map_or_else(|| UNRATED_VALUE.to_string(), |n| n.to_string());
     let same = |f: F, s: String| value(f, s.clone(), s);
-    let values = |r: &AssetRecord| -> [(F, String, String); 21] {
+    let values = |r: &AssetRecord| -> [(F, String, String); 24] {
         [
             same(F::Name, r.name.clone()),
             same(F::Category, r.category.as_str().to_string()),
@@ -132,6 +142,9 @@ pub(super) fn changed_fields(old: &AssetRecord, new: &AssetRecord) -> Vec<FieldC
             opt(F::PropertyNumber, &r.property_number),
             opt(F::Hostname, &r.hostname),
             opt(F::ManagementUrl, &r.management_url),
+            date(F::WarrantyEnd, r.warranty_end),
+            date(F::SupportEnd, r.support_end),
+            date(F::LicenseEnd, r.license_end),
             opt(F::Notes, &r.notes),
         ]
     };
@@ -170,6 +183,10 @@ mod tests {
             property_number: None,
             hostname: None,
             management_url: None,
+            warranty_end: None,
+            support_end: None,
+            license_end: None,
+            hw_eol_override: None,
             notes: None,
         }
     }

@@ -64,6 +64,7 @@ mod tests {
             version_norm: None,
             source: ComponentSource::Excel,
             updated_at: "2026-11-09T00:00:00+00:00".into(),
+            eol_override: None,
         }
     }
 
@@ -79,6 +80,7 @@ mod tests {
             version_norm: None,
             source: ComponentSource::Dpkg,
             updated_at: "2026-11-09T00:00:00+00:00".into(),
+            eol_override: None,
         }
     }
 

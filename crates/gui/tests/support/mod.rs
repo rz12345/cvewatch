@@ -179,6 +179,7 @@ pub fn app(world: World, setup: Setup) -> (GuiApp, Fakes) {
             classes: world.classes,
             scoring: world.settings.scoring.clone(),
             stale_days: world.settings.stale_days,
+            reminder_days: cvewatch_core::lifecycle::DEFAULT_REMINDER_DAYS,
         },
         services: test_support::services(&rec, at(NOW)),
     };

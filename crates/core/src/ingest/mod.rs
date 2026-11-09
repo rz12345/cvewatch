@@ -1,4 +1,5 @@
-//! CVE 資料同步：cvelistV5（主要）、NVD、CISA KEV、FIRST EPSS、OSV 與原廠 CSAF 公告。
+//! CVE 資料同步：cvelistV5（主要）、NVD、CISA KEV、FIRST EPSS、OSV 與原廠 CSAF 公告；
+//! 另有與 CVE 無關的 endoflife.date 軟體 EoL（`eol`，最後執行）。
 //!
 //! 每個來源各自的游標、交易與 `sync_run` 紀錄；任一來源失敗不影響其他來源。
 
@@ -10,6 +11,7 @@ pub mod cve5;
 pub mod cvelist;
 pub mod cvss;
 pub mod endpoints;
+pub mod eol;
 pub mod epss;
 pub mod kev;
 pub mod nvd;

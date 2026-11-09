@@ -7,6 +7,9 @@
 //! 元件表格依目錄角色分組（21 design D5）：每組先有一列粗體組名，接著該組各列；主機套件在最後的
 //! 「套件」組。新加入的元件仍加在草稿最後，只在顯示時排入其組；版本欄的 id、欄位錯誤、焦點與
 //! 移除都沿用草稿的原索引，所以分組不影響加入元件後的焦點與錯誤對應。
+//!
+//! 每個清冊元件列的「EoL 覆寫…」開啟軟體 EoL 覆寫的小對話框（[`super::asset_lifecycle`]，
+//! 22 design D11），按鈕後顯示目前的覆寫。
 
 use cvewatch_core::catalog::Catalog;
 use cvewatch_frontend::asset_form::{ComponentDraft, UnresolvedAction};
@@ -15,6 +18,7 @@ use cvewatch_frontend::display::{product_name, version_text, PENDING_NOTE, PENDI
 use eframe::egui;
 
 use super::asset_edit::AssetEdit;
+use super::asset_lifecycle::{override_summary, ComponentEol, EOL_OVERRIDE_BUTTON};
 use super::product_picker::{product_picker, Picked, PickerButton, PickerMode};
 use crate::screens::ALERT;
 use crate::text::one_line;
@@ -38,9 +42,10 @@ pub(super) fn components(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Cata
     let errors = edit.errors.clone();
     let focus = edit.focus_version.take();
     let mut dropped = None;
+    let mut eol = None;
     let groups = group_drafts(catalog, &edit.form.components);
     egui::Grid::new("asset-components")
-        .num_columns(3)
+        .num_columns(4)
         // 組名列會打亂條紋的交替，改以組名區隔（21 design D5）
         .striped(false)
         .show(ui, |ui| {
@@ -49,12 +54,15 @@ pub(super) fn components(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Cata
                 ui.label(egui::RichText::new(group.label()).strong());
                 ui.label("");
                 ui.label("");
+                ui.label("");
                 ui.end_row();
                 for i in indices {
                     let d = &mut edit.form.components[i];
                     let name = one_line(&d.name(catalog));
-                    if component_row(ui, d, i, &name, focus == Some(i)) {
-                        dropped = Some(i);
+                    match component_row(ui, d, i, &name, focus == Some(i)) {
+                        Some(RowAction::Drop) => dropped = Some(i),
+                        Some(RowAction::EditEol) => eol = Some(i),
+                        None => {}
                     }
                     ui.end_row();
                     for msg in errors.component(i) {
@@ -65,6 +73,9 @@ pub(super) fn components(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Cata
                 }
             }
         });
+    if let Some(i) = eol {
+        edit.eol_dialog = ComponentEol::open(edit, i, catalog);
+    }
     if let Some(i) = dropped {
         // 尚未儲存的新元件直接拿掉（錯誤的列索引隨之失效）
         edit.form.components.remove(i);
@@ -72,29 +83,39 @@ pub(super) fn components(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Cata
     }
 }
 
-/// 第 `row` 列元件；回傳 true 表示要拿掉這個尚未儲存的新元件。`focus` 時版本欄取得輸入焦點。
+/// 元件列的操作。
+enum RowAction {
+    /// 拿掉尚未儲存的新元件
+    Drop,
+    /// 開啟 EoL 覆寫小對話框
+    EditEol,
+}
+
+/// 第 `row` 列元件（名稱、版本、EoL 覆寫、移除）。`focus` 時版本欄取得輸入焦點。
 fn component_row(
     ui: &mut egui::Ui,
     d: &mut ComponentDraft,
     row: usize,
     name: &str,
     focus: bool,
-) -> bool {
+) -> Option<RowAction> {
     if d.package {
         ui.label(name);
         ui.label(one_line(&d.version));
         ui.weak(PACKAGE_NOTE);
-        return false;
+        ui.label("");
+        return None;
     }
     let l = ui
         .label(format!("{name} 版本"))
         .on_hover_text(format!("產品 key：{}", d.product_key));
     if d.removed {
         ui.weak(format!("{}（儲存時移除）", one_line(&d.version)));
+        ui.label("");
         if ui.button(format!("復原 {name}")).clicked() {
             d.removed = false;
         }
-        return false;
+        return None;
     }
     let pending = d.is_untouched_pending();
     let field = ui
@@ -116,13 +137,30 @@ fn component_row(
     } else if focus {
         field.request_focus();
     }
+    let mut action = eol_cell(ui, d, name).then_some(RowAction::EditEol);
     if ui.button(format!("移除 {name}")).clicked() {
         if d.id.is_none() {
-            return true;
+            action = Some(RowAction::Drop);
+        } else {
+            d.removed = true;
         }
-        d.removed = true;
     }
-    false
+    action
+}
+
+/// 「EoL 覆寫…」按鈕與目前的覆寫（同一格）；回傳是否按下按鈕。
+fn eol_cell(ui: &mut egui::Ui, d: &ComponentDraft, name: &str) -> bool {
+    ui.horizontal(|ui| {
+        let clicked = ui
+            .button(EOL_OVERRIDE_BUTTON)
+            .on_hover_text(format!("設定或清除 {name} 的軟體 EoL 覆寫（日期與來源）"))
+            .clicked();
+        if let Some(summary) = override_summary(&d.eol) {
+            ui.weak(one_line(&summary));
+        }
+        clicked
+    })
+    .inner
 }
 
 pub(super) fn unresolved(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Catalog) {

@@ -1,5 +1,6 @@
 ---
 source: crates/frontend/src/settings/save.rs
+assertion_line: 213
 expression: out
 ---
 # cvewatch 設定檔
@@ -19,6 +20,7 @@ user_agent = "cvewatch/0.1.0 (+internal tool)"
 nvd_enabled = true
 osv_enabled = true
 paloalto_enabled = true     # 內建 Palo Alto CSAF 公告（RSS）
+eol_enabled = true          # endoflife.date 的軟體版本分支 EoL（`cvewatch sync --source eol`）
 
 # 新增提供 CSAF 2.0 公告的原廠（不需更新程式）：
 # [[sources.csaf]]
@@ -66,6 +68,10 @@ exposure_bump = ["internet", "dmz"]
 
 [pending]
 stale_days = 60    # 在等待區超過此天數標為逾期
+
+[lifecycle]
+# EoL 與保固／維護合約／軟體授權到期的提前提醒天數（1–3650）；畫面標示與每日摘要共用
+reminder_days = 90
 
 [notify]
 # 緊急：未處理命中的 CVE 列入 KEV，或 CVSS ≥ urgent_cvss。sync 後立即寄信並在 Redmine 開案。

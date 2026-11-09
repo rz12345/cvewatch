@@ -58,6 +58,7 @@ pub fn build(runtime: &Runtime, options: ContextOptions) -> Result<Context, Core
             classes: config.asset_classes()?,
             scoring: config.scoring.clone(),
             stale_days: config.pending.stale_days,
+            reminder_days: config.lifecycle.reminder_days,
         },
         config: config.clone(),
         config_path: runtime.location().path.clone(),

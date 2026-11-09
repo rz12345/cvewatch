@@ -1,0 +1,56 @@
+{
+  "_note": "2026-11-09 取自 https://endoflife.date/api/v1/products/esxi 後裁剪；8.0 的 eolFrom 為原值 2027-10-11",
+  "schema_version": "1.2.1",
+  "generated_at": "2026-11-09T00:10:09+00:00",
+  "last_modified": "2026-09-24T07:44:41+00:00",
+  "result": {
+    "name": "esxi",
+    "label": "VMware ESXi",
+    "links": {
+      "html": "https://endoflife.date/esxi"
+    },
+    "releases": [
+      {
+        "name": "8.0",
+        "codename": null,
+        "label": "8.0",
+        "releaseDate": "2022-10-11",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": "2027-10-11",
+        "isMaintained": true,
+        "latest": {
+          "name": "8.0 Update 3k",
+          "date": "2026-07-29",
+          "link": "https://techdocs.broadcom.com/us/en/vmware-cis/vsphere/vsphere/8-0/release-notes/esxi-update-and-patch-release-notes/vsphere-esxi-80u3k-release-notes.html"
+        },
+        "custom": {
+          "technicalGuidance": "2029-10-11"
+        },
+        "futureField": {
+          "note": "unknown field kept for compatibility test"
+        }
+      },
+      {
+        "name": "7.0",
+        "codename": null,
+        "label": "7.0",
+        "releaseDate": "2020-04-02",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": true,
+        "eolFrom": "2025-10-02",
+        "isMaintained": false,
+        "latest": {
+          "name": "7.0 Update 3w",
+          "date": "2025-07-15",
+          "link": "https://techdocs.broadcom.com/us/en/vmware-cis/vsphere/vsphere/7-0/release-notes/esxi-update-and-patch-release-notes/vsphere-esxi-70u3w-release-notes.html"
+        },
+        "custom": {
+          "technicalGuidance": "2027-04-02"
+        }
+      }
+    ]
+  }
+}

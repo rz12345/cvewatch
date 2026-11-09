@@ -352,12 +352,12 @@ pub enum PackageFormatArg {
 
 #[derive(Debug, Args)]
 #[command(
-    long_about = "同步 CVE 資料來源。順序：cvelist → nvd → csaf:* → kev → epss → osv；                  每個來源各自交易，任一來源失敗時其他來源照常更新，最後以結束碼 4 結束。
+    long_about = "同步 CVE 資料來源與軟體 EoL。順序：cvelist → nvd → csaf:* → kev → epss → osv → eol（endoflife.date，不影響比對）；                  每個來源各自交易，任一來源失敗時其他來源照常更新，最後以結束碼 4 結束。
 
                   首次同步會下載 cvelistV5 baseline（約 650 MB），需數分鐘到十數分鐘。"
 )]
 pub struct SyncArgs {
-    /// 只執行指定來源（可重複）：cvelist、nvd、csaf、csaf:<id>、kev、epss、osv
+    /// 只執行指定來源（可重複）：cvelist、nvd、csaf、csaf:<id>、kev、epss、osv、eol
     #[arg(long, value_name = "NAME")]
     pub source: Vec<String>,
     /// 以最新 baseline 依目前產品目錄重新篩選（目錄變更後使用）

@@ -33,10 +33,11 @@ cvewatch asset system recode NET NWS --dry-run  # 預覽修改資產說明代碼
 | `property_number` | | 財產編號；不可與其他資產（含已退役、不分大小寫）重複：清冊中兩列相同或與清冊以外的資產相同時整批中止，同一份清冊中兩個資產互換財產編號可以 |
 | `hostname` | | 主機名稱；只能包含英數字、`-`、`.` 與 `_`，最長 253 字元，保留大小寫，不檢查重複 |
 | `management_url` | | 管理介面位址；須以 `http://` 或 `https://` 開頭並包含主機（例如 `https://192.0.2.1:8443/`），以填寫的寫法儲存。**不可包含帳號或密碼**（例如 `https://admin:pw@…`）：帳號密碼請放在密碼管理工具 |
+| `warranty_end`、`support_end`、`license_end` | | 保固、維護合約、軟體授權到期日（`YYYY-MM-DD` 或 `YYYY/MM/DD`，也可為 Excel 日期儲存格）；用於生命週期提醒，見[資產生命週期](lifecycle.md) |
 | `location`、`notes` | | 位置、備註 |
 
 - 識別欄位（`brand` 到 `management_url`）都是選填，前後空白會去除，不影響比對結果
-- `isms_id`、`system`、`responsible_unit`、`custodian`、`user_unit`、`compliance`、`personal_data`、`brand`、`model`、`serial_number`、`property_number`、`hostname`、`management_url` **整欄不存在**時保留既有資產的值（報表給出一次提醒），新資產以未填或預設值建立
+- `isms_id`、`system`、`responsible_unit`、`custodian`、`user_unit`、`compliance`、`personal_data`、`brand`、`model`、`serial_number`、`property_number`、`hostname`、`management_url`、`warranty_end`、`support_end`、`license_end` **整欄不存在**時保留既有資產的值（報表給出一次提醒），新資產以未填或預設值建立
 - `owner`（舊的負責人）**已改名為 `custodian`（保管人）**：仍可匯入（內容視為保管人，報表給出一次提醒）；同一張工作表不可同時有 `owner` 與 `custodian`。`[import.columns]` 中對應到 `owner` 的自訂欄名同樣視為保管人
 
 - `criticality`（舊的重要性 1–3）**已停用**：匯入時忽略，報表給出一次提醒

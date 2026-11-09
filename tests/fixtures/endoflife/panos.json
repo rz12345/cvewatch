@@ -1,0 +1,69 @@
+{
+  "_note": "2026-11-09 取自 https://endoflife.date/api/v1/products/panos 後裁剪；10.2 的 eolFrom 改為虛構的 2027-03-01、isEol 改為 false（spec 情境用）",
+  "schema_version": "1.2.1",
+  "generated_at": "2026-11-09T00:10:09+00:00",
+  "last_modified": "2026-10-30T09:09:40+00:00",
+  "result": {
+    "name": "panos",
+    "label": "Palo Alto Networks PAN-OS",
+    "links": {
+      "html": "https://endoflife.date/panos"
+    },
+    "releases": [
+      {
+        "name": "11.2",
+        "codename": null,
+        "label": "11.2",
+        "releaseDate": "2024-05-02",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": "2027-05-02",
+        "isMaintained": true,
+        "latest": {
+          "name": "11.2.16-h1",
+          "date": "2026-10-27",
+          "link": "https://docs.paloaltonetworks.com/pan-os/11-2/pan-os-release-notes/pan-os-11-2-16-known-and-addressed-issues/pan-os-11-2-16-h1-addressed-issues"
+        },
+        "custom": null,
+        "futureField": {
+          "note": "unknown field kept for compatibility test"
+        }
+      },
+      {
+        "name": "11.1",
+        "codename": null,
+        "label": "11.1",
+        "releaseDate": "2023-11-03",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": "2027-05-03",
+        "isMaintained": true,
+        "latest": {
+          "name": "11.1.16-h4",
+          "date": "2026-10-24",
+          "link": "https://docs.paloaltonetworks.com/pan-os/11-1/pan-os-release-notes/pan-os-11-1-16-known-and-addressed-issues/pan-os-11-1-16-h4-addressed-issues"
+        },
+        "custom": null
+      },
+      {
+        "name": "10.2",
+        "codename": null,
+        "label": "10.2",
+        "releaseDate": "2022-02-27",
+        "isLts": false,
+        "ltsFrom": null,
+        "isEol": false,
+        "eolFrom": "2027-03-01",
+        "isMaintained": true,
+        "latest": {
+          "name": "10.2.18-h13",
+          "date": "2026-10-24",
+          "link": "https://docs.paloaltonetworks.com/pan-os/10-2/pan-os-release-notes/pan-os-10-2-18-known-and-addressed-issues/pan-os-10-2-18-h13-addressed-issues"
+        },
+        "custom": null
+      }
+    ]
+  }
+}

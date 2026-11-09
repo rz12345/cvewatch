@@ -84,7 +84,8 @@ impl<V: ListView> Workspace<V> {
         open: &[i64],
     ) -> (Vec<DetailRefresh>, Result<Option<String>, CoreError>) {
         let now = self.services.now();
-        let data = match Snapshot::load(&self.conn, self.settings.stale_days, now) {
+        let today = self.services.today();
+        let data = match Snapshot::load(&self.conn, &self.settings, now, today) {
             Ok(d) => d,
             Err(e) => return (kept(open), Err(e)),
         };

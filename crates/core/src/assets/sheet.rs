@@ -1,5 +1,5 @@
-//! 讀取清冊：.xlsx（`assets` / `components` / `systems` / `ips` 工作表）或 .csv（assets 檔，
-//! 另可指定元件檔與 IP 檔）。
+//! 讀取清冊：.xlsx（`assets` / `components` / `systems` / `ips` / `eol` 工作表）或 .csv（assets 檔，
+//! 另可指定元件檔與 IP 檔；CSV 沒有 `eol` 工作表）。
 //!
 //! 只轉成字串表格；欄位意義與驗證在 [`super::validate`]。
 
@@ -32,6 +32,8 @@ pub struct Workbook {
     pub systems: Option<Sheet>,
     /// 資產的 IP（20 design D5；選填，CSV 以 `--ips` 指定）
     pub ips: Option<Sheet>,
+    /// EoL 覆寫（22 design D7；選填，CSV 清冊沒有）
+    pub eol: Option<Sheet>,
 }
 
 const UTF8_BOM: &str = "\u{feff}";
@@ -67,6 +69,7 @@ pub fn read_inventory(
                 .transpose()?,
             systems: None,
             ips: ips_csv.map(|p| read_csv(p, SheetKind::Ips)).transpose()?,
+            eol: None,
         }),
         _ => Err(CoreError::Invalid(format!(
             "不支援的清冊格式：{}（支援 .xlsx、.csv）",
@@ -114,15 +117,21 @@ fn read_workbook(path: &Path) -> Result<Workbook, CoreError> {
         Some(name) => Some(load(&name, SheetKind::Ips)?),
         None => None,
     };
+    let eol = match find(SheetKind::Eol) {
+        Some(name) => Some(load(&name, SheetKind::Eol)?),
+        None => None,
+    };
     Ok(Workbook {
         assets,
         components,
         systems,
         ips,
+        eol,
     })
 }
 
-/// 儲存格轉字串。整數值的浮點數（例如 criticality `2`）不帶小數點。
+/// 儲存格轉字串。整數值的浮點數（例如 criticality `2`）不帶小數點；日期儲存格轉為
+/// `YYYY-MM-DD`（只取日期部分，22 design D8）。
 pub fn cell_text(cell: &Data) -> String {
     match cell {
         Data::Empty => String::new(),
@@ -131,8 +140,17 @@ pub fn cell_text(cell: &Data) -> String {
         Data::Float(f) if f.fract() == 0.0 && f.abs() < 1e15 => format!("{}", *f as i64),
         Data::Float(f) => f.to_string(),
         Data::Bool(b) => b.to_string(),
+        Data::DateTime(dt) if dt.is_datetime() => {
+            let (y, m, d, ..) = dt.to_ymd_hms_milli();
+            format!("{y:04}-{m:02}-{d:02}")
+        }
         Data::DateTime(dt) => dt.to_string(),
-        Data::DateTimeIso(s) | Data::DurationIso(s) => s.clone(),
+        // 只有時間為零點（日期儲存格）才取日期部分；其他欄位的日期時間保留原文
+        Data::DateTimeIso(s) if s.get(10..).is_some_and(|t| t.starts_with("T00:00:00")) => {
+            s.chars().take(10).collect()
+        }
+        Data::DateTimeIso(s) => s.clone(),
+        Data::DurationIso(s) => s.clone(),
         Data::Error(e) => format!("#{e:?}"),
     }
 }
@@ -193,6 +211,27 @@ mod tests {
         assert_eq!(cell_text(&Data::Int(3)), "3");
         assert_eq!(cell_text(&Data::String(" a ".into())), "a");
         assert_eq!(cell_text(&Data::Empty), "");
+    }
+
+    #[test]
+    fn date_cells_become_iso_dates() {
+        use calamine::{ExcelDateTime, ExcelDateTimeType};
+        // Excel 1900 日期系統：2027-12-31 為序號 46752；時間部分不影響日期
+        let cell =
+            |v: f64| Data::DateTime(ExcelDateTime::new(v, ExcelDateTimeType::DateTime, false));
+        assert_eq!(cell_text(&cell(46752.0)), "2027-12-31");
+        assert_eq!(cell_text(&cell(46752.75)), "2027-12-31");
+        assert_eq!(
+            cell_text(&Data::DateTimeIso("2027-12-31T00:00:00".into())),
+            "2027-12-31"
+        );
+        assert_eq!(
+            cell_text(&Data::DateTimeIso("2026-11-09T14:30:00".into())),
+            "2026-11-09T14:30:00",
+            "有時間的值保留原文"
+        );
+        let parsed = super::super::dates::parse_date(&cell_text(&cell(46752.0)));
+        assert_eq!(parsed, Ok(chrono::NaiveDate::from_ymd_opt(2027, 12, 31)));
     }
 
     #[test]

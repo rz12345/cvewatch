@@ -76,7 +76,30 @@ pub(super) fn keep_existing(
             new.clone()
         }
     };
+    let date =
+        |f: StandardField, new: Option<chrono::NaiveDate>, old: Option<chrono::NaiveDate>| {
+            if keep(f) {
+                old
+            } else {
+                new
+            }
+        };
     AssetRecord {
+        warranty_end: date(
+            StandardField::WarrantyEnd,
+            record.warranty_end,
+            existing.warranty_end,
+        ),
+        support_end: date(
+            StandardField::SupportEnd,
+            record.support_end,
+            existing.support_end,
+        ),
+        license_end: date(
+            StandardField::LicenseEnd,
+            record.license_end,
+            existing.license_end,
+        ),
         brand: text(StandardField::Brand, &record.brand, &existing.brand),
         model: text(StandardField::Model, &record.model, &existing.model),
         serial_number: text(
@@ -164,6 +187,13 @@ pub(super) fn assign_system(
 }
 
 /// 清冊缺少 16、20 新增的欄位、且有既有資產時的提醒（isms_id 另有原本的提醒）。
+fn is_lifecycle_date(f: StandardField) -> bool {
+    matches!(
+        f,
+        StandardField::WarrantyEnd | StandardField::SupportEnd | StandardField::LicenseEnd
+    )
+}
+
 pub(super) fn kept_columns_notice(
     inventory: &Inventory,
     any_existing: bool,
@@ -172,6 +202,8 @@ pub(super) fn kept_columns_notice(
         .kept_fields
         .iter()
         .filter(|f| **f != StandardField::IsmsId)
+        // ISMS 匯入不處理生命週期日期（保留既有值、不提醒；22 design D7）
+        .filter(|f| !(inventory.lifecycle_untouched() && is_lifecycle_date(**f)))
         .map(|f| f.as_str())
         .collect();
     (any_existing && !missing.is_empty()).then(|| ImportNotice {

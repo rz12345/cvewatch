@@ -439,6 +439,10 @@ mod tests {
             property_number: None,
             hostname: None,
             management_url: None,
+            warranty_end: None,
+            support_end: None,
+            license_end: None,
+            hw_eol_override: None,
             notes: None,
         };
         assert_eq!(shown_name(&r), None);
@@ -461,6 +465,7 @@ mod tests {
             version_norm: None,
             source: cvewatch_core::assets::ComponentSource::Dpkg,
             updated_at: String::new(),
+            eol_override: None,
         };
         assert_eq!(component_name(&catalog, &c), "pkg:deb/debian/openssl");
         c.kind = ComponentKind::Product {

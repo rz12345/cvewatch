@@ -46,6 +46,7 @@ cvewatch asset system recode NET NWS             # 寫入
 | [同步 CVE](docs/user-guide/sync.md) | `cvewatch sync`、CVE 來源、`cve show` / `cve search` |
 | [比對、命中與等待區](docs/user-guide/matching.md) | `match`、`finding`、`pending`、風險等級 P1–P4 |
 | [資產清冊](docs/user-guide/assets.md) | 清冊欄位、ISMS 子類別與 C/I/A、從舊版升級、匯出與更名 |
+| [資產生命週期](docs/user-guide/lifecycle.md) | EoL 與保固／合約／授權到期提醒、`eol` 工作表、endoflife.date 同步、`catalog.d` 的 EoL 宣告 |
 | [視窗版](docs/user-guide/gui.md) | `cvewatch-gui.exe` 的畫面與操作、與 TUI 的對照、匯入與資產編修 |
 | [開發](docs/development.md) | 建置、測試、以 Claude Code 實作 change、實作順序、架構圖 |
 | [需求決策紀錄](docs/decisions.md) | 2026-11-07 訪談的決定與後續變更 |

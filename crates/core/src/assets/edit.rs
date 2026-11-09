@@ -10,8 +10,11 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use super::classes::AssetClasses;
+use super::edit_eol::{set_component_eol, set_hardware_eol};
 use super::ips::{validate_ips, AssetIpRepo, IpError, IpInput};
-use super::model::{is_pending_version, Asset, AssetRecord, AssetStatus, Component, ComponentKind};
+use super::model::{
+    is_pending_version, Asset, AssetRecord, AssetStatus, Component, ComponentKind, EolOverride,
+};
 use super::plan::{resolve_version, VersionWarning};
 use super::repo::{AssetRepo, ComponentRepo};
 use super::systems::SystemDirectory;
@@ -22,6 +25,7 @@ use crate::catalog::Catalog;
 use crate::error::CoreError;
 use crate::matching::run::mark_match_stale;
 
+pub use super::edit_eol::{only_lifecycle_changed, NewLifecycle};
 pub use super::edit_lifecycle::{
     purge_asset, purge_preview, restore_asset, retire_asset, PurgePreview,
 };
@@ -68,17 +72,30 @@ pub enum EditOp<'a> {
     DeleteUnresolved(i64),
     /// 以整份清單取代 IP（位址與用途的原文；20 design D9）
     SetIps(Vec<IpInput<'a>>),
+    /// 設定（Some）或清除（None）硬體 EoL 覆寫（22 design D6）
+    SetHardwareEol(Option<EolOverride>),
+    /// 設定或清除某產品清冊元件的軟體 EoL 覆寫（以產品 key 指定，可用於同次新增的元件）
+    SetComponentEol {
+        product_key: String,
+        value: Option<EolOverride>,
+    },
 }
 
 impl EditOp<'_> {
-    /// 這個步驟是否影響比對（12 design D2）：比對結果與編號、IP 無關，更名與修改 IP
-    /// 不需要重新比對。
+    /// 這個步驟是否影響比對（12 design D2）：比對結果與編號、IP、EoL 覆寫無關，更名、修改 IP
+    /// 與 EoL 覆寫不需要重新比對。修改欄位只改生命週期日期時也不需要（由 [`apply_edits`] 判斷）。
     pub fn affects_matching(&self) -> bool {
-        !matches!(self, EditOp::Rename(_) | EditOp::SetIps(_))
+        !matches!(
+            self,
+            EditOp::Rename(_)
+                | EditOp::SetIps(_)
+                | EditOp::SetHardwareEol(_)
+                | EditOp::SetComponentEol { .. }
+        )
     }
 }
 
-pub(super) fn invalid(message: impl Into<String>) -> CoreError {
+pub(crate) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::Invalid(message.into())
 }
 
@@ -298,6 +315,24 @@ pub fn create_asset(
     ips: &[IpInput<'_>],
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
+    let lifecycle = NewLifecycle::default();
+    create_asset_with(
+        conn, catalog, classes, input, components, ips, &lifecycle, now,
+    )
+}
+
+/// 同 [`create_asset`]，並在同一交易寫入 EoL 覆寫（22 spec Editing lifecycle fields）。
+#[allow(clippy::too_many_arguments)]
+pub fn create_asset_with(
+    conn: &mut Connection,
+    catalog: &Catalog,
+    classes: &AssetClasses,
+    input: &RecordInput<'_>,
+    components: &[NewComponent],
+    ips: &[IpInput<'_>],
+    lifecycle: &NewLifecycle,
+    now: DateTime<Utc>,
+) -> Result<EditOutcome, CoreError> {
     let record = validate_in(conn, classes, input)?;
     let ips = validate_ips(ips).map_err(join_ip_errors)?;
     if components.is_empty() {
@@ -323,27 +358,34 @@ pub fn create_asset(
             let warning = put_product(tx, catalog, &asset, &c.product_key, version, now)?;
             outcome.warnings.extend(warning);
         }
+        super::edit_eol::apply_new(tx, &asset, lifecycle)?;
         Ok(outcome)
     })?;
     tracing::info!(asset = %record.asset_tag, components = components.len(), "畫面新增資產");
     Ok(out)
 }
 
+/// 修改欄位；回傳是否需要「比對待補」（只改生命週期日期時不需要）。硬體 EoL 覆寫不在欄位
+/// 輸入中，沿用資料庫中的值（同次以 [`EditOp::SetHardwareEol`] 修改者亦保留）。
 fn update_fields(
     conn: &Connection,
     classes: &AssetClasses,
     asset: &Asset,
     input: &RecordInput<'_>,
     now: DateTime<Utc>,
-) -> Result<EditOutcome, CoreError> {
+) -> Result<bool, CoreError> {
     let input = RecordInput {
         asset_tag: &asset.record.asset_tag,
         ..*input
     };
-    let record = validate_in(conn, classes, &input)?;
+    let current = find_asset(conn, &asset.record.asset_tag)?.record;
+    let record = AssetRecord {
+        hw_eol_override: current.hw_eol_override.clone(),
+        ..validate_in(conn, classes, &input)?
+    };
     ensure_unique_free(conn, &record, Some(asset.id))?;
     AssetRepo::new(conn).update_record(asset.id, &record, now)?;
-    Ok(EditOutcome::default())
+    Ok(!only_lifecycle_changed(&current, &record))
 }
 
 fn add_to(
@@ -489,10 +531,25 @@ fn delete_in(
 }
 
 /// 執行一個步驟；更名時把 `asset` 換成更名後的資產，之後的步驟與錯誤訊息使用新編號。
+/// 回傳結果與這個步驟是否需要「比對待補」。
 fn apply_op(
     conn: &Connection,
     catalog: &Catalog,
     classes: &AssetClasses,
+    asset: &mut Asset,
+    op: &EditOp<'_>,
+    now: DateTime<Utc>,
+) -> Result<(EditOutcome, bool), CoreError> {
+    if let EditOp::Fields(input) = op {
+        let stale = update_fields(conn, classes, asset, input, now)?;
+        return Ok((EditOutcome::default(), stale));
+    }
+    apply_other(conn, catalog, asset, op, now).map(|out| (out, op.affects_matching()))
+}
+
+fn apply_other(
+    conn: &Connection,
+    catalog: &Catalog,
     asset: &mut Asset,
     op: &EditOp<'_>,
     now: DateTime<Utc>,
@@ -502,7 +559,7 @@ fn apply_op(
             *asset = rename_in(conn, asset, new_tag)?;
             Ok(EditOutcome::default())
         }
-        EditOp::Fields(input) => update_fields(conn, classes, asset, input, now),
+        EditOp::Fields(_) => unreachable!("由 apply_op 處理"),
         EditOp::AddComponent(c) => add_to(conn, catalog, asset, c, now),
         EditOp::SetVersion {
             component_id,
@@ -518,12 +575,21 @@ fn apply_op(
             set_ips(conn, asset, ips)?;
             Ok(EditOutcome::default())
         }
+        EditOp::SetHardwareEol(value) => {
+            set_hardware_eol(conn, asset, value.as_ref())?;
+            Ok(EditOutcome::default())
+        }
+        EditOp::SetComponentEol { product_key, value } => {
+            set_component_eol(conn, asset, product_key, value.as_ref())?;
+            Ok(EditOutcome::default())
+        }
     }
 }
 
 /// 在同一個交易依序執行編輯步驟；「至少一個元件」在全部步驟之後檢查一次
 /// （因此可以先移除、再加回同一產品）。任何一步失敗時整批不寫入。有影響比對的步驟時
-/// （[`EditOp::affects_matching`]）在同一交易記錄「比對待補」；只更名時不記錄。
+/// （[`EditOp::affects_matching`]；修改欄位且不只改生命週期日期）在同一交易記錄「比對待補」；
+/// 只更名、修改 IP 或生命週期欄位時不記錄。
 pub fn apply_edits(
     conn: &mut Connection,
     catalog: &Catalog,
@@ -536,12 +602,14 @@ pub fn apply_edits(
     let original = active_asset(&tx, tag)?;
     let mut asset = original.clone();
     let mut outcome = EditOutcome::default();
+    let mut stale = false;
     for op in ops {
-        let out = apply_op(&tx, catalog, classes, &mut asset, op, now)?;
+        let (out, affects) = apply_op(&tx, catalog, classes, &mut asset, op, now)?;
         outcome.warnings.extend(out.warnings);
+        stale |= affects;
     }
     ensure_minimum(&tx, &asset)?;
-    if ops.iter().any(EditOp::affects_matching) {
+    if stale {
         mark_match_stale(&tx, now)?;
     }
     tx.commit()?;
@@ -601,9 +669,13 @@ pub fn update_asset(
     input: &RecordInput<'_>,
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
-    in_tx(conn, now, |tx| {
-        update_fields(tx, classes, &active_asset(tx, tag)?, input, now)
-    })
+    let tx = conn.transaction()?;
+    let stale = update_fields(&tx, classes, &active_asset(&tx, tag)?, input, now)?;
+    if stale {
+        mark_match_stale(&tx, now)?;
+    }
+    tx.commit()?;
+    Ok(EditOutcome::default())
 }
 
 /// 對 active 資產新增目錄產品元件；同產品已存在時拒絕。

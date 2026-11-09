@@ -4,9 +4,10 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use super::classes::{Cia, ClassCode, MajorClass};
+use super::dates::{format_date, parse_iso_date};
 use super::model::{
     is_pending_version, Asset, AssetRecord, AssetStatus, Component, ComponentKind, ComponentSource,
-    Exposure, HistoryEntry, UnresolvedEntry,
+    EolOverride, Exposure, HistoryEntry, UnresolvedEntry,
 };
 use super::unique::UniqueField;
 use crate::error::CoreError;
@@ -16,10 +17,12 @@ const ASSET_COLUMNS: &str = "id, asset_tag, name, category, location, custodian,
                              confidentiality, integrity, availability, isms_id, notes, status, \
                              first_seen, last_seen, retired_at, system_code, responsible_unit, \
                              user_unit, compliance, personal_data, brand, model, serial_number, \
-                             property_number, hostname, management_url";
+                             property_number, hostname, management_url, warranty_end, \
+                             support_end, license_end, hw_eol_override, hw_eol_source";
 
 const COMPONENT_SELECT: &str = "SELECT c.id, c.asset_id, c.kind, c.product_id, p.key, c.purl, \
-     c.purl_full, c.version_raw, c.version_norm, c.source, c.updated_at \
+     c.purl_full, c.version_raw, c.version_norm, c.source, c.updated_at, c.eol_override, \
+     c.eol_override_source \
      FROM component c LEFT JOIN catalog_product p ON p.id = c.product_id";
 
 fn ts(now: DateTime<Utc>) -> String {
@@ -37,6 +40,38 @@ fn invalid_value(column: usize, value: &str) -> rusqlite::Error {
 fn parse_col<T>(row: &Row<'_>, idx: usize, parse: fn(&str) -> Option<T>) -> rusqlite::Result<T> {
     let text: String = row.get(idx)?;
     parse(&text).ok_or_else(|| invalid_value(idx, &text))
+}
+
+/// 選填的 `YYYY-MM-DD` 欄位。
+fn date_col(row: &Row<'_>, idx: usize) -> rusqlite::Result<Option<chrono::NaiveDate>> {
+    let text: Option<String> = row.get(idx)?;
+    text.map(|t| parse_iso_date(&t).ok_or_else(|| invalid_value(idx, &t)))
+        .transpose()
+}
+
+/// 覆寫的日期與來源欄（成對；任一為 NULL 視為沒有覆寫）。
+fn override_cols(
+    row: &Row<'_>,
+    date_idx: usize,
+    source_idx: usize,
+) -> rusqlite::Result<Option<EolOverride>> {
+    let date = date_col(row, date_idx)?;
+    let source: Option<String> = row.get(source_idx)?;
+    Ok(date
+        .zip(source)
+        .map(|(date, source)| EolOverride { date, source }))
+}
+
+/// 寫入用的覆寫欄值（日期、來源同時有值或同時為 NULL）。
+pub(super) fn override_params(o: Option<&EolOverride>) -> (Option<String>, Option<String>) {
+    match o {
+        Some(o) => (Some(format_date(o.date)), Some(o.source.clone())),
+        None => (None, None),
+    }
+}
+
+fn date_param(d: Option<chrono::NaiveDate>) -> Option<String> {
+    d.map(format_date)
 }
 
 fn asset_from_row(row: &Row<'_>) -> rusqlite::Result<Asset> {
@@ -62,6 +97,10 @@ fn asset_from_row(row: &Row<'_>) -> rusqlite::Result<Asset> {
             property_number: row.get(24)?,
             hostname: row.get(25)?,
             management_url: row.get(26)?,
+            warranty_end: date_col(row, 27)?,
+            support_end: date_col(row, 28)?,
+            license_end: date_col(row, 29)?,
+            hw_eol_override: override_cols(row, 30, 31)?,
             notes: row.get(11)?,
         },
         status: parse_col(row, 12, AssetStatus::parse)?,
@@ -92,6 +131,7 @@ fn component_from_row(row: &Row<'_>) -> rusqlite::Result<Component> {
         version_norm: row.get(8)?,
         source: parse_col(row, 9, ComponentSource::parse)?,
         updated_at: row.get(10)?,
+        eol_override: override_cols(row, 11, 12)?,
     })
 }
 
@@ -207,14 +247,17 @@ impl<'c> AssetRepo<'c> {
     }
 
     pub fn insert(&self, record: &AssetRecord, now: DateTime<Utc>) -> Result<i64, CoreError> {
+        let hw = override_params(record.hw_eol_override.as_ref());
         self.conn.execute(
             "INSERT INTO asset (asset_tag, name, category, location, custodian, exposure,
                                 confidentiality, integrity, availability, isms_id, notes, status,
                                 first_seen, last_seen, system_code, responsible_unit, user_unit,
                                 compliance, personal_data, brand, model, serial_number,
-                                property_number, hostname, management_url)
+                                property_number, hostname, management_url, warranty_end,
+                                support_end, license_end, hw_eol_override, hw_eol_source)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12, ?12,
-                     ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
+                     ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24, ?25, ?26,
+                     ?27, ?28)",
             params![
                 record.asset_tag,
                 record.name,
@@ -238,7 +281,12 @@ impl<'c> AssetRepo<'c> {
                 record.serial_number,
                 record.property_number,
                 record.hostname,
-                record.management_url
+                record.management_url,
+                date_param(record.warranty_end),
+                date_param(record.support_end),
+                date_param(record.license_end),
+                hw.0,
+                hw.1
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -260,6 +308,7 @@ impl<'c> AssetRepo<'c> {
         record: &AssetRecord,
         now: DateTime<Utc>,
     ) -> Result<(), CoreError> {
+        let hw = override_params(record.hw_eol_override.as_ref());
         self.conn.execute(
             "UPDATE asset SET name = ?2, category = ?3, location = ?4, custodian = ?5,
                     exposure = ?6, confidentiality = ?7, integrity = ?8, availability = ?9,
@@ -267,7 +316,8 @@ impl<'c> AssetRepo<'c> {
                     last_seen = ?12, system_code = ?13, responsible_unit = ?14, user_unit = ?15,
                     compliance = ?16, personal_data = ?17, brand = ?18, model = ?19,
                     serial_number = ?20, property_number = ?21, hostname = ?22,
-                    management_url = ?23
+                    management_url = ?23, warranty_end = ?24, support_end = ?25,
+                    license_end = ?26, hw_eol_override = ?27, hw_eol_source = ?28
              WHERE id = ?1",
             params![
                 id,
@@ -292,7 +342,12 @@ impl<'c> AssetRepo<'c> {
                 record.serial_number,
                 record.property_number,
                 record.hostname,
-                record.management_url
+                record.management_url,
+                date_param(record.warranty_end),
+                date_param(record.support_end),
+                date_param(record.license_end),
+                hw.0,
+                hw.1
             ],
         )?;
         Ok(())
@@ -594,11 +649,43 @@ impl<'c> ComponentRepo<'c> {
         Ok(UpsertOutcome::VersionChanged { previous })
     }
 
-    /// 軟刪除：不再參與比對，命中與處理紀錄保留（見 0004_findings）。
+    /// 軟刪除：不再參與比對，命中與處理紀錄保留（見 0004_findings）；EoL 覆寫一併清除
+    /// （22 design D6：元件之後恢復時沒有覆寫）。
     pub fn remove(&self, component_id: i64, now: DateTime<Utc>) -> Result<(), CoreError> {
         self.conn.execute(
-            "UPDATE component SET removed_at = ?2 WHERE id = ?1 AND removed_at IS NULL",
+            "UPDATE component SET removed_at = ?2, eol_override = NULL, eol_override_source = NULL
+             WHERE id = ?1 AND removed_at IS NULL",
             params![component_id, ts(now)],
+        )?;
+        Ok(())
+    }
+
+    /// 設定或清除元件的軟體 EoL 覆寫（日期與來源一起寫入或清除；不影響比對）。
+    pub fn set_eol_override(
+        &self,
+        component_id: i64,
+        value: Option<&EolOverride>,
+    ) -> Result<(), CoreError> {
+        let (date, source) = override_params(value);
+        self.conn.execute(
+            "UPDATE component SET eol_override = ?2, eol_override_source = ?3 WHERE id = ?1",
+            params![component_id, date, source],
+        )?;
+        Ok(())
+    }
+
+    /// 以資產與產品指定清冊元件（使用中）設定或清除軟體 EoL 覆寫。
+    pub fn set_product_eol_override(
+        &self,
+        asset_id: i64,
+        product_id: i64,
+        value: Option<&EolOverride>,
+    ) -> Result<(), CoreError> {
+        let (date, source) = override_params(value);
+        self.conn.execute(
+            "UPDATE component SET eol_override = ?3, eol_override_source = ?4
+             WHERE asset_id = ?1 AND product_id = ?2 AND source = 'excel' AND removed_at IS NULL",
+            params![asset_id, product_id, date, source],
         )?;
         Ok(())
     }

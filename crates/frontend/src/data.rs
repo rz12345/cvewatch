@@ -3,7 +3,7 @@
 
 use std::collections::HashMap;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, NaiveDate, Utc};
 use cvewatch_core::assets::systems::SystemRepo;
 use cvewatch_core::assets::{
     Asset, AssetClasses, AssetFilter, AssetIp, AssetIpRepo, AssetRepo, AssetStatus, ClassFilter,
@@ -12,6 +12,9 @@ use cvewatch_core::assets::{
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::ingest::runlog::{self, RunRow};
 use cvewatch_core::ingest::show::{self, CveDetail};
+use cvewatch_core::lifecycle::{
+    evaluate, load_eol, AssetLifecycle, EolData, LifecycleCounts, LifecycleFilter, LifecycleFlags,
+};
 use cvewatch_core::matching::dashboard::{self, Dashboard, DataMarker};
 use cvewatch_core::matching::pending_ops::{self, PendingRow};
 use cvewatch_core::matching::query::{self, FindingDetail, FindingFilter, FindingRow};
@@ -33,6 +36,8 @@ pub struct Settings {
     pub classes: AssetClasses,
     pub scoring: ScoringConfig,
     pub stale_days: u32,
+    /// 生命週期提醒天數（`[lifecycle] reminder_days`）
+    pub reminder_days: u32,
 }
 
 /// 資產畫面清單的篩選。
@@ -46,6 +51,8 @@ pub struct AssetListFilter {
     pub class: Option<ClassFilter>,
     /// 搜尋字（編號、名稱、主機名稱、序號、財產編號、IP；空白不篩選，20 design D10）
     pub search: String,
+    /// 生命週期（None = 全部；retired 資產不符合任何生命週期篩選，22 design D11）
+    pub lifecycle: Option<LifecycleFilter>,
 }
 
 #[derive(Debug, Clone)]
@@ -58,9 +65,18 @@ pub struct AssetEntry {
     pub history: HashMap<i64, Vec<HistoryEntry>>,
     /// IP（依儲存順序）
     pub ips: Vec<AssetIp>,
+    /// 生命週期（以快照的「今天」計算；retired 資產也計算，詳情用）
+    pub lifecycle: AssetLifecycle,
+    /// `lifecycle.flags()` 的快取（清單篩選與標示每次重繪都用到）
+    pub lifecycle_flags: LifecycleFlags,
 }
 
 impl AssetEntry {
+    /// 生命週期篩選：只有使用中資產會符合。
+    pub fn matches_lifecycle(&self, filter: LifecycleFilter) -> bool {
+        self.asset.status == AssetStatus::Active && filter.matches(self.lifecycle_flags)
+    }
+
     /// 有版本待補的清冊元件（18 design D1；未辨識產品另有「未辨識」標示，不列入）。
     pub fn has_pending(&self) -> bool {
         self.components
@@ -90,17 +106,33 @@ pub struct Snapshot {
     /// 載入時的同步／比對標記；之後改變即表示有新資料
     pub marker: DataMarker,
     pub loaded_at: DateTime<Utc>,
+    /// endoflife.date 資料（跨日重算生命週期時使用）
+    pub eol: EolData,
+    /// 生命週期以此日期計算（使用者時區）
+    pub lifecycle_today: NaiveDate,
+    /// Dashboard 的生命週期計數（只計使用中資產）
+    pub lifecycle_counts: LifecycleCounts,
 }
 
 impl Snapshot {
-    /// 標記先讀：載入期間結束的同步仍會在下次檢查時被偵測到。
-    pub fn load(conn: &Connection, stale_days: u32, now: DateTime<Utc>) -> Result<Self, CoreError> {
+    /// 標記先讀：載入期間結束的同步仍會在下次檢查時被偵測到。`today` 為使用者時區的日期
+    /// （生命週期）。
+    pub fn load(
+        conn: &Connection,
+        settings: &Settings,
+        now: DateTime<Utc>,
+        today: NaiveDate,
+    ) -> Result<Self, CoreError> {
         let marker = dashboard::data_marker(conn)?;
         let findings = query::list(conn, &FindingFilter::default())?;
         let search_keys = findings.iter().map(crate::filter::search_key).collect();
         let unresolved = AssetRepo::new(conn).unresolved()?;
         let (assets, retired_assets) = assets(conn, &findings, &unresolved)?;
-        Ok(Snapshot {
+        let stale_days = settings.stale_days;
+        let mut snapshot = Snapshot {
+            eol: load_eol(conn)?,
+            lifecycle_today: today,
+            lifecycle_counts: LifecycleCounts::default(),
             dashboard: dashboard::load(conn, stale_days, now)?,
             assets,
             retired_assets,
@@ -113,7 +145,31 @@ impl Snapshot {
             sync_runs: runlog::history(conn, SYNC_LOG_LIMIT)?,
             marker,
             loaded_at: now,
-        })
+        };
+        snapshot.compute_lifecycle(&settings.catalog, settings.reminder_days, today);
+        Ok(snapshot)
+    }
+
+    /// 以 `today` 重算每個資產的生命週期與 Dashboard 計數。
+    fn compute_lifecycle(&mut self, catalog: &Catalog, window: u32, today: NaiveDate) {
+        let eol = &self.eol;
+        for entry in self.assets.iter_mut().chain(self.retired_assets.iter_mut()) {
+            entry.lifecycle =
+                evaluate(&entry.asset, &entry.components, catalog, eol, today, window);
+            entry.lifecycle_flags = entry.lifecycle.flags();
+        }
+        self.lifecycle_counts =
+            LifecycleCounts::from_flags(self.assets.iter().map(|e| e.lifecycle_flags), window);
+        self.lifecycle_today = today;
+    }
+
+    /// 跨日時重算生命週期（GUI 切到資產或 Dashboard 畫面時呼叫）；回傳是否有重算。
+    pub fn refresh_lifecycle(&mut self, settings: &Settings, today: NaiveDate) -> bool {
+        if today == self.lifecycle_today {
+            return false;
+        }
+        self.compute_lifecycle(&settings.catalog, settings.reminder_days, today);
+        true
     }
 
     pub fn asset(&self, tag: &str) -> Option<&AssetEntry> {
@@ -143,6 +199,9 @@ impl Snapshot {
         }
         if filter.pending_only {
             list.retain(|a| a.has_pending());
+        }
+        if let Some(lifecycle) = filter.lifecycle {
+            list.retain(|a| a.matches_lifecycle(lifecycle));
         }
         if let Some(search) = crate::filter::AssetSearch::new(&filter.search) {
             list.retain(|a| search.matches(a));
@@ -198,6 +257,8 @@ fn assets(
                 open_findings: open.get(tag).copied().unwrap_or(0),
                 unresolved: unresolved_by.remove(tag).unwrap_or_default(),
                 ips: ips.remove(&asset.id).unwrap_or_default(),
+                lifecycle: AssetLifecycle::default(),
+                lifecycle_flags: LifecycleFlags::default(),
                 asset,
             }
         })

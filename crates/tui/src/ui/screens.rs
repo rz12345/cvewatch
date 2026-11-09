@@ -7,6 +7,7 @@ use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Frame;
 
 use super::findings::{cells, COLUMNS, HEADERS};
+use super::lifecycle;
 use super::{cut, full_time, scrolling_table, short_time, table, Scroll, TableSpec, Width};
 use crate::app::App;
 use crate::width::sanitize;
@@ -49,6 +50,10 @@ pub fn dashboard(frame: &mut Frame<'_>, area: Rect, app: &App) {
     } else {
         Line::raw(pending)
     });
+    // 生命週期計數（22 design D11）：三者都為 0 時不顯示
+    if let Some(text) = lifecycle::dashboard_line(&app.data.lifecycle_counts) {
+        lines.push(bold(text));
+    }
     if d.dead_notifications > 0 {
         lines.push(Line::styled(
             format!(
@@ -151,67 +156,7 @@ pub fn assets(frame: &mut Frame<'_>, area: Rect, app: &App) {
     };
     let [top, bottom] =
         Layout::vertical([Constraint::Fill(1), Constraint::Length(unresolved_height)]).areas(area);
-    if app.data.assets.is_empty() {
-        frame.render_widget(
-            Paragraph::new("沒有使用中的資產。以 `cvewatch asset import` 匯入清冊。"),
-            top,
-        );
-    } else {
-        let row = |i: usize| {
-            let a = &app.data.assets[i];
-            let r = &a.asset.record;
-            // 有版本待補元件的資產：名稱前加警示字元（寬度安全，見 glyphs.rs）
-            let name = if a.has_pending() {
-                format!("{} {}", app.glyphs.warn, r.name)
-            } else {
-                r.name.clone()
-            };
-            let values = vec![
-                r.asset_tag.clone(),
-                name,
-                r.category.as_str().to_string(),
-                r.exposure.as_str().to_string(),
-                r.cia.value().to_string(),
-                a.components.len().to_string(),
-                a.open_findings.to_string(),
-                match a.unresolved.len() {
-                    0 => String::new(),
-                    n => n.to_string(),
-                },
-            ];
-            (values, Style::new())
-        };
-        let cols = [
-            Width::Flex(2),
-            Width::Flex(3),
-            Width::Fixed(6),
-            Width::Fixed(8),
-            Width::Fixed(4),
-            Width::Fixed(4),
-            Width::Fixed(6),
-            Width::Fixed(6),
-        ];
-        let headers = [
-            "資產",
-            "名稱",
-            "類別",
-            "曝露度",
-            "價值",
-            "元件",
-            "未處理",
-            "未辨識",
-        ];
-        let spec = TableSpec {
-            headers: &headers,
-            cols: &cols,
-        };
-        let scroll = Scroll::new(
-            app.data.assets.len(),
-            app.assets_cursor,
-            &app.offsets.assets,
-        );
-        scrolling_table(frame, top, app, &spec, &scroll, row);
-    }
+    asset_table(frame, top, app);
     if unresolved_height > 0 {
         let block = Block::new()
             .borders(Borders::TOP)
@@ -235,6 +180,75 @@ pub fn assets(frame: &mut Frame<'_>, area: Rect, app: &App) {
             .collect();
         frame.render_widget(Paragraph::new(lines), inner);
     }
+}
+
+/// 資產表格（套用生命週期篩選，見 [`App::visible_assets`]）。
+fn asset_table(frame: &mut Frame<'_>, area: Rect, app: &App) {
+    let assets = app.visible_assets();
+    if assets.is_empty() {
+        let text = match app.assets_lifecycle_filter {
+            Some(f) => format!(
+                "沒有符合生命週期篩選「{}」的資產。按 l 切換篩選。",
+                f.label()
+            ),
+            None => "沒有使用中的資產。以 `cvewatch asset import` 匯入清冊。".to_string(),
+        };
+        frame.render_widget(Paragraph::new(text), area);
+        return;
+    }
+    let row = |i: usize| (asset_cells(app, assets[i]), Style::new());
+    let cols = [
+        Width::Flex(2),
+        Width::Flex(3),
+        Width::Fixed(6),
+        Width::Fixed(8),
+        Width::Fixed(4),
+        Width::Fixed(4),
+        Width::Fixed(6),
+        Width::Fixed(6),
+        Width::Fixed(lifecycle::COLUMN_WIDTH),
+    ];
+    let headers = [
+        "資產",
+        "名稱",
+        "類別",
+        "曝露度",
+        "價值",
+        "元件",
+        "未處理",
+        "未辨識",
+        "週期",
+    ];
+    let spec = TableSpec {
+        headers: &headers,
+        cols: &cols,
+    };
+    let scroll = Scroll::new(assets.len(), app.assets_cursor, &app.offsets.assets);
+    scrolling_table(frame, area, app, &spec, &scroll, row);
+}
+
+fn asset_cells(app: &App, a: &AssetEntry) -> Vec<String> {
+    let r = &a.asset.record;
+    // 有版本待補元件的資產：名稱前加警示字元（寬度安全，見 glyphs.rs）
+    let name = if a.has_pending() {
+        format!("{} {}", app.glyphs.warn, r.name)
+    } else {
+        r.name.clone()
+    };
+    vec![
+        r.asset_tag.clone(),
+        name,
+        r.category.as_str().to_string(),
+        r.exposure.as_str().to_string(),
+        r.cia.value().to_string(),
+        a.components.len().to_string(),
+        a.open_findings.to_string(),
+        match a.unresolved.len() {
+            0 => String::new(),
+            n => n.to_string(),
+        },
+        lifecycle::column(app, a.lifecycle.flags()),
+    ]
 }
 
 pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cursor: usize) {
@@ -284,13 +298,15 @@ pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cur
     let info_height = u16::try_from(info.len()).unwrap_or(u16::MAX);
     let component_height =
         COMPONENT_ROWS.min(u16::try_from(entry.components.len()).unwrap_or(u16::MAX)) + 2;
-    let [info_area, comp_area, find_area] = Layout::vertical([
+    let [info_area, life_area, comp_area, find_area] = Layout::vertical([
         Constraint::Length(info_height),
+        Constraint::Length(lifecycle::detail_height(entry)),
         Constraint::Length(component_height),
         Constraint::Fill(1),
     ])
     .areas(area);
     frame.render_widget(Paragraph::new(info), info_area);
+    lifecycle::detail(frame, life_area, app, entry);
     let comp_rows = component_rows(app, entry);
     let comp_cols = [
         Width::Fixed(ROLE_WIDTH),

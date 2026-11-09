@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 
 use cvewatch_core::assets::template::{write_sheets, SheetData};
 
+#[path = "support/lifecycle_fixture.rs"]
+mod lifecycle_fixture;
+
 const ASSET_HEADERS: [&str; 16] = [
     "asset_tag",
     "name",
@@ -402,6 +405,7 @@ fn main() {
 
     write_isms_fixtures();
     write_identity_fixtures();
+    lifecycle_fixture::write(&fixtures_dir());
 }
 
 /// 一列 assets：前 6 欄、空白的 C/I/A 與 ISMS 管理欄位，再接 6 個識別欄位。

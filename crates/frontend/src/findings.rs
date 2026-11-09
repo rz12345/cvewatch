@@ -151,6 +151,9 @@ mod tests {
             sync_runs: Vec::new(),
             marker: DataMarker::default(),
             loaded_at: Utc::now(),
+            eol: Default::default(),
+            lifecycle_today: Utc::now().date_naive(),
+            lifecycle_counts: Default::default(),
         }
     }
 

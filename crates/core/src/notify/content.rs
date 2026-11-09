@@ -44,6 +44,15 @@ impl Zone {
     pub fn date(self, t: DateTime<Utc>) -> String {
         self.at(t).get(..10).unwrap_or_default().to_string()
     }
+
+    /// 該時區的日曆日（生命週期的到期日比較用）。
+    pub fn naive_date(self, t: DateTime<Utc>) -> chrono::NaiveDate {
+        let offset = match self {
+            Zone::Local => None,
+            Zone::Fixed(o) => Some(o),
+        };
+        crate::assets::dates::calendar_date(t, offset)
+    }
 }
 
 /// 產品 key → 顯示名稱（例如 `paloalto-panos` → `PAN-OS`）。
@@ -180,6 +189,9 @@ fn digest_subject(d: &DigestData, zone: Zone) -> String {
     if !d.dead.is_empty() {
         parts.push(format!("無法送出 {}", d.dead.len()));
     }
+    if d.lifecycle.news {
+        parts.push("生命週期提醒".into());
+    }
     if parts.is_empty() {
         parts.push("等待區有變化".into());
     }
@@ -203,6 +215,7 @@ pub fn digest_mail(d: &DigestData, names: &HashMap<String, String>, zone: Zone) 
     findings_section(&mut b, d, names);
     changes_section(&mut b, d, zone);
     pending_section(&mut b, d, zone);
+    lifecycle_section(&mut b, d);
     dead_section(&mut b, d, zone);
     Mail {
         subject: digest_subject(d, zone),
@@ -303,6 +316,39 @@ fn pending_section(b: &mut String, d: &DigestData, zone: Zone) {
             zone.time(&p.entered_at)
         );
     }
+}
+
+/// 「SRV-01 維護合約到期 2027-04-10（剩 90 天）」「SW-CORE 硬體 EoL 已於 2027-01-10 到期」。
+fn lifecycle_section(b: &mut String, d: &DigestData) {
+    let l = &d.lifecycle;
+    if l.is_empty() {
+        return;
+    }
+    let _ = writeln!(b, "\n■ 生命週期提醒（提前 {} 天）", l.window);
+    for e in &l.reached {
+        let _ = writeln!(
+            b,
+            "  {} {} 已於 {} 到期",
+            e.asset_tag,
+            e.subject,
+            crate::assets::dates::format_date(e.date)
+        );
+    }
+    for e in &l.upcoming {
+        let _ = writeln!(
+            b,
+            "  {} {} {}（剩 {} 天）",
+            e.asset_tag,
+            e.subject,
+            crate::assets::dates::format_date(e.date),
+            e.days_left
+        );
+    }
+    let _ = writeln!(
+        b,
+        "  目前已 EoL {} 個資產、已到期 {} 個資產",
+        l.eol_assets, l.expired_assets
+    );
 }
 
 fn dead_section(b: &mut String, d: &DigestData, zone: Zone) {

@@ -416,6 +416,7 @@ fn invalid_category_aborts_with_row_number() {
     use cvewatch_core::assets::sheet::{Sheet, SheetRow, Workbook};
     let cells = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     let book = Workbook {
+        eol: None,
         assets: Sheet {
             kind: SheetKind::Assets,
             headers: cells(&["asset_tag", "name", "category", "product", "version"]),
@@ -737,7 +738,7 @@ fn template_has_class_sheet_following_configuration() {
     let mut book = open_workbook_auto(&path).unwrap();
     assert_eq!(
         book.sheet_names(),
-        vec!["assets", "components", "systems", "ips", "classes"]
+        vec!["assets", "components", "systems", "ips", "eol", "classes"]
     );
     let mut header = |name: &str| -> Vec<String> {
         let range = book.worksheet_range(name).unwrap();

@@ -976,6 +976,7 @@ fn queued_redmine_issue_is_sent_after_the_asset_is_purged() {
     let n = Notifier {
         config,
         stale_days: 14,
+        lifecycle: None,
         zone: Zone::Local,
         mail: Endpoint::Disabled,
         redmine: Endpoint::Ready(Box::new(api)),

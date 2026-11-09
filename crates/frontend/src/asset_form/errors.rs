@@ -6,6 +6,7 @@ use cvewatch_core::assets::validate::{FieldError, FieldErrorKind};
 
 use super::admin::{ISMS_SYSTEM_MISMATCH, ISMS_SYSTEM_UNKNOWN};
 use super::identity::{hostname_too_long, HOSTNAME_FORMAT, MANAGEMENT_URL_FORMAT, URL_CREDENTIALS};
+use super::lifecycle::DATE_INVALID;
 
 /// 欄位的介面名稱（對話框標籤與錯誤摘要用；清冊與 CLI 仍用英文欄名）。
 pub fn field_label(field: StandardField) -> &'static str {
@@ -30,6 +31,11 @@ pub fn field_label(field: StandardField) -> &'static str {
         StandardField::PropertyNumber => "財產編號",
         StandardField::Hostname => "主機名稱",
         StandardField::ManagementUrl => "管理介面位址",
+        StandardField::WarrantyEnd => "保固到期",
+        StandardField::SupportEnd => "維護合約到期",
+        StandardField::LicenseEnd => "軟體授權到期",
+        StandardField::Eol => "硬體 EoL 覆寫",
+        StandardField::Source => "覆寫來源",
         StandardField::Ip => "IP",
         StandardField::Purpose => "用途",
         StandardField::Criticality => "重要性（已停用）",
@@ -55,6 +61,10 @@ pub(super) fn field_message(e: &FieldError) -> String {
         (FieldErrorKind::UnknownSystem, StandardField::IsmsId) => ISMS_SYSTEM_UNKNOWN.into(),
         (FieldErrorKind::UnknownSystem, _) => CHOOSE_FROM_LIST.into(),
         (FieldErrorKind::Format, StandardField::ManagementUrl) => MANAGEMENT_URL_FORMAT.into(),
+        (
+            FieldErrorKind::Format,
+            StandardField::WarrantyEnd | StandardField::SupportEnd | StandardField::LicenseEnd,
+        ) => DATE_INVALID.into(),
         (FieldErrorKind::Format, _) => HOSTNAME_FORMAT.into(),
         (FieldErrorKind::Credentials, _) => URL_CREDENTIALS.into(),
         (FieldErrorKind::TooLong, _) => hostname_too_long(),

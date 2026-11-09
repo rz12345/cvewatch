@@ -1,5 +1,7 @@
 //! 資產與元件的資料模型。
 
+use chrono::NaiveDate;
+
 use super::classes::{Cia, ClassCode};
 
 string_enum!(
@@ -81,7 +83,22 @@ pub struct AssetRecord {
     pub hostname: Option<String>,
     /// 管理介面位址（http／https，不含帳號密碼；以使用者寫法儲存）
     pub management_url: Option<String>,
+    /// 保固到期（22 design D6）
+    pub warranty_end: Option<NaiveDate>,
+    /// 維護合約到期
+    pub support_end: Option<NaiveDate>,
+    /// 軟體授權到期
+    pub license_end: Option<NaiveDate>,
+    /// 硬體 EoL 的手動覆寫（優先於目錄的型號清單）
+    pub hw_eol_override: Option<EolOverride>,
     pub notes: Option<String>,
+}
+
+/// EoL 的手動覆寫：日期與非空白的來源說明（22 spec EoL overrides）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EolOverride {
+    pub date: NaiveDate,
+    pub source: String,
 }
 
 impl AssetRecord {
@@ -121,6 +138,8 @@ pub struct Component {
     pub version_norm: Option<String>,
     pub source: ComponentSource,
     pub updated_at: String,
+    /// 軟體 EoL 的手動覆寫（只有清冊的目錄產品元件會有）
+    pub eol_override: Option<EolOverride>,
 }
 
 impl Component {
@@ -209,6 +228,7 @@ mod tests {
             version_norm: None,
             source: ComponentSource::Excel,
             updated_at: String::new(),
+            eol_override: None,
         };
         assert!(!component.is_pending());
     }

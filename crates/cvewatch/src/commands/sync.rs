@@ -121,17 +121,27 @@ fn run_locked(
     })
 }
 
-fn print_report(report: &SyncReport) {
+/// 各來源的結果與提醒（例如 `eol` 查無代稱；純函式，便於測試）。
+pub fn report_lines(report: &SyncReport) -> Vec<String> {
+    let mut out = Vec::new();
     for o in &report.outcomes {
         match &o.result {
             Ok(stats) => {
-                println!("✓ {}：新增 {}、更新 {}", o.name, stats.added, stats.updated);
-                for note in &stats.notes {
-                    println!("    - {note}");
-                }
+                out.push(format!(
+                    "✓ {}：新增 {}、更新 {}",
+                    o.name, stats.added, stats.updated
+                ));
+                out.extend(stats.notes.iter().map(|note| format!("    - {note}")));
             }
-            Err(e) => println!("✗ {}：失敗：{e}", o.name),
+            Err(e) => out.push(format!("✗ {}：失敗：{e}", o.name)),
         }
+    }
+    out
+}
+
+fn print_report(report: &SyncReport) {
+    for line in report_lines(report) {
+        println!("{line}");
     }
     let failed: Vec<&str> = report.failed().map(|o| o.name.as_str()).collect();
     if !failed.is_empty() {
@@ -166,4 +176,36 @@ fn history(conn: &Connection) -> Result<ExitCode, CoreError> {
         );
     }
     Ok(ExitCode::Success)
+}
+
+#[cfg(test)]
+mod tests {
+    use cvewatch_core::ingest::source::SyncStats;
+    use cvewatch_core::ingest::sync::SourceOutcome;
+
+    use super::*;
+
+    #[test]
+    fn eol_notes_are_listed_under_the_source() {
+        let mut stats = SyncStats {
+            added: 3,
+            ..SyncStats::default()
+        };
+        stats.note(
+            "endoflife.date 沒有產品 no-such（目錄產品 nginx），請檢查 catalog.d 的 endoflife 設定",
+        );
+        let report = SyncReport {
+            outcomes: vec![SourceOutcome {
+                name: "eol".into(),
+                result: Ok(stats),
+            }],
+        };
+        assert_eq!(
+            report_lines(&report),
+            [
+                "✓ eol：新增 3、更新 0",
+                "    - endoflife.date 沒有產品 no-such（目錄產品 nginx），請檢查 catalog.d 的 endoflife 設定",
+            ]
+        );
+    }
 }

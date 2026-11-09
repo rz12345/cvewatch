@@ -6,10 +6,13 @@
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection};
 
+use super::content::Zone;
 use super::outbox::{self, OutboxItem};
 use crate::assets::pending::PendingCounts;
+use crate::catalog::Catalog;
 use crate::db::meta;
 use crate::error::CoreError;
+use crate::lifecycle::summary::{digest as lifecycle_digest, evaluate_active, LifecycleDigest};
 use crate::matching::dashboard::{self, SourceStatus};
 use crate::matching::pending::{PendingReason, ResolvedReason};
 use crate::matching::pending_ops::{self, PendingRow};
@@ -57,6 +60,16 @@ pub struct DigestData {
     pub dead_total: usize,
     /// 寄出時版本待補的元件數與資產數（不算新事項；18 design D7）
     pub pending_versions: PendingCounts,
+    /// 生命週期提醒（22 design D12；期間內進入提醒天數或到期才算新事項）
+    pub lifecycle: LifecycleDigest,
+}
+
+/// 摘要的生命週期輸入：目錄、提醒天數與換算日曆日的時區。
+#[derive(Clone, Copy)]
+pub struct LifecycleInput<'a> {
+    pub catalog: &'a Catalog,
+    pub window: u32,
+    pub zone: Zone,
 }
 
 impl DigestData {
@@ -73,6 +86,7 @@ impl DigestData {
             && self.pending_exited.is_empty()
             && self.dead.is_empty()
             && self.failed_sources().next().is_none()
+            && !self.lifecycle.news
     }
 }
 
@@ -112,6 +126,7 @@ pub fn collect(
     since: DateTime<Utc>,
     until: DateTime<Utc>,
     stale_days: u32,
+    lifecycle: Option<LifecycleInput<'_>>,
 ) -> Result<DigestData, CoreError> {
     // SQL 先以期間起點篩選（時間皆為 RFC 3339 UTC 字串），再以 `within` 精確比對
     let filter = FindingFilter {
@@ -134,7 +149,16 @@ pub fn collect(
         .collect();
     let (pending_entered, pending_exited) = pending_moves(conn, since, until)?;
     let dash = dashboard::load(conn, stale_days, until)?;
+    let lifecycle = match lifecycle {
+        Some(input) => {
+            let (from, to) = (input.zone.naive_date(since), input.zone.naive_date(until));
+            let assets = evaluate_active(conn, input.catalog, to, input.window)?;
+            lifecycle_digest(&assets, from, to, input.window)
+        }
+        None => LifecycleDigest::default(),
+    };
     Ok(DigestData {
+        lifecycle,
         since,
         until,
         sources: dash.sources,

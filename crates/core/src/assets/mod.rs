@@ -2,7 +2,9 @@
 
 pub mod classes;
 pub mod columns;
+pub mod dates;
 pub mod edit;
+mod edit_eol;
 mod edit_lifecycle;
 pub mod export;
 pub mod import;
@@ -12,12 +14,14 @@ pub mod model;
 pub mod packages;
 pub mod pending;
 pub mod plan;
+mod plan_eol;
 mod plan_fields;
 mod plan_identity;
 mod plan_systems;
 mod record;
 mod record_admin;
 pub mod record_identity;
+pub mod record_lifecycle;
 pub mod repo;
 pub mod sheet;
 pub mod systems;
@@ -25,6 +29,7 @@ pub mod systems_edit;
 pub mod template;
 pub mod unique;
 pub mod validate;
+mod validate_eol;
 mod validate_ips;
 mod validate_systems;
 

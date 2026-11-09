@@ -7,6 +7,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 
 use super::ips::AssetIpRepo;
 use super::model::{AssetStatus, ComponentKind, ComponentSource};
+use super::plan::ComponentEol;
 use super::plan::{plan_import, CurrentAsset, ImportPlan, PlannedAsset, Snapshot};
 use super::repo::{AssetFilter, AssetRepo, ComponentRepo};
 use super::systems::{AssetSystem, SystemDirectory, SystemRepo};
@@ -126,12 +127,16 @@ pub fn load_snapshot(conn: &Connection) -> Result<Snapshot, CoreError> {
     assets
         .into_iter()
         .map(|asset| {
+            let mut component_eol = ComponentEol::new();
             let excel: BTreeMap<String, String> = components
                 .for_asset(asset.id)?
                 .into_iter()
                 .filter(|c| c.source == ComponentSource::Excel)
                 .filter_map(|c| match c.kind {
                     ComponentKind::Product { product_key, .. } => {
+                        if let Some(o) = c.eol_override {
+                            component_eol.insert(product_key.clone(), o);
+                        }
                         Some((product_key, c.version_raw))
                     }
                     ComponentKind::Package { .. } => None,
@@ -143,6 +148,7 @@ pub fn load_snapshot(conn: &Connection) -> Result<Snapshot, CoreError> {
                 status: asset.status,
                 components: excel,
                 ips: ips.remove(&asset.id).unwrap_or_default(),
+                component_eol,
             };
             Ok((current.record.asset_tag.clone(), current))
         })
@@ -181,6 +187,13 @@ fn apply_asset(
             c.version_norm.as_deref(),
             now,
         )?;
+        if let Some(eol) = &planned.component_eol {
+            let new = eol.get(&c.product_key);
+            let old = existing.and_then(|e| e.component_eol.get(&c.product_key));
+            if new != old {
+                components.set_product_eol_override(asset_id, product_id, new)?;
+            }
+        }
     }
     if let Some(current) = existing {
         remove_dropped_components(conn, asset_id, current, planned, now)?;

@@ -225,10 +225,13 @@ fn help_entries(app: &App) -> Vec<(String, &'static str)> {
         ),
         ("E", "Findings：依目前篩選匯出 CycloneDX VEX（未加密）"),
         ("a / d", "等待區：套用到資產 / 標為不相關"),
+        (
+            "l",
+            "資產：切換生命週期篩選（已 EoL／即將 EoL／保固或合約到期）",
+        ),
         ("R", "重新載入資料"),
         ("S", "背景執行 sync"),
-        ("?", "說明"),
-        ("q", "離開"),
+        ("? / q", "說明 / 離開"),
         ("Ctrl+C", "離開（有未送出的備註時先確認）"),
     ];
     rows.into_iter()

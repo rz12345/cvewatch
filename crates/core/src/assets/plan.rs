@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 use super::columns::StandardField;
 use super::ips::AssetIp;
 use super::model::{is_pending_version, AssetRecord, AssetStatus};
+use super::plan_eol::{eol_changes, keeps_eol, plan_asset_eol, EOL_KEPT_NOTICE};
 use super::plan_fields::changed_fields;
 use super::plan_identity::{ip_change, keeps_ips, planned_ips};
 use super::plan_systems::{assign_system, keep_existing, kept_columns_notice, plan_systems};
@@ -12,6 +13,7 @@ use super::systems::SystemDirectory;
 use super::unique::{self, UniqueField};
 use super::validate::{ImportNotice, IncomingAsset, Inventory, RowRef, ISMS_KEPT_NOTICE};
 
+pub use super::plan_eol::{ComponentEol, EolChange, EolTarget};
 pub use super::plan_fields::FieldChange;
 pub use super::plan_identity::{property_in_use_message, IpChange, IPS_KEPT_NOTICE};
 pub use super::plan_systems::SystemChange;
@@ -137,6 +139,8 @@ pub struct AssetUpdate {
     pub reactivated: bool,
     /// IP 有變更時的新舊清單（20 design D6；不影響比對）
     pub ip_change: Option<IpChange>,
+    /// EoL 覆寫的新增、修改與移除（22 design D7；不影響比對）
+    pub eol_changes: Vec<EolChange>,
 }
 
 impl AssetUpdate {
@@ -159,6 +163,9 @@ pub struct PlannedAsset {
     pub unresolved: Vec<(String, String)>,
     /// 要寫入的 IP（清冊有 `ips` 工作表時；None 為不變更，20 design D6）
     pub ips: Option<Vec<AssetIp>>,
+    /// 要寫入的元件 EoL 覆寫（清冊有 `eol` 工作表時；None 為不變更，22 design D7）；
+    /// 硬體覆寫在 `record.hw_eol_override`
+    pub component_eol: Option<ComponentEol>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -215,6 +222,8 @@ pub struct CurrentAsset {
     pub components: BTreeMap<String, String>,
     /// IP（依儲存順序）
     pub ips: Vec<AssetIp>,
+    /// 清冊元件的軟體 EoL 覆寫：product_key → 覆寫
+    pub component_eol: ComponentEol,
 }
 
 pub type Snapshot = HashMap<String, CurrentAsset>;
@@ -237,6 +246,7 @@ pub fn plan_import(
     let owners = UniqueField::ALL.map(|f| (f, unique::owners(f, inventory, current)));
     let mut kept_isms = false;
     let mut kept_ips = false;
+    let mut kept_eol = false;
     let mut any_existing = false;
     for incoming in &inventory.assets {
         let mut planned = resolve_asset(incoming, catalog, &mut plan, &mut errors);
@@ -245,10 +255,12 @@ pub fn plan_import(
         if let Some(existing) = existing {
             any_existing = true;
             kept_ips |= keeps_ips(inventory, existing);
+            kept_eol |= keeps_eol(inventory, existing);
             kept_isms |=
                 inventory.keeps(StandardField::IsmsId) && existing.record.isms_id.is_some();
             planned.record = keep_existing(&planned.record, &existing.record, inventory);
         }
+        plan_asset_eol(inventory, catalog, &mut planned, existing, &mut errors);
         match assign_system(
             incoming,
             planned.record.clone(),
@@ -298,6 +310,13 @@ pub fn plan_import(
             row: None,
             asset_tag: None,
             message: IPS_KEPT_NOTICE.to_string(),
+        });
+    }
+    if kept_eol {
+        plan.notices.push(ImportNotice {
+            row: None,
+            asset_tag: None,
+            message: EOL_KEPT_NOTICE.to_string(),
         });
     }
     let incoming_tags: HashSet<&str> = plan
@@ -381,6 +400,7 @@ fn resolve_asset(
         components,
         unresolved,
         ips: None,
+        component_eol: None,
     }
 }
 
@@ -419,8 +439,10 @@ fn diff_asset(existing: &CurrentAsset, planned: &PlannedAsset) -> Option<AssetUp
             .collect(),
         reactivated: existing.status == AssetStatus::Retired,
         ip_change: ip_change(existing, planned.ips.as_deref()),
+        eol_changes: eol_changes(existing, planned),
     };
     let changed = update.ip_change.is_some()
+        || !update.eol_changes.is_empty()
         || !update.changed_fields.is_empty()
         || !update.version_changes.is_empty()
         || !update.components_added.is_empty()

@@ -51,9 +51,18 @@ impl<T: ?Sized> Endpoint<T> {
     }
 }
 
+/// 每日摘要的生命週期提醒需要的目錄與提醒天數（None 時摘要不含生命週期段落）。
+#[derive(Debug, Clone)]
+pub struct NotifyLifecycle {
+    pub catalog: crate::catalog::Catalog,
+    pub window: u32,
+}
+
 pub struct Notifier {
     pub config: NotifyConfig,
     pub stale_days: u32,
+    /// 生命週期提醒（22 design D12）
+    pub lifecycle: Option<NotifyLifecycle>,
     pub zone: Zone,
     pub mail: Endpoint<dyn MailTransport>,
     pub redmine: Endpoint<dyn RedmineApi>,
@@ -83,6 +92,14 @@ pub enum DigestOutcome {
 }
 
 impl Notifier {
+    /// 加上每日摘要的生命週期提醒（CLI `notify digest` 由 runtime 傳入目錄）。
+    pub fn with_lifecycle(self, catalog: crate::catalog::Catalog, window: u32) -> Self {
+        Notifier {
+            lifecycle: Some(NotifyLifecycle { catalog, window }),
+            ..self
+        }
+    }
+
     /// 依設定建立：秘密取自憑證庫；設定不完整或違反傳輸規則的管道在送出時回報原因。
     pub fn from_config(config: &Config, store: &dyn SecretStore) -> Self {
         let n = &config.notify;
@@ -119,6 +136,7 @@ impl Notifier {
         Notifier {
             config: n.clone(),
             stale_days: config.pending.stale_days,
+            lifecycle: None,
             zone: Zone::Local,
             mail,
             redmine,
@@ -209,7 +227,12 @@ impl Notifier {
             return Ok(DigestOutcome::InFlight);
         }
         let since = digest::period_start(&tx, now)?;
-        let data = digest::collect(&tx, since, now, self.stale_days)?;
+        let lifecycle = self.lifecycle.as_ref().map(|l| digest::LifecycleInput {
+            catalog: &l.catalog,
+            window: l.window,
+            zone: self.zone,
+        });
+        let data = digest::collect(&tx, since, now, self.stale_days, lifecycle)?;
         let empty = data.is_empty();
         if empty && !self.config.email.send_empty {
             tx.commit()?;

@@ -1,3 +1,47 @@
+## MODIFIED Requirements
+
+### Requirement: Blank template export
+系統 SHALL 提供 `cvewatch asset template <path.xlsx>`，產出含 `assets`、`components`、`systems`、`ips` 與 `eol` 工作表、標準欄名與範例列的空白範本（`eol` 範例列的資產與產品沿用 `assets` 的範例列，範本本身 SHALL 可匯入），並 SHALL 附一張 `classes` 工作表列出目前生效的子類別代碼、名稱、描述、C/I/A 範本值與是否含個人資料的預設值；匯入時 `classes` 工作表 SHALL 被忽略。
+
+#### Scenario: Generating a template
+- **WHEN** 使用者執行 `cvewatch asset template D:\inv.xlsx`
+- **THEN** 檔案包含 `assets`、`components`、`systems`、`ips`、`eol`、`classes` 六個工作表，`assets`、`components`、`systems`、`ips` 與 `eol` 第一列為標準欄名，`assets` 的表頭含 `brand`、`model`、`serial_number`、`property_number`、`hostname`、`management_url`、`warranty_end`、`support_end`、`license_end`
+
+#### Scenario: Class sheet follows configuration
+- **WHEN** 設定檔新增子類別 `HW12`，使用者產出範本
+- **THEN** `classes` 工作表包含 `HW12` 與其名稱、範本值
+
+### Requirement: Inventory export
+系統 SHALL 提供 `cvewatch asset export <path.xlsx>`，把所有 active 資產匯出為含 `assets`、`components`、`systems`、`ips` 與 `eol` 工作表、標準欄名的 Excel：每個資產一列 `assets`（含識別欄位與生命週期日期，日期寫 `YYYY-MM-DD` 文字；第一個元件寫在該列的 product / version），其餘清冊元件與未辨識產品列在 `components`，`systems` 列出所有資產說明，`ips` 每筆 IP 一列，`eol` 每筆 EoL 覆寫一列（硬體覆寫的 `product` 空白，元件覆寫寫產品的顯示名稱）。匯出 MUST NOT 包含 retired 資產與主機套件元件；目的檔已存在時 SHALL 拒絕且不覆蓋。
+
+#### Scenario: Round trip without changes
+- **WHEN** 使用者執行 `cvewatch asset export D:\inv.xlsx` 後，立刻以 `cvewatch asset import D:\inv.xlsx --dry-run` 匯入同一檔案
+- **THEN** 預覽結果為「新增 0、更新 0」、沒有版本變更、資產說明變更、IP 變更、EoL 覆寫變更與清冊中消失的資產
+
+#### Scenario: Unresolved product is kept
+- **WHEN** `PVE-01` 有一筆未辨識產品 `Proxmox Backup 3.2`，執行匯出
+- **THEN** `components` 工作表有一列 `PVE-01`、`Proxmox Backup`、`3.2` 原文，重匯後該資產仍列出同一筆未辨識產品
+
+#### Scenario: Pending version is exported blank
+- **WHEN** `NET-HW-003` 的 DSM 元件為版本待補，執行匯出後再以 `--dry-run` 匯入同一檔案
+- **THEN** 檔案中該元件的 `version` 為空白，預覽結果為「新增 0、更新 0」，該元件仍為版本待補
+
+#### Scenario: Retired assets and packages are left out
+- **WHEN** `NAS-02` 為 retired，`WEB-01` 另有 dpkg 匯入的套件元件，執行匯出
+- **THEN** 檔案中沒有 `NAS-02`，`WEB-01` 只匯出清冊元件，不含套件
+
+#### Scenario: Export target exists
+- **WHEN** `D:\inv.xlsx` 已存在
+- **THEN** 指令以錯誤結束並說明目的檔已存在，原檔內容不變
+
+#### Scenario: Systems are exported
+- **WHEN** 有資產說明 `NET` 與 `SYS`，只有 `NET` 有 active 資產
+- **THEN** `systems` 工作表列出 `NET` 與 `SYS` 兩列，`assets` 工作表的 `system` 欄寫資產說明代碼
+
+#### Scenario: Addresses are exported
+- **WHEN** `SRV-01` 有 IP `192.0.2.10`（用途「管理」）與 `2001:db8::10`，`NAS-01` 沒有 IP，執行匯出
+- **THEN** `ips` 工作表有 `SRV-01` 的兩列（依儲存順序、`purpose` 分別為「管理」與空白），沒有 `NAS-01` 的列
+
 ## ADDED Requirements
 
 ### Requirement: Lifecycle date fields

@@ -26,6 +26,13 @@
 #   csaf             CSAF 公告 product_tree 的 vendor / product_name
 #   keywords         英文描述關鍵字；CVE 沒有可辨識的 affected / CPE 時，描述含這些字詞即保留為「僅關鍵字相符」
 #                    （不分大小寫、需為完整字詞；避免太短或太通用的字）
+#   endoflife        endoflife.date 產品代稱（小寫英數字與 -），`cvewatch sync --source eol` 依此取得版本分支 EoL；
+#                    catalog.d 寫 "" 取消（不影響比對）
+#   eol_cycles       endoflife.date 未涵蓋時，自行宣告版本分支 EoL：[{ cycle, eol = "YYYY-MM-DD", source = "https://..." }]；
+#                    catalog.d 依 cycle 合併（相同分支覆寫、新分支加入）
+#
+# [[hardware]]：硬體型號 EoL（vendor、vendor_aliases、model、aliases、eol、source）。種子不含任何型號，
+#   請寫在 <data_dir>\catalog.d\*.toml（相同廠牌＋型號以後載入者為準）。
 #
 # 使用者可在 <data_dir>\catalog.d\*.toml 以相同格式擴充：
 #   新 key → 新增產品；既有 key → 有寫的欄位覆寫、沒寫的沿用（含 role），aliases 合併。
@@ -43,6 +50,7 @@
 
 [[product]]
 key = "paloalto-panos"
+endoflife = "panos"          # endoflife.date，2026-11-09 確認
 display_name = "PAN-OS"
 vendor_display = "Palo Alto Networks"
 version_scheme = "panos"          # 11.1.4-h7
@@ -127,6 +135,7 @@ cna = [
 
 [[product]]
 key = "cisco-iosxe"
+endoflife = "cisco-ios-xe"          # endoflife.date，2026-11-09 確認
 display_name = "Cisco IOS XE"
 vendor_display = "Cisco"
 version_scheme = "dotted"         # 17.9.4a
@@ -204,6 +213,7 @@ cna = [{ vendor = "Arista Networks", product = "EOS" }]
 
 [[product]]
 key = "mikrotik-routeros"
+endoflife = "routeros"          # endoflife.date，2026-11-09 確認
 display_name = "RouterOS"
 vendor_display = "MikroTik"
 version_scheme = "dotted"         # 7.16.2
@@ -220,6 +230,7 @@ keywords = ["MikroTik RouterOS"]
 
 [[product]]
 key = "fortinet-fortios"
+endoflife = "fortios"          # endoflife.date，2026-11-09 確認
 display_name = "FortiOS"
 vendor_display = "Fortinet"
 version_scheme = "dotted"         # 7.4.3
@@ -430,6 +441,7 @@ keywords = ["PIXIS"]
 
 [[product]]
 key = "vmware-esxi"
+endoflife = "esxi"          # endoflife.date，2026-11-09 確認
 display_name = "ESXi"
 vendor_display = "VMware by Broadcom"
 version_scheme = "esxi"           # 8.0 U3c 或 build 24414501
@@ -444,6 +456,7 @@ keywords = ["VMware ESXi"]
 
 [[product]]
 key = "vmware-vcenter"
+endoflife = "vcenter"          # endoflife.date，2026-11-09 確認
 display_name = "vCenter Server"
 vendor_display = "VMware by Broadcom"
 version_scheme = "esxi"           # 8.0 U3b 或 build
@@ -458,6 +471,7 @@ keywords = ["vCenter Server"]
 
 [[product]]
 key = "proxmox-ve"
+endoflife = "proxmox-ve"          # endoflife.date，2026-11-09 確認
 display_name = "Proxmox VE"
 vendor_display = "Proxmox Server Solutions"
 version_scheme = "dotted"         # 8.2.4
@@ -505,6 +519,21 @@ cna = [
   { vendor = "Synology", product = "DiskStation Manager" },
 ]
 keywords = ["DiskStation Manager", "Synology DSM"]
+# 版本分支 EoL：Synology「Software Life Cycle Policy」（KB，PDF 最後更新 2026-10-13，2026-11-09 查證）。
+# 公告只寫到月份（且註明為近似日期），一律取該月 1 日，寧可提早提醒；有延伸支援者取 End of Extended Life
+# Phase，否則取 End of Maintenance Phase。DSM 7.1 的 Extended Life（2025-06）只適用部分機型，取 End of
+# Maintenance（2024-06），適用延伸支援的機型請以元件覆寫。DSM 6.2 依「End-of-Life Announcement for DSM 6.2」
+# （2023-10-01）寫明的 2024-10-01。endoflife.date 沒有 DSM，不宣告代稱。
+eol_cycles = [
+  { cycle = "7.4", eol = "2028-06-01", source = "https://kb.synology.com/en-global/WP/Software_Life_Cycle_Policy/1" },
+  { cycle = "7.3", eol = "2028-10-01", source = "https://kb.synology.com/en-global/WP/Software_Life_Cycle_Policy/1" },
+  { cycle = "7.2", eol = "2025-12-01", source = "https://kb.synology.com/en-global/WP/Software_Life_Cycle_Policy/1" },
+  { cycle = "7.1", eol = "2024-06-01", source = "https://kb.synology.com/en-global/WP/Software_Life_Cycle_Policy/1" },
+  { cycle = "7.0", eol = "2023-06-01", source = "https://kb.synology.com/en-global/WP/Software_Life_Cycle_Policy/1" },
+  { cycle = "6.2", eol = "2024-10-01", source = "https://www.synology.com/en-global/products/status/eol-dsm62" },
+  { cycle = "6.1", eol = "2019-06-01", source = "https://kb.synology.com/en-global/WP/Software_Life_Cycle_Policy/1" },
+  { cycle = "6.0", eol = "2018-06-01", source = "https://kb.synology.com/en-global/WP/Software_Life_Cycle_Policy/1" },
+]
 
 [[product]]
 key = "qnap-qts"
@@ -544,6 +573,7 @@ cna = [
 
 [[product]]
 key = "truenas"
+endoflife = "truenas"          # endoflife.date，2026-11-09 確認
 display_name = "TrueNAS"
 vendor_display = "iXsystems"
 version_scheme = "dotted"         # 25.04.2、13.0-U6.1
@@ -557,6 +587,7 @@ cna = [
 
 [[product]]
 key = "netapp-ontap"
+endoflife = "netapp-ontap"          # endoflife.date，2026-11-09 確認
 display_name = "ONTAP"
 vendor_display = "NetApp"
 version_scheme = "dotted"         # 9.14.1P3
@@ -587,6 +618,7 @@ keywords = ["QSAN SANOS"]
 
 [[product]]
 key = "veeam-backup-replication"
+endoflife = "veeam-backup-and-replication"          # endoflife.date，2026-11-09 確認
 display_name = "Veeam Backup & Replication"
 vendor_display = "Veeam"
 version_scheme = "dotted"         # 12.3.0.310
@@ -632,6 +664,7 @@ cna = [
 
 [[product]]
 key = "commvault"
+endoflife = "commvault"          # endoflife.date，2026-11-09 確認
 display_name = "Commvault"
 vendor_display = "Commvault"
 version_scheme = "dotted"         # 11.36.126
@@ -670,6 +703,7 @@ cpe = [{ part = "a", vendor = "veritas", product = "backup_exec" }]
 
 [[product]]
 key = "nginx"
+endoflife = "nginx"          # endoflife.date，2026-11-09 確認
 display_name = "nginx"
 vendor_display = "F5"
 version_scheme = "dotted"         # 1.26.0
@@ -684,6 +718,7 @@ cna = [{ vendor = "F5", product = "NGINX Open Source" }]
 
 [[product]]
 key = "apache-httpd"
+endoflife = "apache-http-server"          # endoflife.date，2026-11-09 確認
 display_name = "Apache HTTP Server"
 vendor_display = "Apache"
 version_scheme = "dotted"         # 2.4.62
@@ -698,6 +733,7 @@ cna = [
 
 [[product]]
 key = "apache-tomcat"
+endoflife = "tomcat"          # endoflife.date，2026-11-09 確認
 display_name = "Apache Tomcat"
 vendor_display = "Apache"
 version_scheme = "dotted"         # 10.1.34
@@ -712,6 +748,7 @@ cna = [
 
 [[product]]
 key = "mariadb"
+endoflife = "mariadb"          # endoflife.date，2026-11-09 確認
 display_name = "MariaDB"
 vendor_display = "MariaDB"
 version_scheme = "dotted"         # 10.11.9
@@ -726,6 +763,7 @@ cna = [
 
 [[product]]
 key = "mysql"
+endoflife = "mysql"          # endoflife.date，2026-11-09 確認
 display_name = "MySQL"
 vendor_display = "Oracle"
 version_scheme = "dotted"         # 8.0.40
@@ -736,6 +774,7 @@ cna = [{ vendor = "Oracle", product = "MySQL Server" }]
 
 [[product]]
 key = "postgresql"
+endoflife = "postgresql"          # endoflife.date，2026-11-09 確認
 display_name = "PostgreSQL"
 vendor_display = "PostgreSQL"
 version_scheme = "dotted"         # 16.4
@@ -751,6 +790,7 @@ cna = [
 
 [[product]]
 key = "mssql-server"
+endoflife = "mssqlserver"          # endoflife.date，2026-11-09 確認
 display_name = "Microsoft SQL Server"
 vendor_display = "Microsoft"
 version_scheme = "dotted"         # 填 build：15.0.4415.2
@@ -777,6 +817,7 @@ cna = [
 
 [[product]]
 key = "mongodb"
+endoflife = "mongodb"          # endoflife.date，2026-11-09 確認
 display_name = "MongoDB Server"
 vendor_display = "MongoDB"
 version_scheme = "dotted"         # 7.0.14
@@ -787,6 +828,7 @@ cna = [{ vendor = "MongoDB", product = "MongoDB Server" }]
 
 [[product]]
 key = "redis"
+endoflife = "redis"          # endoflife.date，2026-11-09 確認
 display_name = "Redis"
 vendor_display = "Redis"
 version_scheme = "dotted"         # 7.2.5
@@ -799,6 +841,7 @@ cna = [{ vendor = "redis", product = "redis" }]
 
 [[product]]
 key = "ruby"
+endoflife = "ruby"          # endoflife.date，2026-11-09 確認
 display_name = "Ruby"
 vendor_display = "ruby-lang.org"
 version_scheme = "dotted"         # 3.3.5
@@ -815,6 +858,7 @@ keywords = ["as distributed in Ruby", "discovered in Ruby", "in Ruby before", "i
 
 [[product]]
 key = "rails"
+endoflife = "rails"          # endoflife.date，2026-11-09 確認
 display_name = "Ruby on Rails"
 vendor_display = "Rails"
 version_scheme = "dotted"         # 7.1.4
@@ -838,6 +882,7 @@ cna = [
 
 [[product]]
 key = "php"
+endoflife = "php"          # endoflife.date，2026-11-09 確認
 display_name = "PHP"
 vendor_display = "PHP Group"
 version_scheme = "dotted"         # 8.3.12
@@ -851,6 +896,7 @@ cna = [
 
 [[product]]
 key = "python"
+endoflife = "python"          # endoflife.date，2026-11-09 確認
 display_name = "Python"
 vendor_display = "Python Software Foundation"
 version_scheme = "dotted"         # 3.12.6
@@ -861,6 +907,7 @@ cna = [{ vendor = "Python Software Foundation", product = "CPython" }]
 
 [[product]]
 key = "nodejs"
+endoflife = "nodejs"          # endoflife.date，2026-11-09 確認
 display_name = "Node.js"
 vendor_display = "OpenJS Foundation"
 version_scheme = "dotted"         # 20.17.0
@@ -875,6 +922,7 @@ cna = [
 
 [[product]]
 key = "java-se"
+endoflife = "oracle-jdk"          # endoflife.date（Oracle JDK；8u421 對應分支 8），2026-11-09 確認
 display_name = "Java SE"
 vendor_display = "Oracle"
 version_scheme = "dotted"         # 17.0.12、8u421
@@ -893,6 +941,7 @@ cna = [
 
 [[product]]
 key = "django"
+endoflife = "django"          # endoflife.date，2026-11-09 確認
 display_name = "Django"
 vendor_display = "Django Software Foundation"
 version_scheme = "dotted"         # 5.1.1
@@ -903,6 +952,7 @@ cna = [{ vendor = "djangoproject", product = "Django" }]
 
 [[product]]
 key = "laravel"
+endoflife = "laravel"          # endoflife.date，2026-11-09 確認
 display_name = "Laravel"
 vendor_display = "Laravel"
 version_scheme = "dotted"         # 11.23.5
@@ -913,6 +963,7 @@ cna = [{ vendor = "laravel", product = "framework" }]
 
 [[product]]
 key = "wordpress"
+endoflife = "wordpress"          # endoflife.date，2026-11-09 確認
 display_name = "WordPress"
 vendor_display = "WordPress"
 version_scheme = "dotted"         # 6.6.2（只含核心，外掛請另以 SBOM 或 catalog.d 處理）
@@ -926,6 +977,7 @@ cna = [
 
 [[product]]
 key = "drupal"
+endoflife = "drupal"          # endoflife.date，2026-11-09 確認
 display_name = "Drupal"
 vendor_display = "Drupal"
 version_scheme = "dotted"         # 10.3.5
@@ -942,6 +994,7 @@ cna = [
 
 [[product]]
 key = "ckeditor4"
+endoflife = "ckeditor"          # endoflife.date 分支 4，2026-11-09 確認
 display_name = "CKEditor 4"
 vendor_display = "CKSource"
 version_scheme = "dotted"         # 4.25.0-lts（CKEditor 5 為另一產品）
@@ -963,6 +1016,7 @@ cna = [{ vendor = "tinymce", product = "tinymce" }]
 
 [[product]]
 key = "bootstrap"
+endoflife = "bootstrap"          # endoflife.date，2026-11-09 確認
 display_name = "Bootstrap"
 vendor_display = "Bootstrap"
 version_scheme = "dotted"         # 5.3.3
@@ -973,6 +1027,7 @@ cna = [{ vendor = "Bootstrap", product = "Bootstrap" }]
 
 [[product]]
 key = "jquery"
+endoflife = "jquery"          # endoflife.date，2026-11-09 確認
 display_name = "jQuery"
 vendor_display = "OpenJS Foundation"
 version_scheme = "dotted"         # 3.7.1
@@ -986,6 +1041,7 @@ cna = [
 
 [[product]]
 key = "jquery-ui"
+endoflife = "jquery-ui"          # endoflife.date，2026-11-09 確認
 display_name = "jQuery UI"
 vendor_display = "OpenJS Foundation"
 version_scheme = "dotted"         # 1.13.3
@@ -1023,6 +1079,7 @@ keywords = ["Moment.js"]
 
 [[product]]
 key = "openssl"
+endoflife = "openssl"          # endoflife.date，2026-11-09 確認
 display_name = "OpenSSL"
 vendor_display = "OpenSSL"
 version_scheme = "dotted"         # 3.0.15、1.1.1w
@@ -1046,6 +1103,7 @@ cna = [{ vendor = "OpenBSD", product = "OpenSSH" }]
 
 [[product]]
 key = "samba"
+endoflife = "samba"          # endoflife.date，2026-11-09 確認
 display_name = "Samba"
 vendor_display = "Samba"
 version_scheme = "dotted"         # 4.20.5
@@ -1060,6 +1118,7 @@ cna = [
 
 [[product]]
 key = "bind9"
+endoflife = "bind-9"          # endoflife.date，2026-11-09 確認
 display_name = "BIND 9"
 vendor_display = "ISC"
 version_scheme = "dotted"         # 9.18.28
@@ -1089,6 +1148,7 @@ keywords = ["FreeRADIUS"]
 
 [[product]]
 key = "debian"
+endoflife = "debian"          # endoflife.date，2026-11-09 確認
 display_name = "Debian"
 vendor_display = "Debian"
 version_scheme = "dotted"         # 12.7
@@ -1098,6 +1158,7 @@ cpe = [{ part = "o", vendor = "debian", product = "debian_linux" }]
 
 [[product]]
 key = "ubuntu"
+endoflife = "ubuntu"          # endoflife.date，2026-11-09 確認
 display_name = "Ubuntu"
 vendor_display = "Canonical"
 version_scheme = "ubuntu"         # 22.04.4 LTS
@@ -1107,6 +1168,7 @@ cpe = [{ part = "o", vendor = "canonical", product = "ubuntu_linux" }]
 
 [[product]]
 key = "rhel"
+endoflife = "rhel"          # endoflife.date，2026-11-09 確認
 display_name = "Red Hat Enterprise Linux"
 vendor_display = "Red Hat"
 version_scheme = "dotted"         # 9.4
@@ -1120,6 +1182,7 @@ cna = [
 
 [[product]]
 key = "windows-server"
+endoflife = "windows-server"          # endoflife.date，2026-11-09 確認
 display_name = "Windows Server"
 vendor_display = "Microsoft"
 version_scheme = "dotted"         # OS build：10.0.20348.2700

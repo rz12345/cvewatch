@@ -10,6 +10,7 @@ pub mod db;
 pub mod finding;
 mod finding_view;
 pub mod init;
+mod lifecycle_view;
 pub mod matching;
 pub mod notify;
 pub mod pending;

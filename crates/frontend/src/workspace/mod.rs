@@ -55,7 +55,7 @@ impl<V: ListView> Workspace<V> {
     /// 載入畫面資料並計算可見列（預設篩選：只看未處理）。
     pub fn new(ctx: Context) -> Result<Self, CoreError> {
         let now = ctx.services.now();
-        let data = Snapshot::load(&ctx.conn, ctx.settings.stale_days, now)?;
+        let data = Snapshot::load(&ctx.conn, &ctx.settings, now, ctx.services.today())?;
         let mut ws = Workspace {
             conn: ctx.conn,
             settings: ctx.settings,

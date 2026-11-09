@@ -100,7 +100,16 @@ fn report_flush(stats: &FlushStats) -> ExitCode {
 
 fn digest(app: &App) -> Result<ExitCode, CoreError> {
     let mut conn = open_working_db(&app.paths, &app.store)?;
-    let notifier = Notifier::from_config(&app.loaded.config, &app.store);
+    let window = app.loaded.config.lifecycle.reminder_days;
+    let mut notifier = Notifier::from_config(&app.loaded.config, &app.store);
+    // 目錄有錯時摘要照寄（命中、等待區與同步狀態與目錄無關），只略過生命週期段落
+    match app.load_catalog() {
+        Ok(catalog) => notifier = notifier.with_lifecycle(catalog, window),
+        Err(e) => {
+            tracing::warn!(error = %e, "產品目錄載入失敗，每日摘要略過生命週期提醒");
+            eprintln!("警告：產品目錄載入失敗，本次摘要不含生命週期提醒：{e}");
+        }
+    }
     let now = chrono::Utc::now();
     // 先產生摘要（取代尚未寄出的舊摘要）再一次送出整個佇列，避免舊摘要先寄出而收到兩封
     match notifier.queue_digest(&mut conn, now)? {

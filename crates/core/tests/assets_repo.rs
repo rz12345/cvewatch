@@ -42,6 +42,10 @@ fn record(tag: &str) -> AssetRecord {
         property_number: None,
         hostname: None,
         management_url: None,
+        warranty_end: None,
+        support_end: None,
+        license_end: None,
+        hw_eol_override: None,
         notes: None,
     }
 }

@@ -228,8 +228,8 @@ fn older_inventory_keeps_identity_and_addresses() {
     assert_eq!(
         notices,
         [
-            "清冊沒有 brand、model、serial_number、property_number、hostname、management_url 欄，\
-             保留資料庫中既有資產的值",
+            "清冊沒有 brand、model、serial_number、property_number、hostname、management_url、\
+             warranty_end、support_end、license_end 欄，保留資料庫中既有資產的值",
             IPS_KEPT_NOTICE,
         ]
     );

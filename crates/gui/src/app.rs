@@ -4,6 +4,7 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use cvewatch_core::lifecycle::LifecycleFilter;
 use cvewatch_core::matching::triage::Status;
 use cvewatch_core::CoreError;
 use cvewatch_frontend::data::DetailData;
@@ -142,6 +143,8 @@ pub struct GuiApp {
     pub assets_pending_only: bool,
     /// 資產清單的搜尋字（20 design D11）
     pub assets_search: String,
+    /// 資產清單的生命週期篩選（None = 全部；Dashboard 的生命週期數字開啟；22 design D11）
+    pub assets_lifecycle: Option<LifecycleFilter>,
     /// 資產編輯、退役與永久刪除確認
     pub asset_dialog: Option<AssetDialog>,
     /// 資產編修後的背景比對
@@ -181,6 +184,7 @@ impl GuiApp {
             assets_show_retired: false,
             assets_pending_only: false,
             assets_search: String::new(),
+            assets_lifecycle: None,
             asset_dialog: None,
             matching: Matching::default(),
             pending_selected: None,
@@ -237,12 +241,21 @@ impl GuiApp {
         self.enter(screen);
     }
 
-    /// 進入畫面；進入設定畫面時重新讀取設定檔與秘密狀態（TUI、CLI 可能已修改）。
+    /// 進入畫面；進入設定畫面時重新讀取設定檔與秘密狀態（TUI、CLI 可能已修改）；進入資產或
+    /// Dashboard 畫面時，日期變了就重算生命週期（22 design D11）。
     pub fn enter(&mut self, screen: Screen) {
         self.screen = screen;
-        if screen == Screen::Settings {
-            self.refresh_settings();
+        match screen {
+            Screen::Settings => self.refresh_settings(),
+            Screen::Assets | Screen::Dashboard => self.refresh_lifecycle(),
+            _ => {}
         }
+    }
+
+    /// 以今天（顯示時區）重算生命週期；與快照計算時同一天則不重算。
+    pub fn refresh_lifecycle(&mut self) {
+        let today = self.ws.services.today();
+        self.ws.data.refresh_lifecycle(&self.ws.settings, today);
     }
 
     /// 沒有未儲存的變更、也沒有背景工作時，以設定檔目前的內容重新載入設定畫面。

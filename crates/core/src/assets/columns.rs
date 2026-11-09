@@ -30,6 +30,10 @@ pub enum StandardField {
     PropertyNumber,
     Hostname,
     ManagementUrl,
+    /// 生命週期日期（22 design D6）
+    WarrantyEnd,
+    SupportEnd,
+    LicenseEnd,
     Location,
     Notes,
     /// 舊欄名（16 design D3）：表頭視同 [`StandardField::Custodian`]，匯入時給出一次警告
@@ -41,10 +45,13 @@ pub enum StandardField {
     /// `ips` 工作表的位址與用途（20 design D5）
     Ip,
     Purpose,
+    /// `eol` 工作表的 EoL 日期與來源（22 design D7）
+    Eol,
+    Source,
 }
 
 /// `assets` 工作表的欄位順序（範本、匯出與表頭解析；不含停用欄位與舊欄名）。
-const ASSET_COLUMNS: [StandardField; 24] = [
+const ASSET_COLUMNS: [StandardField; 27] = [
     StandardField::AssetTag,
     StandardField::Name,
     StandardField::Category,
@@ -67,6 +74,9 @@ const ASSET_COLUMNS: [StandardField; 24] = [
     StandardField::PropertyNumber,
     StandardField::Hostname,
     StandardField::ManagementUrl,
+    StandardField::WarrantyEnd,
+    StandardField::SupportEnd,
+    StandardField::LicenseEnd,
     StandardField::Location,
     StandardField::Notes,
 ];
@@ -81,9 +91,17 @@ const IP_COLUMNS: [StandardField; 3] = [
     StandardField::Purpose,
 ];
 
+/// `eol` 工作表的欄位（22 design D7）：`product` 空白為硬體覆寫。
+const EOL_COLUMNS: [StandardField; 4] = [
+    StandardField::AssetTag,
+    StandardField::Product,
+    StandardField::Eol,
+    StandardField::Source,
+];
+
 /// 清冊沒有該欄時保留既有資產值的欄位（13 的 isms_id、16 的新欄位與 20 的識別欄位，
-/// 16 design D4、20 design D7）。
-pub const KEEPABLE_FIELDS: [StandardField; 13] = [
+/// 16 design D4、20 design D7、22 的生命週期日期）。
+pub const KEEPABLE_FIELDS: [StandardField; 16] = [
     StandardField::IsmsId,
     StandardField::System,
     StandardField::ResponsibleUnit,
@@ -97,11 +115,14 @@ pub const KEEPABLE_FIELDS: [StandardField; 13] = [
     StandardField::PropertyNumber,
     StandardField::Hostname,
     StandardField::ManagementUrl,
+    StandardField::WarrantyEnd,
+    StandardField::SupportEnd,
+    StandardField::LicenseEnd,
 ];
 
 impl StandardField {
     /// 所有可辨識的欄名（含停用欄位與舊欄名）。
-    pub const ALL: [StandardField; 29] = [
+    pub const ALL: [StandardField; 34] = [
         StandardField::AssetTag,
         StandardField::Name,
         StandardField::Category,
@@ -124,6 +145,9 @@ impl StandardField {
         StandardField::PropertyNumber,
         StandardField::Hostname,
         StandardField::ManagementUrl,
+        StandardField::WarrantyEnd,
+        StandardField::SupportEnd,
+        StandardField::LicenseEnd,
         StandardField::Location,
         StandardField::Notes,
         StandardField::Owner,
@@ -131,6 +155,8 @@ impl StandardField {
         StandardField::Code,
         StandardField::Ip,
         StandardField::Purpose,
+        StandardField::Eol,
+        StandardField::Source,
     ];
 
     /// 已停用、匯入時忽略的欄位。
@@ -162,6 +188,11 @@ impl StandardField {
             StandardField::PropertyNumber => "property_number",
             StandardField::Hostname => "hostname",
             StandardField::ManagementUrl => "management_url",
+            StandardField::WarrantyEnd => "warranty_end",
+            StandardField::SupportEnd => "support_end",
+            StandardField::LicenseEnd => "license_end",
+            StandardField::Eol => "eol",
+            StandardField::Source => "source",
             StandardField::Criticality => "criticality",
             StandardField::Location => "location",
             StandardField::Owner => "owner",
@@ -189,6 +220,8 @@ pub enum SheetKind {
     Systems,
     /// 資產的 IP（20 design D5；選填）
     Ips,
+    /// EoL 覆寫（22 design D7；選填）
+    Eol,
 }
 
 impl SheetKind {
@@ -198,6 +231,7 @@ impl SheetKind {
             SheetKind::Components => "components",
             SheetKind::Systems => "systems",
             SheetKind::Ips => "ips",
+            SheetKind::Eol => "eol",
         }
     }
 
@@ -217,6 +251,7 @@ impl SheetKind {
             ],
             SheetKind::Systems => &SYSTEM_COLUMNS,
             SheetKind::Ips => &IP_COLUMNS[..2],
+            SheetKind::Eol => &EOL_COLUMNS,
         }
     }
 
@@ -225,6 +260,7 @@ impl SheetKind {
         match self {
             SheetKind::Assets => &ASSET_COLUMNS,
             SheetKind::Ips => &IP_COLUMNS,
+            SheetKind::Eol => &EOL_COLUMNS,
             SheetKind::Components | SheetKind::Systems => self.required(),
         }
     }
@@ -291,11 +327,13 @@ impl ColumnMap {
         let mut found: HashMap<StandardField, usize> = HashMap::new();
         let mut legacy_owner = false;
         for (i, header) in headers.iter().enumerate() {
-            // `[import.columns]` 是為 assets／components 寫的；systems 與 ips 工作表只認標準欄名，
+            // `[import.columns]` 是為 assets／components 寫的；systems、ips 與 eol 工作表只認標準欄名，
             // 以免自訂欄名（例如把 code 對應到 asset_tag、把舊清冊的「IP」欄對應到 notes）讓範本與
             // 匯出檔無法匯入（16、20 code review）
             let field = match kind {
-                SheetKind::Systems | SheetKind::Ips => StandardField::parse(header),
+                SheetKind::Systems | SheetKind::Ips | SheetKind::Eol => {
+                    StandardField::parse(header)
+                }
                 _ => self.field_for(header),
             };
             let Some(mut field) = field else {
@@ -549,7 +587,7 @@ mod tests {
             )
             .unwrap();
         assert_eq!(found[&StandardField::PropertyNumber], 5);
-        assert_eq!(SheetKind::Assets.columns().len(), 24);
+        assert_eq!(SheetKind::Assets.columns().len(), 27);
     }
 
     #[test]

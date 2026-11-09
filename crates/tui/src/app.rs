@@ -5,10 +5,12 @@ use std::cell::Cell;
 use std::ops::{Deref, DerefMut};
 use std::time::Instant;
 
+use cvewatch_core::lifecycle::LifecycleFilter;
 use cvewatch_core::matching::pending_ops::Action;
 use cvewatch_core::matching::query::FindingRow;
 use cvewatch_core::matching::triage::Status;
 use cvewatch_core::CoreError;
+use cvewatch_frontend::data::{AssetEntry, AssetListFilter};
 use cvewatch_frontend::{ListView, Report, Workspace};
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use tui_input::Input;
@@ -115,6 +117,8 @@ pub struct App {
     pub screen: Screen,
     pub stack: Vec<View>,
     pub assets_cursor: usize,
+    /// 資產畫面的生命週期篩選（`l` 循環切換；None = 全部，22 design D11）
+    pub assets_lifecycle_filter: Option<LifecycleFilter>,
     pub pending_cursor: usize,
     pub sync_cursor: usize,
     pub dialog: Option<Dialog>,
@@ -149,6 +153,7 @@ impl App {
             screen: Screen::Dashboard,
             stack: Vec::new(),
             assets_cursor: 0,
+            assets_lifecycle_filter: None,
             pending_cursor: 0,
             sync_cursor: 0,
             dialog: None,
@@ -170,6 +175,14 @@ impl App {
 
     pub fn current_row(&self) -> Option<&FindingRow> {
         self.ws.row_at(self.ws.findings.view.cursor)
+    }
+
+    /// 資產畫面目前列出的使用中資產（套用生命週期篩選）；游標與 Enter 以此清單為準。
+    pub fn visible_assets(&self) -> Vec<&AssetEntry> {
+        self.ws.data.asset_list(&AssetListFilter {
+            lifecycle: self.assets_lifecycle_filter,
+            ..AssetListFilter::default()
+        })
     }
 
     pub fn on_key(&mut self, key: KeyEvent) {
@@ -445,14 +458,24 @@ impl App {
     fn on_assets_key(&mut self, code: KeyCode) {
         match code {
             KeyCode::Enter => {
-                if let Some(a) = self.ws.data.assets.get(self.assets_cursor) {
+                let tag = self
+                    .visible_assets()
+                    .get(self.assets_cursor)
+                    .map(|a| a.asset.record.asset_tag.clone());
+                if let Some(asset_tag) = tag {
                     self.stack.push(View::AssetDetail {
-                        asset_tag: a.asset.record.asset_tag.clone(),
+                        asset_tag,
                         cursor: 0,
                     });
                 }
             }
-            code => self.assets_cursor = moved(self.assets_cursor, self.ws.data.assets.len(), code),
+            KeyCode::Char('l') => {
+                self.assets_lifecycle_filter = next_lifecycle_filter(self.assets_lifecycle_filter);
+                self.assets_cursor = 0;
+            }
+            code => {
+                self.assets_cursor = moved(self.assets_cursor, self.visible_assets().len(), code)
+            }
         }
     }
 
@@ -547,10 +570,42 @@ impl App {
     }
 }
 
+/// `l` 的循環順序：全部 → 已 EoL → 即將 EoL → 保固或合約到期 → 全部。
+pub fn next_lifecycle_filter(current: Option<LifecycleFilter>) -> Option<LifecycleFilter> {
+    let all = LifecycleFilter::ALL;
+    match current {
+        None => all.first().copied(),
+        Some(f) => all
+            .iter()
+            .position(|x| *x == f)
+            .and_then(|i| all.get(i + 1))
+            .copied(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use cvewatch_frontend::FindingsModel;
+
+    #[test]
+    fn lifecycle_filter_cycles_through_all_and_back() {
+        let mut f = None;
+        let mut seen = Vec::new();
+        for _ in 0..4 {
+            f = next_lifecycle_filter(f);
+            seen.push(f);
+        }
+        assert_eq!(
+            seen,
+            [
+                Some(LifecycleFilter::Eol),
+                Some(LifecycleFilter::EolSoon),
+                Some(LifecycleFilter::Expiry),
+                None
+            ]
+        );
+    }
 
     /// 既有測試的 `app.findings.cursor` 等路徑經 `FindingsModel` 的 `Deref` 指向 `FindingsState`。
     /// 兩邊新增欄位時這裡無法編譯（完整解構），提醒確認沒有同名欄位：同名時 `Deref` 的路徑會

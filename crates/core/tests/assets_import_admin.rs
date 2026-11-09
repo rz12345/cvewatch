@@ -331,8 +331,8 @@ fn older_inventory_keeps_new_fields_and_reads_owner() {
         vec![
             OWNER_NOTICE.to_string(),
             "清冊沒有 system、responsible_unit、user_unit、compliance、personal_data、brand、\
-             model、serial_number、property_number、hostname、management_url 欄，\
-             保留資料庫中既有資產的值"
+             model、serial_number、property_number、hostname、management_url、warranty_end、\
+             support_end、license_end 欄，保留資料庫中既有資產的值"
                 .to_string(),
         ]
     );
