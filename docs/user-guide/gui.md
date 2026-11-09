@@ -54,6 +54,7 @@
 - **永久刪除**會一併移除該資產的元件、版本歷史、命中與處理紀錄，**無法復原**；需輸入完全相同的資產編號才能確認。請先執行 `cvewatch db backup` 備份資料庫
 - 每次編修後（只更名時不需要）在背景執行 `cvewatch match`（狀態列顯示「比對中…」，視窗仍可操作），完成後重新載入；找不到 `cvewatch.exe` 或比對失敗時編修仍保留，請手動執行 `cvewatch match`
 - **下載範本**、**匯出清冊**：另存新檔對話框（預設「文件」資料夾，檔名 `cvewatch-inventory-template.xlsx`、`cvewatch-inventory-YYYYMMDD.xlsx`），不覆蓋既有檔案；匯出內容與 `cvewatch asset export` 相同，檔案未加密
+- **由 ISMS 清冊產生草稿**：先選擇 ISMS 資訊資產清冊（.xlsx），再以另存新檔對話框選擇草稿位置（預設「文件」資料夾、檔名 `cvewatch-isms-draft-YYYYMMDD.xlsx`），寫出與 `cvewatch asset isms-draft` 相同的草稿；不覆蓋既有檔案，也不修改資料庫。狀態列顯示草稿路徑與「轉換 N 個資產（沿用既有 N）、略過 N 列、待補版本 N 個元件」，明細請開啟草稿的 `isms_report` 工作表。補上版本後再以「匯入清冊」匯入，**不要勾選**「將清冊中消失的資產標為退役」（見[資產清冊](assets.md#由-isms-清冊建立資產)）
 
 ## 啟動錯誤與 CLI 專用功能
 

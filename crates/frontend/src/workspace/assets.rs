@@ -347,13 +347,18 @@ impl<V> Workspace<V> {
 
     /// 「匯出清冊」的預設資料夾與檔名（含顯示時區的當天日期）。
     pub fn inventory_export_default(&self) -> (PathBuf, String) {
+        self.dated_xlsx_default("cvewatch-inventory")
+    }
+
+    /// 另存 xlsx 的預設資料夾（「文件」）與檔名 `<prefix>-YYYYMMDD.xlsx`（顯示時區的當天日期）。
+    pub(super) fn dated_xlsx_default(&self, prefix: &str) -> (PathBuf, String) {
         let day = self
             .services
             .tz
             .format(self.services.now().fixed_offset(), "%Y%m%d");
         (
             self.services.documents_dir.clone(),
-            format!("cvewatch-inventory-{day}.xlsx"),
+            format!("{prefix}-{day}.xlsx"),
         )
     }
 

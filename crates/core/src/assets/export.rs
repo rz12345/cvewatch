@@ -9,6 +9,7 @@
 //! - `system` 寫資產說明代碼、`personal_data` 寫 Y／N；`systems` 工作表列出所有資產說明
 //!   （含沒有使用中資產者，16 design D3）
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use rusqlite::{params, Connection};
@@ -47,8 +48,18 @@ pub fn personal_data_text(v: bool) -> &'static str {
     }
 }
 
+/// 一個清冊元件（目錄產品或未辨識產品）在清冊檔中的寫法。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InventoryItem {
+    /// 目錄產品的 key；未辨識產品為 None
+    pub key: Option<String>,
+    /// product 欄的寫法
+    pub product: String,
+    pub version: String,
+}
+
 /// 產品欄的寫法：目錄的顯示名稱（重匯時解析回同一產品）；否則寫 key（key 也是別名）。
-fn product_text(catalog: &Catalog, key: &str) -> String {
+pub fn product_text(catalog: &Catalog, key: &str) -> String {
     match catalog.get(key) {
         Some(p)
             if catalog
@@ -61,42 +72,73 @@ fn product_text(catalog: &Catalog, key: &str) -> String {
     }
 }
 
-/// 一個資產的產品寫法與版本：清冊元件（依建立順序）在前，未辨識產品在後。
-fn items(
+/// 清冊元件（依建立順序）在前、未辨識產品在後，依資產 id 分組；`asset_id` 為 None 時一次讀出
+/// 所有資產（兩個查詢，不因資產數量增加查詢次數）。
+pub(crate) fn inventory_items_by_asset(
+    conn: &Connection,
+    catalog: &Catalog,
+    asset_id: Option<i64>,
+) -> Result<HashMap<i64, Vec<InventoryItem>>, CoreError> {
+    let mut out: HashMap<i64, Vec<InventoryItem>> = HashMap::new();
+    let mut stmt = conn.prepare(
+        "SELECT c.asset_id, p.key, c.version_raw FROM component c
+         JOIN catalog_product p ON p.id = c.product_id
+         WHERE (?1 IS NULL OR c.asset_id = ?1) AND c.kind = 'product' AND c.source = 'excel'
+           AND c.removed_at IS NULL
+         ORDER BY c.asset_id, c.id",
+    )?;
+    let rows = stmt.query_map(params![asset_id], |r| {
+        Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?, r.get(2)?))
+    })?;
+    for row in rows {
+        let (id, key, version) = row?;
+        out.entry(id).or_default().push(InventoryItem {
+            product: product_text(catalog, &key),
+            key: Some(key),
+            version,
+        });
+    }
+    let mut stmt = conn.prepare(
+        "SELECT asset_id, product_raw, version_raw FROM asset_unresolved
+         WHERE (?1 IS NULL OR asset_id = ?1) ORDER BY asset_id, id",
+    )?;
+    let rows = stmt.query_map(params![asset_id], |r| {
+        Ok((
+            r.get::<_, i64>(0)?,
+            InventoryItem {
+                key: None,
+                product: r.get(1)?,
+                version: r.get(2)?,
+            },
+        ))
+    })?;
+    for row in rows {
+        let (id, item) = row?;
+        out.entry(id).or_default().push(item);
+    }
+    Ok(out)
+}
+
+/// 一個資產的清冊元件（依建立順序）在前，未辨識產品在後。
+fn inventory_items(
     conn: &Connection,
     catalog: &Catalog,
     asset_id: i64,
-) -> Result<Vec<(String, String)>, CoreError> {
-    let mut stmt = conn.prepare(
-        "SELECT p.key, c.version_raw FROM component c
-         JOIN catalog_product p ON p.id = c.product_id
-         WHERE c.asset_id = ?1 AND c.kind = 'product' AND c.source = 'excel'
-           AND c.removed_at IS NULL
-         ORDER BY c.id",
-    )?;
-    let mut out: Vec<(String, String)> = stmt
-        .query_map(params![asset_id], |r| {
-            Ok((r.get::<_, String>(0)?, r.get(1)?))
-        })?
-        .map(|row| row.map(|(key, version)| (product_text(catalog, &key), version)))
-        .collect::<Result<_, _>>()?;
-    let mut stmt = conn.prepare(
-        "SELECT product_raw, version_raw FROM asset_unresolved WHERE asset_id = ?1 ORDER BY id",
-    )?;
-    let unresolved = stmt.query_map(params![asset_id], |r| Ok((r.get(0)?, r.get(1)?)))?;
-    for row in unresolved {
-        out.push(row?);
-    }
-    Ok(out)
+) -> Result<Vec<InventoryItem>, CoreError> {
+    Ok(inventory_items_by_asset(conn, catalog, Some(asset_id))?
+        .remove(&asset_id)
+        .unwrap_or_default())
 }
 
 fn text(v: &Option<String>) -> String {
     v.clone().unwrap_or_default()
 }
 
-/// `assets` 工作表一列（欄位順序同 [`SheetKind::columns`]）。
-fn asset_row(r: &AssetRecord, first: Option<&(String, String)>) -> Vec<String> {
-    let (product, version) = first.cloned().unwrap_or_default();
+/// `assets` 工作表一列（欄位順序同 [`SheetKind::columns`]）；`first` 為第一個元件。
+pub(crate) fn asset_row(r: &AssetRecord, first: Option<&InventoryItem>) -> Vec<String> {
+    let (product, version) = first
+        .map(|i| (i.product.clone(), i.version.clone()))
+        .unwrap_or_default();
     SheetKind::Assets
         .columns()
         .iter()
@@ -128,13 +170,21 @@ fn asset_row(r: &AssetRecord, first: Option<&(String, String)>) -> Vec<String> {
         .collect()
 }
 
+/// `components` 工作表的列（asset_tag、product、version）。
+pub(crate) fn component_rows<'a>(
+    tag: &'a str,
+    items: impl Iterator<Item = &'a InventoryItem> + 'a,
+) -> impl Iterator<Item = Vec<String>> + 'a {
+    items.map(move |i| vec![tag.to_string(), i.product.clone(), i.version.clone()])
+}
+
 /// 讀取使用中資產並轉成工作表資料列。
 pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryRows, CoreError> {
     let assets: Vec<Asset> = AssetRepo::new(conn).list(&AssetFilter::default())?;
     let mut rows = InventoryRows::default();
     for asset in &assets {
         let r = &asset.record;
-        let items = items(conn, catalog, asset.id)?;
+        let items = inventory_items(conn, catalog, asset.id)?;
         if items.is_empty() {
             rows.warnings.push(format!(
                 "{} 沒有任何元件，產品與版本留空；重匯前需補上產品與版本",
@@ -142,10 +192,8 @@ pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryR
             ));
         }
         rows.assets.push(asset_row(r, items.first()));
-        for (product, version) in items.iter().skip(1) {
-            rows.components
-                .push(vec![r.asset_tag.clone(), product.clone(), version.clone()]);
-        }
+        rows.components
+            .extend(component_rows(&r.asset_tag, items.iter().skip(1)));
     }
     rows.systems = SystemRepo::new(conn)
         .list()?
@@ -153,6 +201,27 @@ pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryR
         .map(|s| vec![s.code.as_str().to_string(), s.name])
         .collect();
     Ok(rows)
+}
+
+/// `assets`、`components`、`systems` 三個工作表（標準欄名表頭；清冊匯出與 ISMS 草稿共用）。
+pub(crate) fn inventory_sheets(rows: InventoryRows) -> Vec<SheetData<'static>> {
+    vec![
+        SheetData {
+            name: SheetKind::Assets.sheet_name(),
+            headers: headers(SheetKind::Assets),
+            rows: rows.assets,
+        },
+        SheetData {
+            name: SheetKind::Components.sheet_name(),
+            headers: headers(SheetKind::Components),
+            rows: rows.components,
+        },
+        SheetData {
+            name: SheetKind::Systems.sheet_name(),
+            headers: headers(SheetKind::Systems),
+            rows: rows.systems,
+        },
+    ]
 }
 
 /// 匯出使用中資產到 `path`（.xlsx）；目的檔已存在時拒絕且不覆蓋。
@@ -163,29 +232,9 @@ pub fn export_inventory(
     path: &Path,
 ) -> Result<ExportSummary, CoreError> {
     let rows = inventory_rows(conn, catalog)?;
-    write_sheets(
-        path,
-        &[
-            SheetData {
-                name: SheetKind::Assets.sheet_name(),
-                headers: headers(SheetKind::Assets),
-                rows: rows.assets.clone(),
-            },
-            SheetData {
-                name: SheetKind::Components.sheet_name(),
-                headers: headers(SheetKind::Components),
-                rows: rows.components,
-            },
-            SheetData {
-                name: SheetKind::Systems.sheet_name(),
-                headers: headers(SheetKind::Systems),
-                rows: rows.systems,
-            },
-        ],
-    )?;
-    tracing::info!(path = %path.display(), assets = rows.assets.len(), "已匯出清冊");
-    Ok(ExportSummary {
-        assets: rows.assets.len(),
-        warnings: rows.warnings,
-    })
+    let assets = rows.assets.len();
+    let warnings = rows.warnings.clone();
+    write_sheets(path, &inventory_sheets(rows))?;
+    tracing::info!(path = %path.display(), assets, "已匯出清冊");
+    Ok(ExportSummary { assets, warnings })
 }

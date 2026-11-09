@@ -285,6 +285,13 @@ pub enum AssetAction {
         /// 輸出路徑（.xlsx，不可已存在）
         path: PathBuf,
     },
+    /// 由 ISMS 資訊資產清冊產生 cvewatch 清冊草稿（不寫入資料庫；補上版本後以 asset import 匯入）
+    IsmsDraft {
+        /// ISMS 資訊資產清冊（.xlsx）
+        workbook: PathBuf,
+        /// 草稿輸出路徑（.xlsx，不可已存在）
+        output: PathBuf,
+    },
     /// 匯出空白 Excel 範本（assets、components、systems 工作表與 classes 子類別說明）
     Template {
         /// 輸出路徑（.xlsx，不可已存在）

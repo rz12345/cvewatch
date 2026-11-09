@@ -31,6 +31,11 @@ pub const RETIRED_NOTE: &str = "已退役：不參與比對，命中與處理紀
 /// 一般操作與危險操作之間的間隔。
 const DANGER_GAP: f32 = 24.0;
 
+/// 另存 ISMS 草稿對話框的標題。
+pub const ISMS_DRAFT_TITLE: &str = "儲存 ISMS 草稿";
+/// 取消產生 ISMS 草稿（任一對話框）。
+pub const ISMS_DRAFT_CANCELLED: &str = "已取消產生 ISMS 草稿";
+
 /// 詳情的操作。
 enum DetailAction {
     Edit(String),
@@ -187,6 +192,22 @@ impl GuiApp {
         let r = match self.dialogs.save_xlsx("匯出資產清冊", &dir, &name) {
             None => Report::info("已取消匯出清冊"),
             Some(path) => self.ws.export_inventory(&path),
+        };
+        self.report(r);
+    }
+
+    /// 「由 ISMS 清冊產生草稿」：選擇 ISMS 清冊，再以另存新檔對話框選擇草稿位置（預設文件資料夾、
+    /// 檔名含當天日期）。任一對話框取消時不產生檔案；不修改資料庫，也不執行比對。
+    pub fn generate_isms_draft(&mut self) {
+        let r = match self.dialogs.open_isms_workbook() {
+            None => Report::info(ISMS_DRAFT_CANCELLED),
+            Some(source) => {
+                let (dir, name) = self.ws.isms_draft_default();
+                match self.dialogs.save_xlsx(ISMS_DRAFT_TITLE, &dir, &name) {
+                    None => Report::info(ISMS_DRAFT_CANCELLED),
+                    Some(target) => self.ws.write_isms_draft(&source, &target),
+                }
+            }
         };
         self.report(r);
     }

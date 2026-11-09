@@ -1,4 +1,4 @@
-//! Windows 檔案對話框（另存 VEX、範本與清冊、選擇清冊與元件檔）。以 trait 抽象，測試以替身取代。
+//! Windows 檔案對話框（另存 VEX、範本與清冊、選擇清冊、元件檔與 ISMS 清冊）。以 trait 抽象，測試以替身取代。
 
 use std::path::{Path, PathBuf};
 
@@ -11,6 +11,8 @@ pub trait FileDialogs {
     fn open_inventory(&self) -> Option<PathBuf>;
     /// 開啟 CSV 清冊的元件檔。
     fn open_components(&self) -> Option<PathBuf>;
+    /// 開啟 ISMS 資訊資產清冊（.xlsx）。
+    fn open_isms_workbook(&self) -> Option<PathBuf>;
 }
 
 /// 原生對話框（`rfd`，會阻塞 UI 執行緒直到使用者關閉對話框）。
@@ -46,6 +48,13 @@ impl FileDialogs for NativeDialogs {
         rfd::FileDialog::new()
             .set_title("選擇元件檔")
             .add_filter("元件檔（.csv）", &["csv"])
+            .pick_file()
+    }
+
+    fn open_isms_workbook(&self) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("選擇 ISMS 資訊資產清冊")
+            .add_filter("ISMS 資訊資產清冊（.xlsx）", &["xlsx"])
             .pick_file()
     }
 }

@@ -21,6 +21,9 @@ pub const RETIRED_MARK: &str = "（已退役）";
 /// 拖放匯入的提示（「匯入清冊」的滑鼠提示與空清單）。
 pub const DROP_HINT: &str = "也可以把 .xlsx 或 .csv 清冊拖進視窗";
 
+/// 「由 ISMS 清冊產生草稿」按鈕。
+pub const ISMS_DRAFT_BUTTON: &str = "由 ISMS 清冊產生草稿";
+
 /// 清單的欄位標題。
 pub const LIST_COLUMNS: [&str; 3] = ["編號", "名稱", "未處理"];
 
@@ -52,6 +55,13 @@ impl GuiApp {
             }
             if ui.button("匯出清冊").clicked() {
                 self.export_inventory();
+            }
+            if ui
+                .button(ISMS_DRAFT_BUTTON)
+                .on_hover_text("ISMS 清冊沒有版本：產生草稿後補上版本，再以「匯入清冊」匯入")
+                .clicked()
+            {
+                self.generate_isms_draft();
             }
             ui.separator();
             ui.checkbox(&mut self.assets_show_retired, "顯示已退役");

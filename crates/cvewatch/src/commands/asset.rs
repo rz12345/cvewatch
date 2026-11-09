@@ -1,4 +1,4 @@
-//! `cvewatch asset import | import-packages | list | show | rename | export | template | catalog`
+//! `cvewatch asset import | import-packages | list | show | rename | export | isms-draft | template | catalog`
 
 use std::path::Path;
 
@@ -45,6 +45,9 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
         AssetAction::Show { asset_tag } => asset_view::show(app, &asset_tag),
         AssetAction::Rename { asset_tag, new_tag } => rename(app, &asset_tag, &new_tag),
         AssetAction::Export { path } => export(app, &path),
+        AssetAction::IsmsDraft { workbook, output } => {
+            super::asset_isms::isms_draft(app, &workbook, &output)
+        }
         AssetAction::Template { path } => template(app, &path),
         AssetAction::Catalog { unresolved, action } => match (unresolved, action) {
             (true, _) => asset_view::catalog_unresolved(app),
@@ -179,8 +182,8 @@ fn print_skipped(parsed: &ParsedPackages) {
     }
 }
 
-/// 未加密匯出後的提示（與 VEX 匯出相同的語意）。
-const UNENCRYPTED_NOTICE: &str = "注意：此檔未加密，含資產清單，請妥善保管。";
+/// 未加密匯出後的提示（與 VEX 匯出相同的語意；清冊匯出與 ISMS 草稿共用）。
+pub(super) const UNENCRYPTED_NOTICE: &str = "注意：此檔未加密，含資產清單，請妥善保管。";
 
 fn export(app: &App, path: &Path) -> Result<ExitCode, CoreError> {
     // 先檢查目的檔，避免開啟資料庫（要求金鑰）後才失敗

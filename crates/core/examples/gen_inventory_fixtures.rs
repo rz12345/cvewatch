@@ -389,4 +389,262 @@ fn main() {
             rows: bad,
         }],
     );
+
+    write_isms_fixtures();
+}
+
+/// ISMS 資訊資產清冊的表頭（17；與機構 v2.0／v2.1 相同的欄名寫法，含換行與括號註記）。
+const ISMS_HEADERS: [&str; 16] = [
+    "資產編號",
+    "資產編號",
+    "資產類別",
+    "資產說明",
+    "資產名稱",
+    "資產描述",
+    "權責單位",
+    "保管人",
+    "使用單位",
+    "機密性\n(A)",
+    "完整性\n(B)",
+    "可用性\n(C)",
+    "資產\n價值\n(MAX ABC)",
+    "法規遵循性(D)",
+    "資通系統\n防護等級\n(MAX ABCD)",
+    "是否含\n個人資料",
+];
+
+/// 文件資訊列（第 1–3 列；全為虛構內容）。第 1 列寫在 headers。
+fn isms_document_rows() -> (Vec<String>, Vec<Vec<String>>) {
+    (
+        headers(&[
+            "文件編號：XX-0000-01",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "機密等級：一般",
+        ]),
+        rows(&[&["填表日期", "2026/01/01"], &["填表單位", "測試單位"]]),
+    )
+}
+
+/// 資產列（第 5 列起）：多行描述、同產品兩行、`－`、PE/IF/SE 列、大類不符列、
+/// 含 `#N/A` 的空白公式列與編碼說明列。系統代碼、人名與型號都是虛構的。
+fn isms_asset_rows() -> Vec<Vec<String>> {
+    let unit = ["網路組", "王小明", "網路組"];
+    let web = ["資訊組", "王小明", "資訊組"];
+    // 欄位順序同 ISMS_HEADERS：編號兩欄、[類別, 資產說明, 資產名稱]、描述、
+    // [權責單位, 保管人, 使用單位]、[C, I, A, 資產價值, 法規遵循性, 防護等級, 個資]
+    let row = |id: [&str; 2], class: [&str; 3], desc: &str, who: [&str; 3], r: [&str; 7]| {
+        id.iter()
+            .chain(&class)
+            .chain(&[desc])
+            .chain(&who)
+            .chain(&r)
+            .map(|s| s.to_string())
+            .collect::<Vec<String>>()
+    };
+    let mut out = vec![
+        row(
+            ["NET-", "HW-001"],
+            ["HW02", "網路服務", "通訊設備"],
+            "Core: Aruba XYZ-100 *2、\nZyxel ABCD *1",
+            unit,
+            ["2", "3", "4", "4", "－", "", "N"],
+        ),
+        row(
+            ["NET-", "HW-002"],
+            ["HW03", "網路服務", "資安設備"],
+            "PAN-OS *1",
+            unit,
+            ["3", "3", "4", "4", "", "", "N"],
+        ),
+        row(
+            ["NET-", "HW-003"],
+            ["HW05", "網路服務", "儲存設備"],
+            "Synology XYZ-200 *1",
+            unit,
+            ["2", "3", "4", "4", "", "", "N"],
+        ),
+        row(
+            ["NET-", "HW-004"],
+            ["HW02", "網路服務", "通訊設備"],
+            "Core: Aruba XYZ-100 *2、Edge: Aruba XYZ-100 *9",
+            unit,
+            ["2", "3", "4", "4", "2", "4", "N"],
+        ),
+        row(
+            ["NET-", "SW-001"],
+            ["SW07", "網路服務組", "一般套裝軟體"],
+            "備份軟體 Veeam Backup & Replication",
+            unit,
+            ["2", "2", "2", "2", "", "", "N"],
+        ),
+        row(
+            ["WEB-", "SW-002"],
+            ["SW01", "官網服務", "應用系統"],
+            "官網系統",
+            web,
+            ["3", "3", "3", "3", "3", "3", "Y"],
+        ),
+        row(
+            ["WEB-", "PE-001"],
+            ["PE01", "官網服務", "人員"],
+            "系統管理員",
+            web,
+            ["2", "2", "2", "2", "", "", "N"],
+        ),
+        row(
+            ["WEB-", "IF-001"],
+            ["IF01", "官網服務", "資料"],
+            "網站原始碼",
+            web,
+            ["2", "2", "2", "2", "", "", "N"],
+        ),
+        row(
+            ["WEB-", "IF-002"],
+            ["IF02", "官網服務", "文件"],
+            "設計文件",
+            web,
+            ["2", "2", "2", "2", "", "", "N"],
+        ),
+        row(
+            ["WEB-", "SE-001"],
+            ["SE01", "官網服務", "服務"],
+            "網站代管服務",
+            web,
+            ["2", "2", "2", "2", "", "", "N"],
+        ),
+        // 大類不符：編號為 SE、類別為 SW01
+        row(
+            ["WEB-", "SE-003"],
+            ["SW01", "官網服務", "應用系統"],
+            "網站管理後台",
+            web,
+            ["3", "3", "3", "3", "", "", "N"],
+        ),
+    ];
+    // v2.1 未填列：公式欄沒有值（#N/A），第二欄資產編號空白
+    let mut formula = vec![String::new(); ISMS_HEADERS.len()];
+    for i in [2, 4, 9, 10, 11, 12] {
+        formula[i] = "#N/A".into();
+    }
+    out.push(formula);
+    out.push(vec!["註：資產編號由系統代碼、大類與流水號組成".into()]);
+    out.push(vec!["註：C/I/A 依子類別範本值評定".into()]);
+    out
+}
+
+/// 「選項(勿刪)」工作表（下拉選單來源；有「資產類別」「資產描述」但沒有「資產編號」）。
+fn isms_options_sheet() -> SheetData<'static> {
+    SheetData {
+        name: "選項(勿刪)",
+        headers: headers(&[
+            "資產名稱",
+            "資產類別",
+            "資產描述",
+            "機密性",
+            "完整性",
+            "可用性",
+            "資產價值",
+            "是否含\n個人資料",
+            "",
+            "",
+            "權責單位",
+            "保管人",
+            "使用單位",
+            "使用說明",
+            "",
+            "資產編碼",
+            "資產編碼說明",
+        ]),
+        rows: rows(&[
+            &[
+                "伺服器",
+                "HW01",
+                "大型主機",
+                "2",
+                "3",
+                "4",
+                "4",
+                "N",
+                "",
+                "",
+                "網路組",
+                "",
+                "",
+                "",
+                "",
+                "NET",
+                "網路服務",
+            ],
+            &[
+                "應用系統",
+                "SW01",
+                "自行開發之系統",
+                "",
+                "",
+                "",
+                "",
+                "N",
+                "",
+                "",
+                "資訊組",
+                "",
+                "",
+                "",
+                "",
+                "WEB",
+                "官網服務",
+            ],
+        ]),
+    }
+}
+
+fn write_isms_fixtures() {
+    let (first, info) = isms_document_rows();
+    let mut sheet = info.clone();
+    sheet.push(headers(&ISMS_HEADERS));
+    sheet.extend(isms_asset_rows());
+    write(
+        "isms_workbook.xlsx",
+        &[
+            SheetData {
+                name: "資訊資產清冊",
+                headers: first.clone(),
+                rows: sheet,
+            },
+            isms_options_sheet(),
+        ],
+    );
+
+    // 缺少「可用性」欄
+    let without: Vec<&str> = ISMS_HEADERS
+        .iter()
+        .copied()
+        .filter(|h| !h.starts_with("可用性"))
+        .collect();
+    let mut sheet = info;
+    sheet.push(headers(&without));
+    write(
+        "isms_missing_column.xlsx",
+        &[SheetData {
+            name: "資訊資產清冊",
+            headers: first,
+            rows: sheet,
+        }],
+    );
+
+    // 不是 ISMS 清冊
+    write(
+        "isms_not_workbook.xlsx",
+        &[SheetData {
+            name: "工作表1",
+            headers: headers(&["項目", "數量", "說明"]),
+            rows: rows(&[&["交換器", "3", "機房"], &["印表機", "1", "辦公室"]]),
+        }],
+    );
 }

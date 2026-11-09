@@ -1,0 +1,4 @@
+# 17 測試專用的別名（虛構型號；只用於 ISMS 草稿的測試）。
+[[product]]
+key = "hpe-aoscx"
+aliases = ["Aruba XYZ-100"]
