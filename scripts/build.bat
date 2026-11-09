@@ -14,7 +14,7 @@ rem           (they must stay in the same folder: the GUI and the scheduled
 rem           tasks run the sibling cvewatch.exe / cvewatchw.exe)
 rem
 rem  The first build compiles the vendored OpenSSL for SQLCipher (about 5 min)
-rem  and needs Strawberry Perl; see README "Build (Windows MSVC)".
+rem  and needs Strawberry Perl; see docs/development.md (build section).
 rem
 rem  Keep this file ASCII-only: cmd parses batch files incrementally and
 rem  misreads multi-byte UTF-8 text when the code page differs.
