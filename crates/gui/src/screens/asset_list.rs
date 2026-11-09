@@ -36,6 +36,8 @@ pub const LIST_COLUMNS: [&str; 3] = ["編號", "名稱", "未處理"];
 const ROW_HEIGHT: f32 = 22.0;
 /// 未處理數欄的寬度（固定，名稱欄取得其餘寬度）。
 const COUNT_WIDTH: f32 = 56.0;
+/// 清單預設佔資產畫面寬度的比例（其餘給右側詳情）；使用者拖曳分隔線後依拖曳的寬度。
+const LIST_WIDTH_RATIO: f32 = 2.0 / 3.0;
 
 impl GuiApp {
     pub(super) fn assets_toolbar(&mut self, ui: &mut egui::Ui) {
@@ -86,9 +88,10 @@ impl GuiApp {
             class: None,
         };
         let mut picked = None;
+        let default_width = ui.available_width() * LIST_WIDTH_RATIO;
         egui::Panel::left("asset-list")
             .resizable(true)
-            .default_size(320.0)
+            .default_size(default_width)
             .show(ui, |ui| {
                 let groups = self.ws.data.asset_groups(&filter);
                 if groups.is_empty() {

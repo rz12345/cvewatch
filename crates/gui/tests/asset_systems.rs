@@ -55,6 +55,21 @@ fn assets_are_listed_under_their_systems() {
     assert!(pve.top() > unassigned.top(), "PVE-01 在未歸屬組內");
 }
 
+/// 資產清單預設約佔內容區寬度的三分之二，右側詳情取其餘寬度。
+#[test]
+fn asset_list_takes_two_thirds_by_default() {
+    let (mut h, _f) = gui(grouped_world());
+    ctrl(&mut h, egui::Key::Num3);
+    let content_left = h.get_by_label("新增資產").rect().left();
+    let detail_left = h.get_by_label("請從左側選取資產。").rect().left();
+    let right = h.ctx.content_rect().right();
+    let ratio = (detail_left - content_left) / (right - content_left);
+    assert!(
+        (0.6..0.75).contains(&ratio),
+        "清單佔內容區寬度的比例為 {ratio}，預設應約為三分之二"
+    );
+}
+
 /// 展開的組只佔列數所需的高度：下一組的標題緊接在上一組最後一列之後，不留大片空白。
 #[test]
 fn expanded_group_has_no_trailing_gap() {
