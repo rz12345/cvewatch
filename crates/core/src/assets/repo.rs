@@ -177,6 +177,15 @@ impl<'c> AssetRepo<'c> {
         Ok(())
     }
 
+    /// 設定 ISMS 編號（呼叫端負責驗證與重複檢查；修改資產說明代碼時使用）。
+    pub fn set_isms_id(&self, id: i64, isms_id: &str) -> Result<(), CoreError> {
+        self.conn.execute(
+            "UPDATE asset SET isms_id = ?2 WHERE id = ?1",
+            params![id, isms_id],
+        )?;
+        Ok(())
+    }
+
     pub fn insert(&self, record: &AssetRecord, now: DateTime<Utc>) -> Result<i64, CoreError> {
         self.conn.execute(
             "INSERT INTO asset (asset_tag, name, category, location, custodian, exposure,

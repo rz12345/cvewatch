@@ -17,6 +17,7 @@ mod record_admin;
 pub mod repo;
 pub mod sheet;
 pub mod systems;
+pub mod systems_edit;
 pub mod template;
 pub mod validate;
 mod validate_systems;

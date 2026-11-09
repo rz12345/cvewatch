@@ -26,7 +26,7 @@
 ## ADDED Requirements
 
 ### Requirement: GUI system code change confirmation
-編輯資產說明時代碼改變、且有資產（含 retired）歸屬，按儲存後 SHALL 先顯示確認，列出受影響的資產數、每筆 ISMS 編號與資產編號的變更，並提醒舊清冊、已匯出的 VEX 與尚未更新的 ISMS 清冊不會對應、建議重新匯出清冊。按「確定修改」才寫入；按「返回」或 Esc SHALL 回到編輯列並保留輸入，資料庫 MUST NOT 變更。新資產編號衝突時 SHALL 不顯示確認，改在代碼欄位旁列出衝突的編號。寫入後，選取中的資產若被改了編號，資產清單 SHALL 選取其新編號。
+編輯資產說明時代碼改變、且有資產（含 retired）歸屬，按儲存後 SHALL 先顯示確認，列出受影響的資產數、每筆 ISMS 編號與資產編號的變更，並提醒舊清冊、已匯出的 VEX 與尚未更新的 ISMS 清冊不會對應、建議重新匯出清冊。按「確定修改」才寫入；按「返回」或 Esc SHALL 回到編輯列並保留輸入，資料庫 MUST NOT 變更。新資產編號衝突時 SHALL 不顯示確認，改在代碼欄位旁列出衝突的編號。按「確定修改」時若受影響的資產與確認畫面不同（例如另一個視窗在確認期間修改了資產），系統 MUST NOT 寫入，SHALL 以新的變更重新顯示確認並說明原因。寫入後，選取中的資產若被改了編號，資產清單 SHALL 選取其新編號。
 
 #### Scenario: Confirming a code change
 - **WHEN** `NET` 有 3 個資產歸屬，使用者把代碼改為 `NWS` 後按儲存
@@ -43,3 +43,7 @@
 #### Scenario: Conflicting asset tag in the dialog
 - **WHEN** 使用者把 `NET` 改為 `NWS`，而 `NWS-HW-001` 已被其他資產使用
 - **THEN** 不顯示確認，代碼欄位旁列出衝突的編號 `NWS-HW-001`，資料庫不變
+
+#### Scenario: Assets changed while confirming
+- **WHEN** 確認畫面列出 3 個受影響的資產後，另一個程序把第 4 個資產歸屬 `NET`，使用者按「確定修改」
+- **THEN** 資料庫不變，確認畫面改列 4 個受影響的資產，並說明受影響的資產有變動、請重新確認

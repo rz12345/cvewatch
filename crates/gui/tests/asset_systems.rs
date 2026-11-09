@@ -1,12 +1,18 @@
 //! 16 任務 5.3～5.5：資產清單依資產說明分組、資產說明對話框，以及資產對話框的
-//! ISMS 管理區塊與詳情欄位。
+//! ISMS 管理區塊與詳情欄位；19 任務 4.1～4.2：編輯資產說明代碼與確認畫面。
 
 mod support;
 
 use cvewatch_core::assets::systems::create_system;
+use cvewatch_core::assets::systems_edit::PLAN_CHANGED;
+use cvewatch_core::assets::SystemCode;
 use cvewatch_frontend::asset_form::ISMS_SYSTEM_MISMATCH;
 use cvewatch_frontend::workspace::systems::delete_blocked;
-use cvewatch_gui::dialogs::asset_systems::{NEW_CODE_LABEL, NEW_NAME_LABEL};
+use cvewatch_frontend::workspace::systems::RECODE_NOTE;
+use cvewatch_gui::dialogs::asset_systems::{
+    code_label, edit_button, rename_label, BACK_TO_EDIT, CANCEL_EDIT, CONFIRM_EDIT, NEW_CODE_LABEL,
+    NEW_NAME_LABEL, SAVE_EDIT,
+};
 use cvewatch_gui::dialogs::AssetDialog;
 use cvewatch_gui::screens::asset_list::{
     group_id, group_open_text, NEW_ASSET_BUTTON, SYSTEMS_BUTTON,
@@ -265,4 +271,200 @@ fn detail_pane_lists_admin_fields() {
         &h,
         "法規遵循性 未評定｜防護等級 未評定｜是否含個人資料 否"
     ));
+}
+
+fn code(c: &str) -> SystemCode {
+    SystemCode::parse(c).unwrap()
+}
+
+fn systems_dialog<'a>(
+    h: &'a egui_kittest::Harness<'_, cvewatch_gui::GuiApp>,
+) -> &'a cvewatch_gui::dialogs::asset_systems::SystemsDialog {
+    match &h.state().asset_dialog {
+        Some(AssetDialog::Systems(d)) => d,
+        _ => panic!("資產說明對話框應開啟"),
+    }
+}
+
+/// NET：FW-EDGE 改名為 NET-HW-001（ISMS 編號相同）、FW-CORE（ISMS 編號 NET-HW-002）、
+/// PVE-01（沒有 ISMS 編號）。
+fn recode_world() -> support::common::matching::World {
+    let w = grouped_world();
+    assign(&w, "PVE-01", "NET");
+    w.conn
+        .execute(
+            "UPDATE asset SET asset_tag = 'NET-HW-001', isms_id = 'NET-HW-001'
+             WHERE asset_tag = 'FW-EDGE'",
+            [],
+        )
+        .unwrap();
+    w.conn
+        .execute(
+            "UPDATE asset SET isms_id = 'NET-HW-002' WHERE asset_tag = 'FW-CORE'",
+            [],
+        )
+        .unwrap();
+    w
+}
+
+/// 開啟對話框、編輯 `from` 並把代碼改為 `to` 後按「儲存」。
+fn edit_code(h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiApp>, from: &str, to: &str) {
+    if !matches!(h.state().asset_dialog, Some(AssetDialog::Systems(_))) {
+        click(h, SYSTEMS_BUTTON);
+    }
+    click(h, &edit_button(&code(from)));
+    replace_text(h, &code_label(&code(from)), to);
+    click(h, SAVE_EDIT);
+}
+
+/// 19 Scenario: Editing a code without assets
+#[test]
+fn editing_a_code_without_assets() {
+    let w = grouped_world();
+    create_system(&w.conn, "LAB", "實驗室").unwrap();
+    let (mut h, _f) = gui(w);
+    ctrl(&mut h, egui::Key::Num3);
+    edit_code(&mut h, "LAB", "tst");
+    assert!(systems_dialog(&h).confirm.is_none(), "不顯示確認");
+    assert!(systems_dialog(&h).editing.is_none(), "編輯列結束");
+    assert_eq!(h.state().ws.data.systems.label("TST"), "TST 實驗室");
+    assert!(h.state().ws.data.systems.find("LAB").is_none());
+    assert!(h.query_by_label(&edit_button(&code("TST"))).is_some());
+    assert!(h.query_by_label(&edit_button(&code("LAB"))).is_none());
+}
+
+/// 19 Scenario: Code already used in the dialog；只改名稱沿用同一列
+#[test]
+fn code_already_used_in_the_dialog() {
+    let w = grouped_world();
+    create_system(&w.conn, "SYS", "核心系統").unwrap();
+    let (mut h, _f) = gui(w);
+    ctrl(&mut h, egui::Key::Num3);
+    edit_code(&mut h, "NET", "SYS");
+    assert!(systems_dialog(&h).editing.is_some(), "對話框與編輯列保留");
+    assert!(shows(&h, "資產說明代碼 SYS 已被使用"));
+    assert_eq!(h.state().ws.data.systems.label("NET"), "NET 網路服務");
+
+    replace_text(&mut h, &code_label(&code("NET")), "NET");
+    replace_text(&mut h, &rename_label(&code("NET")), "校園網路服務");
+    click(&mut h, SAVE_EDIT);
+    assert!(systems_dialog(&h).confirm.is_none(), "只改名稱不顯示確認");
+    assert_eq!(h.state().ws.data.systems.label("NET"), "NET 校園網路服務");
+
+    click(&mut h, &edit_button(&code("NET")));
+    click(&mut h, CANCEL_EDIT);
+    assert!(systems_dialog(&h).editing.is_none());
+}
+
+/// 19 Scenario: Confirming a code change / Selected asset follows its new tag
+#[test]
+fn confirming_a_code_change() {
+    let (mut h, _f) = gui(recode_world());
+    select_asset(&mut h, "NET-HW-001");
+    edit_code(&mut h, "NET", "NWS");
+    let plan = systems_dialog(&h).confirm.clone().expect("顯示確認");
+    assert_eq!(plan.assets.len(), 3);
+    assert!(shows(&h, "將資產說明代碼 NET 改為 NWS？"));
+    assert!(shows(&h, "受影響的資產：3 個"));
+    assert!(shows(&h, "NET-HW-001 → NWS-HW-001"));
+    assert!(shows(&h, "NET-HW-002 → NWS-HW-002"));
+    assert!(shows(&h, RECODE_NOTE));
+    assert_eq!(
+        h.state().ws.data.systems.label("NET"),
+        "NET 網路服務",
+        "尚未寫入"
+    );
+
+    click(&mut h, CONFIRM_EDIT);
+    let d = systems_dialog(&h);
+    assert!(d.confirm.is_none() && d.editing.is_none());
+    assert!(h.query_by_label(&edit_button(&code("NWS"))).is_some());
+    assert_eq!(h.state().assets_selected.as_deref(), Some("NWS-HW-001"));
+    click(&mut h, "關閉");
+    assert!(shows(&h, "ISMS 編號 NWS-HW-001"), "詳情顯示新的 ISMS 編號");
+    assert!(h
+        .state()
+        .status
+        .as_ref()
+        .is_some_and(|r| r.message.starts_with("已將資產說明代碼 NET 改為 NWS")));
+}
+
+/// 19 Scenario: Going back from the confirmation（按鈕與 Esc）
+#[test]
+fn going_back_from_the_confirmation() {
+    let (mut h, _f) = gui(recode_world());
+    ctrl(&mut h, egui::Key::Num3);
+    edit_code(&mut h, "NET", "NWS");
+    assert!(systems_dialog(&h).confirm.is_some());
+    click(&mut h, BACK_TO_EDIT);
+    let d = systems_dialog(&h);
+    assert!(d.confirm.is_none());
+    assert_eq!(d.editing.as_ref().map(|r| r.new_code.as_str()), Some("NWS"));
+    assert_eq!(
+        h.get_by_label(&code_label(&code("NET"))).value().as_deref(),
+        Some("NWS"),
+        "代碼欄保留輸入"
+    );
+    assert!(
+        h.state().ws.data.systems.find("NWS").is_none(),
+        "資料庫不變"
+    );
+
+    click(&mut h, SAVE_EDIT);
+    assert!(systems_dialog(&h).confirm.is_some());
+    h.key_press(egui::Key::Escape);
+    h.run();
+    let d = systems_dialog(&h);
+    assert!(d.confirm.is_none(), "Esc 回到編輯列");
+    assert!(d.editing.is_some(), "對話框不關閉");
+    assert!(
+        h.state().ws.data.asset("NET-HW-001").is_some(),
+        "資料庫不變"
+    );
+}
+
+/// 19 Scenario: Conflicting asset tag in the dialog
+#[test]
+fn conflicting_asset_tag_in_the_dialog() {
+    let w = recode_world();
+    w.asset("NWS-HW-001", "internal", &[]);
+    let (mut h, _f) = gui(w);
+    ctrl(&mut h, egui::Key::Num3);
+    edit_code(&mut h, "NET", "NWS");
+    let d = systems_dialog(&h);
+    assert!(d.confirm.is_none(), "不顯示確認");
+    assert!(d.editing.is_some());
+    assert!(shows(&h, "資產編號 NWS-HW-001 已被使用"));
+    assert_eq!(h.state().ws.data.systems.label("NET"), "NET 網路服務");
+}
+
+/// 19 code review：確認後受影響的資產有變動時不寫入，以新計畫重新顯示確認。
+#[test]
+fn changed_assets_after_confirmation_ask_again() {
+    let (mut h, _f) = gui(recode_world());
+    ctrl(&mut h, egui::Key::Num3);
+    edit_code(&mut h, "NET", "NWS");
+    assert_eq!(systems_dialog(&h).confirm.as_ref().unwrap().assets.len(), 3);
+    h.state()
+        .ws
+        .conn
+        .execute(
+            "INSERT INTO asset (asset_tag, name, category, exposure, first_seen, last_seen,
+                                system_code)
+             VALUES ('LAB-09', 'LAB-09', 'HW01', 'internal', ?1, ?1, 'NET')",
+            [support::common::matching::T0],
+        )
+        .unwrap();
+    click(&mut h, CONFIRM_EDIT);
+    let plan = systems_dialog(&h).confirm.clone().expect("重新顯示確認");
+    assert_eq!(plan.assets.len(), 4);
+    assert!(shows(&h, "受影響的資產：4 個"));
+    assert!(shows(&h, PLAN_CHANGED), "狀態列說明未寫入");
+    assert!(
+        h.state().ws.data.systems.find("NWS").is_none(),
+        "資料庫不變"
+    );
+    click(&mut h, CONFIRM_EDIT);
+    assert!(systems_dialog(&h).confirm.is_none());
+    assert_eq!(h.state().ws.data.systems.label("NWS"), "NWS 網路服務");
 }

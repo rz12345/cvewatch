@@ -69,8 +69,8 @@ pub fn edit_system(conn: &mut Connection, edit: &SystemEdit) -> Result<SystemEdi
 
 代碼改變時，`plan_system_edit` 讀出 `system_code = 原代碼` 的所有資產（含 retired，依 `asset_tag` 排序）：
 
-- ISMS 編號：有值時新值為「新代碼 + 舊值第 4 個字元之後」（保留使用者其餘寫法，例如 `NET-hw-001` → `NWS-hw-001`）
-- 資產編號：`asset_tag` 與舊 ISMS 編號不分大小寫相同時，新編號為「新代碼 + 舊編號第 4 個字元之後」
+- ISMS 編號：系統代碼（`record_admin::isms_system_code`：第一個 `-` 之前）等於原代碼時，新值為「新代碼 + 第一個 `-` 之後」（保留使用者其餘寫法，例如 `NET-hw-001` → `NWS-hw-001`）；其他寫法不更動
+- 資產編號：`asset_tag` 與舊 ISMS 編號相同（NFKC、不分大小寫）時，新編號為新 ISMS 編號（依 spec「把資產編號改為新 ISMS 編號」；code review 修正，原寫「新代碼 + 舊編號第 4 個字元之後」）
 - 衝突檢查：每個新編號以 `tag_in_use(conn, new_tag, Some(id))` 檢查（改為 `pub(crate)`）。被改名的資產舊編號都以舊代碼開頭、新編號都以新代碼開頭，因此衝突對象不可能是同一批中也要改名的資產，不需要處理交換或暫時編號。有衝突時收集全部衝突（「資產編號 NWS-HW-001 已被使用（屬於已退役的資產）」）後一次回報
 - ISMS 編號的唯一索引：新 ISMS 編號的系統代碼是新代碼，而新代碼目前不存在，依 membership 規則不會有資產使用以新代碼開頭的 ISMS 編號；交易內仍由唯一索引把關，萬一衝突就整筆失敗
 
@@ -92,7 +92,7 @@ pub fn edit_system(conn: &mut Connection, edit: &SystemEdit) -> Result<SystemEdi
 ### D5. frontend：`Workspace::edit_system` 與預覽
 
 - `rename_system` 改為 `edit_system(&mut self, edit: &SystemEdit, open) -> Result<SystemEdited, SystemSaveError>`；`SystemSaveError::Fields` 沿用
-- 新增 `preview_system_edit(&self, edit) -> Result<SystemEditPlan, SystemSaveError>`：先以快照執行 `validate_edit`（欄位錯誤不必查 DB），再呼叫 core `plan_system_edit`（衝突需查 DB）
+- 新增 `preview_system_edit(&self, edit) -> Result<SystemEditPlan, SystemSaveError>`：直接呼叫 core `plan_system_edit`（對照資料庫驗證與檢查衝突；code review 修正：不先以可能過時的快照驗證）
 - 狀態列訊息：只改名「已將資產說明改為 NET 校園網路服務」（現有）；改代碼「已將資產說明代碼 NET 改為 NWS（3 個資產；ISMS 編號 2 筆、資產編號 1 筆變更）」
 - 回傳 `SystemEdited { refreshed, renamed: Vec<(String, String)> }`，讓 GUI 把 `assets_selected` 從舊編號換成新編號
 - 提醒文字放 frontend 常數 `RECODE_NOTE`：「舊清冊、已匯出的 VEX 與尚未更新的 ISMS 清冊中的舊代碼與舊編號不會對應；儲存後建議重新匯出清冊，並更新 ISMS 清冊」，GUI 與 CLI 共用
@@ -142,3 +142,31 @@ enum SystemAction {
 - [資產編號被改] 使用者若刻意讓資產編號等於 ISMS 編號以外的用途，修改代碼會一併改編號 → 確認畫面逐筆列出資產編號變更，`--dry-run` 可先預覽
 - [延後外鍵檢查] 若步驟遺漏某些資產，錯誤要到 commit 才出現 → 第 3 步以單一 `UPDATE … WHERE system_code = 原代碼` 涵蓋全部，測試以 `PRAGMA foreign_key_check` 確認沒有孤兒列
 - [畫面快照與交易內重算不一致] 另一個視窗在確認期間修改了資產 → core 在交易內重算並回傳實際套用的計畫，狀態列以實際結果為準
+
+## 實作時的決定（apply）
+
+以下為實作時依建議做法自行決定的事項：
+
+- **`conflict` 不改簽章**：`SystemDirectory::conflict(code, name)` 保留（清冊匯入 `plan_systems` 使用），新增 `conflict_excluding(exclude, code, name)`；`validate_new` 與 `validate_edit` 共用 `systems::validate_fields(code, name, exclude, dir, errors)`。新代碼格式不符時，名稱重複檢查同樣排除原資產說明（不會把自己的名稱算成重複）
+- **ISMS 編號的系統代碼不是原代碼時不更動**：16 之前的舊資料可能有 `system_code` 與 ISMS 編號前三碼不一致的資產；這類資產只改歸屬，ISMS 編號與資產編號不動（不猜測使用者原意）。前三碼比對以 `SystemCode::parse`（全形視同半形、不分大小寫）
+- **新 ISMS 編號也檢查衝突**：除了資產編號，新 ISMS 編號已被其他資產使用時同樣列為 `SystemField::Code` 錯誤（「ISMS 編號 NWS-HW-001 已被資產 X 使用」），而不是等唯一索引在交易中失敗後回報一般錯誤
+- **受影響資產的排序**：`ORDER BY asset_tag COLLATE NOCASE, id`
+- **多筆衝突的顯示**：frontend 新增 `field_errors`，同一欄位的多筆錯誤以換行連接；GUI 代碼欄下方列出全部衝突的編號
+- **共用文字放 frontend**：`RECODE_NOTE`、`affected_text`（「受影響的資產：3 個（含已退役 1 個）」）、`edited_message` 由 GUI 與 CLI 共用；`RECODE_NOTE` 內含 `cvewatch asset export`，符合 CLI 規格「建議以 `cvewatch asset export` 重新匯出清冊」
+- **GUI 確認畫面**：標題下另列「資產說明 NET 網路服務 → NWS 網路服務」，同時改名稱時一併看得到；只改名稱或沒有資產歸屬時不顯示確認、直接寫入。按鈕文字以常數匯出（`SAVE_EDIT`、`CANCEL_EDIT`、`CONFIRM_EDIT`、`BACK_TO_EDIT`）供測試使用
+- **CLI 檢查順序**：舊代碼格式不符時直接回報「找不到資產說明 X」；新舊代碼相同時在開啟資料庫前就以錯誤結束。沒有資產歸屬時輸出標題、結果行與 `RECODE_NOTE`（規格要求成功時提示；`--dry-run` 時只有標題與「預覽：未寫入資料庫」）
+- **文件**：README 新增「資產說明」段落；`docs/user-guide/assets.md` 的資產說明段落同步更新（原本寫「資產說明…」可改名，按鈕名稱與功能都已過時）
+
+## 架構圖判斷
+
+架構圖：不需更新。本 change 只改 core 內部模組（`assets/systems.rs`、新增 `assets/systems_edit.rs`、`repo.rs`）、frontend／GUI 畫面與 CLI 子命令；沒有新增或移除 crate、workspace 內部相依、執行檔，也沒有新增或改換外部系統／本機系統服務的互動（CLI 子命令 `asset system recode` 只讀寫既有的本機 SQLite）。
+
+## Code review 修正
+
+- **同一批中的新編號重複**：資料庫中不同的編號（例如全形 `ＮＥＴ-HW-001` 與半形 `NET-HW-001`）改代碼後可能變成相同的新編號，原本要到寫入時才因唯一索引失敗。`conflicts` 另外檢查同一批的新資產編號與新 ISMS 編號（不分 ASCII 大小寫），列為代碼欄錯誤「資產編號 NWS-HW-001 在這次修改中重複」。spec 新增 Scenario: New IDs collide within the change
+- **系統代碼的判斷與 membership 規則一致**：改用 `isms_system_code`（第一個 `-` 之前），`NETX-HW-001` 不再被當成 `NET` 的編號
+- **資產編號改為新 ISMS 編號**：判斷「資產編號等於 ISMS 編號」改用 NFKC＋不分大小寫，與 ISMS 編號的系統代碼判斷一致；新編號直接等於新 ISMS 編號（spec 原文）
+- **確認後資料變動**：core `edit_system(conn, edit, confirmed: Option<&SystemEditPlan>)`，交易內重算的計畫與確認時不同就不寫入，回傳 `SystemEditError::Changed(新計畫)`（轉成 `CoreError` 時為 `PLAN_CHANGED`）；frontend 新增 `SystemSaveError::Changed`，GUI 以新計畫重新顯示確認並在狀態列說明。CLI 在同一交易內計算與寫入，傳 `None`。gui-console spec 新增 Scenario: Assets changed while confirming
+- **共用訊息**：資產編號衝突沿用 `edit::tag_in_use_message`（從 `rename_in` 抽出），ISMS 編號衝突沿用 `plan::isms_in_use_message`。資產編號仍顯示新編號（spec 要求列出 `NWS-HW-001`），不顯示資料庫中的寫法
+- **不重複預覽**：GUI「儲存」在只改名稱時直接寫入；沒有資產歸屬時以預覽的計畫作為確認計畫寫入
+- **移除 `EditRow`**：GUI 編輯列直接保存 `SystemEdit`

@@ -1,4 +1,5 @@
-//! 16 任務 5.1～5.2：資產說明的分組清單、新增／改名／刪除，以及資產表單的 ISMS 管理欄位。
+//! 16 任務 5.1～5.2：資產說明的分組清單、新增／改名／刪除，以及資產表單的 ISMS 管理欄位；
+//! 19 任務 3.1～3.2：修改資產說明代碼的預覽與寫入。
 #![allow(dead_code)]
 
 #[path = "../../core/tests/common/mod.rs"]
@@ -8,12 +9,13 @@ mod shared;
 use common::matching::{at, world, World};
 use cvewatch_core::assets::columns::StandardField;
 use cvewatch_core::assets::systems::SystemField;
+use cvewatch_core::assets::systems_edit::SystemEdit;
 use cvewatch_core::assets::SystemCode;
 use cvewatch_frontend::asset_form::{AssetForm, ISMS_SYSTEM_MISMATCH};
 use cvewatch_frontend::data::{AssetListFilter, Settings};
 use cvewatch_frontend::groups::UNASSIGNED_GROUP;
 use cvewatch_frontend::test_support::{self, Recorder};
-use cvewatch_frontend::workspace::systems::{field_error, SystemSaveError};
+use cvewatch_frontend::workspace::systems::{field_error, field_errors, SystemSaveError};
 use cvewatch_frontend::{Context, Level, Workspace};
 
 const NOW: &str = "2026-11-07T00:00:00+00:00";
@@ -140,7 +142,14 @@ fn systems_are_managed_from_the_workspace() {
     let sys = SystemCode::parse("SYS").unwrap();
     assert_eq!(ws.system_usage(&sys), 1, "含已退役資產");
 
-    let _ = ws.rename_system(&net, "校園網路服務", &[]).expect("改名");
+    let edited = ws
+        .edit_system(&edit("NET", "NET", "校園網路服務"), None, &[])
+        .expect("改名");
+    assert_eq!(
+        edited.refreshed.report.message,
+        "已將資產說明改為 NET 校園網路服務"
+    );
+    assert!(edited.renamed.is_empty());
     assert_eq!(ws.data.systems.label("NET"), "NET 校園網路服務");
     let lab = SystemCode::parse("LAB").unwrap();
     let r = ws.delete_system(&lab, &[]);
@@ -172,4 +181,94 @@ fn asset_form_saves_admin_fields() {
     assert_eq!(saved.protection_level(), Some(4));
     assert!(saved.personal_data);
     assert_eq!(saved.isms_id.as_deref(), Some("NET-HW-001"));
+}
+
+fn edit(code: &str, new_code: &str, name: &str) -> SystemEdit {
+    SystemEdit {
+        code: SystemCode::parse(code).unwrap(),
+        new_code: new_code.into(),
+        name: name.into(),
+    }
+}
+
+/// NET：FW-01 改名為 NET-HW-001（ISMS 編號相同）、SW-CORE（ISMS 編號 NET-SW-002）。
+fn recode_world() -> World {
+    let w = grouped_world();
+    w.conn
+        .execute(
+            "UPDATE asset SET asset_tag = 'NET-HW-001', isms_id = 'NET-HW-001'
+             WHERE asset_tag = 'FW-01'",
+            [],
+        )
+        .unwrap();
+    w.conn
+        .execute(
+            "UPDATE asset SET isms_id = 'NET-SW-002' WHERE asset_tag = 'SW-CORE'",
+            [],
+        )
+        .unwrap();
+    w
+}
+
+/// 19 Scenario: Changing a code cascades to assets（frontend 層：訊息與改名清單）
+#[test]
+fn changing_a_code_reports_renamed_assets() {
+    let mut ws = open(recode_world());
+    let plan = ws
+        .preview_system_edit(&edit("NET", "nws", "網路服務"))
+        .expect("預覽");
+    assert_eq!(plan.assets.len(), 2);
+    assert!(ws.data.asset("NET-HW-001").is_some(), "預覽不寫入");
+
+    let edited = ws
+        .edit_system(&edit("NET", "nws", "網路服務"), None, &[])
+        .expect("修改代碼");
+    assert_eq!(
+        edited.refreshed.report.message,
+        "已將資產說明代碼 NET 改為 NWS（2 個資產；ISMS 編號 2 筆、資產編號 1 筆變更）"
+    );
+    assert_eq!(
+        edited.renamed,
+        vec![("NET-HW-001".to_string(), "NWS-HW-001".to_string())]
+    );
+    assert_eq!(ws.data.systems.label("NWS"), "NWS 網路服務");
+    let hw = &ws.data.asset("NWS-HW-001").expect("新編號").asset.record;
+    assert_eq!(hw.isms_id.as_deref(), Some("NWS-HW-001"));
+    assert_eq!(hw.system_code.as_deref(), Some("NWS"));
+    assert_eq!(ws.system_usage(&SystemCode::parse("NWS").unwrap()), 2);
+}
+
+/// 19 Scenario: New asset tag already used（預覽回報欄位錯誤，資料不變）
+#[test]
+fn preview_with_conflicts_returns_fields() {
+    let w = recode_world();
+    w.asset("nws-hw-001", "internal", &[]);
+    w.retire("nws-hw-001");
+    let mut ws = open(w);
+    let Err(SystemSaveError::Fields(errors)) =
+        ws.preview_system_edit(&edit("NET", "NWS", "網路服務"))
+    else {
+        panic!("新編號衝突應回報欄位錯誤");
+    };
+    assert_eq!(
+        field_errors(&errors, SystemField::Code).as_deref(),
+        Some("資產編號 NWS-HW-001 已被使用（屬於已退役的資產）")
+    );
+    let Err(SystemSaveError::Fields(_)) =
+        ws.edit_system(&edit("NET", "NWS", "網路服務"), None, &[])
+    else {
+        panic!("寫入也應拒絕");
+    };
+    assert_eq!(ws.data.systems.label("NET"), "NET 網路服務", "資料不變");
+    assert!(ws.data.asset("NET-HW-001").is_some());
+
+    let Err(SystemSaveError::Fields(errors)) =
+        ws.preview_system_edit(&edit("NET", "sys", "網路服務"))
+    else {
+        panic!("代碼重複應回報欄位錯誤");
+    };
+    assert_eq!(
+        field_error(&errors, SystemField::Code),
+        Some("資產說明代碼 SYS 已被使用")
+    );
 }

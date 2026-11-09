@@ -1,5 +1,6 @@
 pub mod asset;
 mod asset_isms;
+mod asset_system;
 mod asset_view;
 pub mod config;
 pub mod cve;

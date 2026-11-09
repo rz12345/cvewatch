@@ -280,6 +280,11 @@ pub enum AssetAction {
         /// 新的資產編號（不可與其他資產重複，含已退役、不分大小寫）
         new_tag: String,
     },
+    /// 資產說明（ISMS 的系統或服務）
+    System {
+        #[command(subcommand)]
+        action: SystemAction,
+    },
     /// 匯出使用中資產為 Excel 清冊（與匯入相同格式；不含已退役資產與主機套件）
     Export {
         /// 輸出路徑（.xlsx，不可已存在）
@@ -305,6 +310,20 @@ pub enum AssetAction {
         unresolved: bool,
         #[command(subcommand)]
         action: Option<CatalogAction>,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub enum SystemAction {
+    /// 修改資產說明代碼：歸屬資產（含已退役）的 ISMS 編號與等於 ISMS 編號的資產編號一併更新
+    Recode {
+        /// 目前的資產說明代碼（不分大小寫）
+        code: String,
+        /// 新的資產說明代碼（三碼英數字，不可與其他資產說明重複）
+        new_code: String,
+        /// 只顯示預覽，不寫入資料庫
+        #[arg(long)]
+        dry_run: bool,
     },
 }
 

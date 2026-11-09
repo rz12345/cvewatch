@@ -30,7 +30,7 @@
 ## ADDED Requirements
 
 ### Requirement: Changing a system code
-資產說明的代碼 SHALL 可修改，名稱可同時修改。新代碼 SHALL 依 Asset system 驗證，並 MUST NOT 與其他資產說明的代碼相同、MUST NOT 等於其他資產說明的名稱；與原代碼相同時視為只改名稱。代碼改變時，系統 SHALL 在同一個交易內：把所有歸屬的資產（含 retired）改為歸屬新代碼；把這些資產 ISMS 編號的系統代碼改為新代碼；資產編號等於舊 ISMS 編號（不分大小寫）的資產，依 Renaming an asset 的保留規則把資產編號改為新 ISMS 編號。任何一個新資產編號已被其他資產（含 retired，不分大小寫）使用時，系統 SHALL 拒絕並列出衝突的編號，資料庫 MUST NOT 變更。系統 SHALL 可在寫入前產生預覽，列出受影響的資產數與每筆 ISMS 編號、資產編號的變更。
+資產說明的代碼 SHALL 可修改，名稱可同時修改。新代碼 SHALL 依 Asset system 驗證，並 MUST NOT 與其他資產說明的代碼相同、MUST NOT 等於其他資產說明的名稱；與原代碼相同時視為只改名稱。代碼改變時，系統 SHALL 在同一個交易內：把所有歸屬的資產（含 retired）改為歸屬新代碼；把這些資產 ISMS 編號的系統代碼改為新代碼；資產編號等於舊 ISMS 編號（不分大小寫）的資產，依 Renaming an asset 的保留規則把資產編號改為新 ISMS 編號。ISMS 編號的系統代碼依 Asset system membership 的寫法判斷（第一個 `-` 之前），系統代碼不是原代碼的 ISMS 編號 MUST NOT 被更動。任何一個新資產編號或新 ISMS 編號已被其他資產（含 retired，不分大小寫）使用，或同一次修改中有兩個資產會得到相同的新編號時，系統 SHALL 拒絕並列出衝突的編號，資料庫 MUST NOT 變更。系統 SHALL 可在寫入前產生預覽，列出受影響的資產數與每筆 ISMS 編號、資產編號的變更。
 
 #### Scenario: Changing a code cascades to assets
 - **WHEN** `NET` 有 active 的 `NET-HW-001`（ISMS 編號 `NET-HW-001`）、retired 的 `SW-CORE-02`（ISMS 編號 `NET-SW-002`）與沒有 ISMS 編號的 `FW-LAB`，將 `NET` 的代碼改為 `nws`
@@ -47,6 +47,10 @@
 #### Scenario: New asset tag already used
 - **WHEN** 將 `NET` 改為 `NWS`，`NET-HW-001` 需更名為 `NWS-HW-001`，而另一個 retired 資產的編號是 `nws-hw-001`
 - **THEN** 系統拒絕並列出衝突的編號 `NWS-HW-001`，資產說明、歸屬、ISMS 編號與資產編號都不變
+
+#### Scenario: New IDs collide within the change
+- **WHEN** `NET` 有資產 `NET-HW-001` 與 `ＮＥＴ-HW-001`（全形，ISMS 編號各與資產編號相同），將 `NET` 改為 `NWS`
+- **THEN** 系統拒絕並指出資產編號與 ISMS 編號 `NWS-HW-001` 在這次修改中重複，資料庫不變
 
 #### Scenario: Preview before writing
 - **WHEN** 預覽將 `NET` 改為 `NWS`，`NET` 有 3 個資產歸屬、其中 2 個有 ISMS 編號、1 個資產編號等於 ISMS 編號

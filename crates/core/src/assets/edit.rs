@@ -232,7 +232,7 @@ fn join_field_errors(errors: Vec<FieldError>) -> CoreError {
 
 /// 已被使用的資產編號（不分大小寫，與畫面、等待區的查詢方式一致）；`exclude` 為不列入的
 /// 資產 id（更名時排除自身，因此只改大小寫可通過）。
-fn tag_in_use(
+pub(crate) fn tag_in_use(
     conn: &Connection,
     tag: &str,
     exclude: Option<i64>,
@@ -246,6 +246,14 @@ fn tag_in_use(
         )
         .optional()?;
     Ok(row.map(|(t, s)| (t, AssetStatus::parse(&s).unwrap_or(AssetStatus::Active))))
+}
+
+/// 「資產編號 NWS-HW-001 已被使用（屬於已退役的資產）」（更名與修改資產說明代碼共用）。
+pub(crate) fn tag_in_use_message(tag: &str, status: AssetStatus) -> String {
+    match status {
+        AssetStatus::Retired => format!("資產編號 {tag} 已被使用（屬於已退役的資產）"),
+        AssetStatus::Active => format!("資產編號 {tag} 已被使用"),
+    }
 }
 
 /// ISMS 編號已被其他資產（含 retired、不分大小寫）使用時拒絕；`exclude` 為資產自身。
@@ -546,10 +554,7 @@ fn rename_in(conn: &Connection, asset: &Asset, new_tag: &str) -> Result<Asset, C
         return Err(invalid(format!("新編號與原編號相同：{old}")));
     }
     if let Some((existing, status)) = tag_in_use(conn, new_tag, Some(asset.id))? {
-        return Err(invalid(match status {
-            AssetStatus::Retired => format!("資產編號 {existing} 已被使用（屬於已退役的資產）"),
-            AssetStatus::Active => format!("資產編號 {existing} 已被使用"),
-        }));
+        return Err(invalid(tag_in_use_message(&existing, status)));
     }
     AssetRepo::new(conn).rename(asset.id, new_tag)?;
     let mut renamed = asset.clone();

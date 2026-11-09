@@ -1,8 +1,8 @@
 //! 資產說明（ISMS 的系統／服務，16 design D1、D5）：代碼與名稱、不可變的查詢目錄、
-//! 資料庫存取與新增、改名、刪除。
+//! 資料庫存取與新增、刪除。修改（代碼與名稱，19 design D1）見 [`systems_edit`](super::systems_edit)。
 //!
-//! 代碼為三碼英數字（全形轉半形、以大寫儲存），建立後不可修改；代碼與名稱都不分大小寫
-//! 唯一。驗證函式為純函式，畫面可在寫入前用同一套規則把錯誤標在欄位旁。
+//! 代碼為三碼英數字（全形轉半形、以大寫儲存），只能依「修改資產說明代碼」的規則修改；代碼與
+//! 名稱都不分大小寫唯一。驗證函式為純函式，畫面可在寫入前用同一套規則把錯誤標在欄位旁。
 
 use std::fmt;
 
@@ -75,12 +75,12 @@ pub struct SystemError {
 }
 
 impl SystemError {
-    fn new(field: SystemField, message: String) -> SystemError {
+    pub(crate) fn new(field: SystemField, message: String) -> SystemError {
         SystemError { field, message }
     }
 }
 
-fn join(errors: Vec<SystemError>) -> CoreError {
+pub(crate) fn join(errors: Vec<SystemError>) -> CoreError {
     let messages: Vec<String> = errors.into_iter().map(|e| e.message).collect();
     CoreError::Invalid(messages.join("；"))
 }
@@ -138,8 +138,19 @@ impl SystemDirectory {
     /// （NFKC、不分大小寫）、名稱等於其他資產說明的代碼、代碼等於其他資產說明的名稱。
     /// 依代碼或名稱查詢（[`find`](Self::find)）時，這些情況會對應到錯的資產說明。
     pub fn conflict(&self, code: &SystemCode, name: &str) -> Option<SystemError> {
+        self.conflict_excluding(code, code, name)
+    }
+
+    /// 與 [`conflict`](Self::conflict) 相同，但「其他資產說明」改為排除 `exclude`（修改代碼時
+    /// 排除原代碼，19 design D2：自己原本的名稱不算重複）。
+    pub fn conflict_excluding(
+        &self,
+        exclude: &SystemCode,
+        code: &SystemCode,
+        name: &str,
+    ) -> Option<SystemError> {
         let key = name_key(name);
-        let others = || self.systems.iter().filter(move |s| &s.code != code);
+        let others = || self.systems.iter().filter(move |s| &s.code != exclude);
         if let Some(other) = others().find(|s| name_key(&s.name) == key) {
             return Some(SystemError::new(
                 SystemField::Name,
@@ -187,9 +198,11 @@ impl SystemDirectory {
     }
 }
 
+/// 名稱檢查；`exclude` 為不列入「其他資產說明」的代碼（修改時為原代碼）。
 fn check_name(
     name: &str,
-    own: Option<&SystemCode>,
+    code: Option<&SystemCode>,
+    exclude: Option<&SystemCode>,
     dir: &SystemDirectory,
     errors: &mut Vec<SystemError>,
 ) -> String {
@@ -199,20 +212,52 @@ fn check_name(
             SystemField::Name,
             "資產說明名稱不可空白".to_string(),
         ));
-    } else {
+        return name;
+    }
+    let conflict = match code {
+        Some(code) => dir.conflict_excluding(exclude.unwrap_or(code), code, &name),
         // 代碼不合法時只檢查名稱是否重複
-        let conflict = match own {
-            Some(code) => dir.conflict(code, &name),
-            None => dir.by_name(&name).map(|other| {
+        None => dir
+            .by_name(&name)
+            .filter(|other| Some(&other.code) != exclude)
+            .map(|other| {
                 SystemError::new(
                     SystemField::Name,
                     format!("名稱「{name}」已被資產說明 {} 使用", other.code),
                 )
             }),
-        };
-        errors.extend(conflict);
-    }
+    };
+    errors.extend(conflict);
     name
+}
+
+/// 新增與修改共用的驗證（19 design D2）：代碼格式、代碼不與其他資產說明重複、名稱檢查。
+/// `exclude` 為修改時的原代碼（自己不算重複）。錯誤加入 `errors`；沒有新錯誤時回傳結果。
+pub(crate) fn validate_fields(
+    code: &str,
+    name: &str,
+    exclude: Option<&SystemCode>,
+    dir: &SystemDirectory,
+    errors: &mut Vec<SystemError>,
+) -> Option<AssetSystem> {
+    let before = errors.len();
+    let parsed = SystemCode::parse(code);
+    match &parsed {
+        None => errors.push(SystemError::new(
+            SystemField::Code,
+            format!("資產說明代碼「{}」必須是三碼英數字，例如 SYS", code.trim()),
+        )),
+        Some(c) if Some(c) != exclude && dir.get(c).is_some() => errors.push(SystemError::new(
+            SystemField::Code,
+            format!("資產說明代碼 {c} 已被使用"),
+        )),
+        Some(_) => {}
+    }
+    let name = check_name(name, parsed.as_ref(), exclude, dir, errors);
+    match parsed {
+        Some(code) if errors.len() == before => Some(AssetSystem { code, name }),
+        _ => None,
+    }
 }
 
 /// 驗證新增的資產說明（代碼格式、代碼與名稱不重複）。
@@ -222,47 +267,7 @@ pub fn validate_new(
     dir: &SystemDirectory,
 ) -> Result<AssetSystem, Vec<SystemError>> {
     let mut errors = Vec::new();
-    let parsed = SystemCode::parse(code);
-    match &parsed {
-        None => errors.push(SystemError::new(
-            SystemField::Code,
-            format!("資產說明代碼「{}」必須是三碼英數字，例如 SYS", code.trim()),
-        )),
-        Some(c) if dir.get(c).is_some() => errors.push(SystemError::new(
-            SystemField::Code,
-            format!("資產說明代碼 {c} 已被使用"),
-        )),
-        Some(_) => {}
-    }
-    let name = check_name(name, parsed.as_ref(), dir, &mut errors);
-    match parsed {
-        Some(code) if errors.is_empty() => Ok(AssetSystem { code, name }),
-        _ => Err(errors),
-    }
-}
-
-/// 驗證改名（代碼須存在、名稱不與其他資產說明重複）。
-pub fn validate_rename(
-    code: &SystemCode,
-    name: &str,
-    dir: &SystemDirectory,
-) -> Result<AssetSystem, Vec<SystemError>> {
-    let mut errors = Vec::new();
-    if dir.get(code).is_none() {
-        errors.push(SystemError::new(
-            SystemField::Code,
-            format!("資產說明 {code} 不存在"),
-        ));
-    }
-    let name = check_name(name, Some(code), dir, &mut errors);
-    if errors.is_empty() {
-        Ok(AssetSystem {
-            code: code.clone(),
-            name,
-        })
-    } else {
-        Err(errors)
-    }
+    validate_fields(code, name, None, dir, &mut errors).ok_or(errors)
 }
 
 /// `asset_system` 表的存取。
@@ -290,7 +295,7 @@ impl<'c> SystemRepo<'c> {
         Ok(out)
     }
 
-    /// 新增或改名（代碼相同時更新名稱）。
+    /// 新增或修改名稱（代碼相同時更新名稱）。
     pub fn upsert(&self, system: &AssetSystem) -> Result<(), CoreError> {
         self.conn.execute(
             "INSERT INTO asset_system (code, name) VALUES (?1, ?2)
@@ -353,18 +358,6 @@ pub fn create_system(conn: &Connection, code: &str, name: &str) -> Result<AssetS
     Ok(system)
 }
 
-/// 修改資產說明名稱（代碼不可修改）。
-pub fn rename_system(
-    conn: &Connection,
-    code: &SystemCode,
-    name: &str,
-) -> Result<AssetSystem, CoreError> {
-    let dir = SystemDirectory::load(conn)?;
-    let system = validate_rename(code, name, &dir).map_err(join)?;
-    SystemRepo::new(conn).upsert(&system)?;
-    Ok(system)
-}
-
 /// 刪除資產說明；仍有資產（含 retired）歸屬時拒絕。
 pub fn delete_system(conn: &Connection, code: &SystemCode) -> Result<(), CoreError> {
     let repo = SystemRepo::new(conn);
@@ -382,6 +375,7 @@ pub fn delete_system(conn: &Connection, code: &SystemCode) -> Result<(), CoreErr
 
 #[cfg(test)]
 mod tests {
+    use super::super::systems_edit::{validate_edit, SystemEdit};
     use super::*;
 
     fn sys(code: &str, name: &str) -> AssetSystem {
@@ -454,16 +448,54 @@ mod tests {
         assert_eq!(e[0].message, "代碼 LAB 與資產說明 NET 的名稱相同");
         // 名稱等於自己的代碼（migration 建立的資產說明）可以
         let own = SystemDirectory::new(vec![sys("SYS", "SYS")]);
-        assert!(validate_rename(&SystemCode::parse("SYS").unwrap(), "SYS", &own).is_ok());
+        assert!(validate_edit(&edit("SYS", "SYS", "SYS"), &own).is_ok());
+    }
+
+    fn edit(code: &str, new_code: &str, name: &str) -> SystemEdit {
+        SystemEdit {
+            code: SystemCode::parse(code).unwrap(),
+            new_code: new_code.into(),
+            name: name.into(),
+        }
     }
 
     #[test]
     fn rename_allows_own_name() {
         let dir = SystemDirectory::new(vec![sys("NET", "網路服務"), sys("SYS", "核心系統")]);
-        let net = SystemCode::parse("NET").unwrap();
-        assert!(validate_rename(&net, "網路服務", &dir).is_ok());
-        assert!(validate_rename(&net, "核心系統", &dir).is_err());
-        let lab = SystemCode::parse("LAB").unwrap();
-        assert!(validate_rename(&lab, "實驗室", &dir).is_err());
+        assert!(validate_edit(&edit("NET", "NET", "網路服務"), &dir).is_ok());
+        assert!(validate_edit(&edit("NET", "NET", "核心系統"), &dir).is_err());
+        let missing = validate_edit(&edit("LAB", "LAB", "實驗室"), &dir).unwrap_err();
+        assert_eq!(missing[0].field, SystemField::Code);
+        assert_eq!(missing[0].message, "資產說明 LAB 不存在");
+    }
+
+    /// 19 design D2：修改代碼時以原代碼排除自身。
+    #[test]
+    fn recode_excludes_the_original_system() {
+        let dir = SystemDirectory::new(vec![sys("NET", "網路服務"), sys("SYS", "核心系統")]);
+        let ok = validate_edit(&edit("NET", "nws", "網路服務"), &dir).unwrap();
+        assert_eq!(ok, sys("NWS", "網路服務"), "自己原本的名稱不算重複");
+        let ok = validate_edit(&edit("NET", "NWS", "NET"), &dir).unwrap();
+        assert_eq!(ok.name, "NET", "名稱等於自己的原代碼可以");
+        let ok = validate_edit(&edit("NET", "net", "網路服務"), &dir).unwrap();
+        assert_eq!(ok.code.as_str(), "NET", "只改大小寫視為只改名稱");
+
+        let used = validate_edit(&edit("NET", "sys", "網路服務"), &dir).unwrap_err();
+        assert_eq!(used.len(), 1);
+        assert_eq!(used[0].field, SystemField::Code);
+        assert_eq!(used[0].message, "資產說明代碼 SYS 已被使用");
+
+        let named = SystemDirectory::new(vec![sys("NET", "網路服務"), sys("SYS", "LAB")]);
+        let cross = validate_edit(&edit("NET", "lab", "網路服務"), &named).unwrap_err();
+        assert_eq!(cross[0].field, SystemField::Code);
+        assert_eq!(cross[0].message, "代碼 LAB 與資產說明 SYS 的名稱相同");
+
+        let bad = validate_edit(&edit("NET", "NWS1", "網路服務"), &dir).unwrap_err();
+        assert_eq!(bad.len(), 1, "代碼不合法時名稱仍排除自身：{bad:?}");
+        assert_eq!(bad[0].field, SystemField::Code);
+        assert!(bad[0].message.contains("三碼英數字"));
+
+        let name = validate_edit(&edit("NET", "NWS", "核心系統"), &dir).unwrap_err();
+        assert_eq!(name[0].field, SystemField::Name);
     }
 }

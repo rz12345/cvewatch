@@ -1,4 +1,4 @@
-//! `cvewatch asset import | import-isms | import-packages | list | show | rename | export | template | catalog`
+//! `cvewatch asset import | import-isms | import-packages | list | show | rename | system | export | template | catalog`
 
 use std::path::Path;
 
@@ -44,6 +44,7 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
         } => asset_view::list(app, category.as_deref(), unresolved),
         AssetAction::Show { asset_tag } => asset_view::show(app, &asset_tag),
         AssetAction::Rename { asset_tag, new_tag } => rename(app, &asset_tag, &new_tag),
+        AssetAction::System { action } => super::asset_system::run(app, action),
         AssetAction::Export { path } => export(app, &path),
         AssetAction::ImportIsms { workbook, dry_run } => {
             super::asset_isms::import_isms(app, &workbook, dry_run)

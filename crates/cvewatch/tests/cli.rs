@@ -218,6 +218,7 @@ fn asset_subcommands_support_help() {
         "list",
         "show",
         "rename",
+        "system",
         "template",
         "catalog",
     ] {
