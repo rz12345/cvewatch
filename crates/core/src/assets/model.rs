@@ -69,6 +69,18 @@ pub struct AssetRecord {
     pub compliance: Option<u8>,
     /// 是否含個人資料（以解析後的值儲存，不保存「依類別」）
     pub personal_data: bool,
+    /// 廠牌（設備的製造商；與產品目錄的 vendor 不同，20 design D1）
+    pub brand: Option<String>,
+    /// 型號
+    pub model: Option<String>,
+    /// 序號（不檢查重複）
+    pub serial_number: Option<String>,
+    /// 財產編號（不分大小寫唯一，含 retired；20 design D3）
+    pub property_number: Option<String>,
+    /// 主機名稱（英數字、`-`、`.`、`_`，最長 253 字元）
+    pub hostname: Option<String>,
+    /// 管理介面位址（http／https，不含帳號密碼；以使用者寫法儲存）
+    pub management_url: Option<String>,
     pub notes: Option<String>,
 }
 

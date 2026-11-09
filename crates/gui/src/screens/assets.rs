@@ -3,6 +3,8 @@
 //! （只對 active 資產，與 Enter 相同）。
 //!
 //! 產品以目錄的顯示名稱呈現（產品 key 只在滑鼠提示中），類別與曝露度雙語（design 11 D1）。
+//! 識別欄位與 IP 在管理欄位之後；管理介面位址為連結，點擊後經 frontend 的 Opener 開啟
+//! （20 design D11：不用 `egui::Hyperlink`，它不經過 Opener，也不會在狀態列回報結果）。
 
 use cvewatch_core::assets::{AssetRecord, AssetStatus, ComponentKind, SystemDirectory};
 use cvewatch_core::catalog::Catalog;
@@ -10,8 +12,10 @@ use cvewatch_core::matching::query::FindingRow;
 use cvewatch_frontend::asset_form::{personal_data_label, rated_text};
 use cvewatch_frontend::data::AssetEntry;
 use cvewatch_frontend::display::{
-    class_label, component_line, exposure_label, product_name, shown_name, version_text,
+    class_label, component_line, exposure_label, identity_rows, product_name, shown_name,
+    version_text, BLANK, MANAGEMENT_URL_LABEL,
 };
+use cvewatch_frontend::filter::matches_asset_search;
 use cvewatch_frontend::Report;
 use eframe::egui;
 
@@ -38,6 +42,8 @@ enum DetailAction {
     Retire(String),
     Restore(String),
     Purge(String),
+    /// 開啟管理介面位址
+    OpenManagement(String),
 }
 
 impl GuiApp {
@@ -66,6 +72,7 @@ impl GuiApp {
             Some(DetailAction::Retire(tag)) => self.start_retire_asset(&tag),
             Some(DetailAction::Restore(tag)) => self.restore_asset(&tag),
             Some(DetailAction::Purge(tag)) => self.start_purge_asset(&tag),
+            Some(DetailAction::OpenManagement(url)) => self.open_management_link(&url),
             None => {}
         }
     }
@@ -99,6 +106,13 @@ impl GuiApp {
         let Some(tag) = self.active_selected_tag() else {
             return;
         };
+        // 被搜尋篩掉的選取資產仍顯示詳情，但清單中看不到它時不以按鍵編輯或退役（20 code review）
+        let hidden = self
+            .selected_asset()
+            .is_some_and(|a| !matches_asset_search(a, &self.assets_search));
+        if hidden {
+            return;
+        }
         if pressed(egui::Key::Enter, false) {
             self.start_edit_asset(&tag);
         } else if pressed(egui::Key::Delete, false) {
@@ -136,6 +150,9 @@ impl GuiApp {
                 ));
                 for line in admin_lines(r, &self.ws.data.systems) {
                     ui.label(line);
+                }
+                if let Some(url) = identity_section(ui, a) {
+                    action = Some(DetailAction::OpenManagement(url));
                 }
                 ui.label(format!(
                     "未處理命中 {} 筆｜全部命中 {} 筆",
@@ -293,6 +310,36 @@ fn unresolved_all(ui: &mut egui::Ui, app: &GuiApp) {
             u.version_raw
         ));
     }
+}
+
+/// 詳情的識別欄位與 IP（20 spec GUI asset identity detail）：「廠牌 …｜型號 …｜序號 …｜
+/// 財產編號 …」「主機名稱 …｜管理介面位址 <連結>」「IP …」，未填為「-」。回傳被點擊的管理介面位址。
+fn identity_section(ui: &mut egui::Ui, a: &AssetEntry) -> Option<String> {
+    let rows = identity_rows(&a.asset.record, &a.ips);
+    let joined = |rows: &[(&str, String)]| {
+        rows.iter()
+            .map(|(l, v)| format!("{l} {}", one_line(v)))
+            .collect::<Vec<_>>()
+            .join("｜")
+    };
+    ui.label(joined(&rows[..4]));
+    let mut clicked = None;
+    ui.horizontal(|ui| {
+        ui.label(format!("{}｜{MANAGEMENT_URL_LABEL}", joined(&rows[4..5])));
+        match &a.asset.record.management_url {
+            Some(url) => {
+                if ui.link(one_line(url)).on_hover_text(url).clicked() {
+                    clicked = Some(url.clone());
+                }
+            }
+            None => {
+                ui.label(BLANK);
+            }
+        }
+    });
+    let (label, ips) = &rows[6];
+    ui.label(format!("{label} {}", one_line(ips)));
+    clicked
 }
 
 /// 詳情的 ISMS 管理欄位（16 spec GUI asset presentation）：未填為「-」，未評定為「未評定」。

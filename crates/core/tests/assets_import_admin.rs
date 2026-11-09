@@ -51,7 +51,7 @@ fn workbook(dir: &Path, name: &str, assets: &[&[&str]], systems: Option<&[[&str;
 }
 
 fn run(conn: &mut Connection, path: &Path, dry_run: bool) -> Result<ImportPlan, CoreError> {
-    let book = read_inventory(path, None)?;
+    let book = read_inventory(path, None, None)?;
     let inventory = parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin())?;
     import_inventory(
         conn,
@@ -330,7 +330,8 @@ fn older_inventory_keeps_new_fields_and_reads_owner() {
         notices,
         vec![
             OWNER_NOTICE.to_string(),
-            "清冊沒有 system、responsible_unit、user_unit、compliance、personal_data 欄，\
+            "清冊沒有 system、responsible_unit、user_unit、compliance、personal_data、brand、\
+             model、serial_number、property_number、hostname、management_url 欄，\
              保留資料庫中既有資產的值"
                 .to_string(),
         ]
@@ -372,7 +373,7 @@ fn owner_and_custodian_columns_together_are_rejected() {
         ],
         None,
     );
-    let book = read_inventory(&path, None).unwrap();
+    let book = read_inventory(&path, None, None).unwrap();
     let err = parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin())
         .unwrap_err()
         .to_string();

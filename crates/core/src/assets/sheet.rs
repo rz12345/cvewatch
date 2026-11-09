@@ -1,4 +1,5 @@
-//! 讀取清冊：.xlsx（`assets` / `components` / `systems` 工作表）或 .csv（兩個檔）。
+//! 讀取清冊：.xlsx（`assets` / `components` / `systems` / `ips` 工作表）或 .csv（assets 檔，
+//! 另可指定元件檔與 IP 檔）。
 //!
 //! 只轉成字串表格；欄位意義與驗證在 [`super::validate`]。
 
@@ -29,12 +30,18 @@ pub struct Workbook {
     pub components: Option<Sheet>,
     /// 資產說明（16 design D3；選填，CSV 清冊沒有）
     pub systems: Option<Sheet>,
+    /// 資產的 IP（20 design D5；選填，CSV 以 `--ips` 指定）
+    pub ips: Option<Sheet>,
 }
 
 const UTF8_BOM: &str = "\u{feff}";
 
-/// 依副檔名讀取清冊；CSV 的元件另以 `components_csv` 指定。
-pub fn read_inventory(path: &Path, components_csv: Option<&Path>) -> Result<Workbook, CoreError> {
+/// 依副檔名讀取清冊；CSV 的元件另以 `components_csv`、IP 以 `ips_csv` 指定。
+pub fn read_inventory(
+    path: &Path,
+    components_csv: Option<&Path>,
+    ips_csv: Option<&Path>,
+) -> Result<Workbook, CoreError> {
     let ext = path
         .extension()
         .map(|e| e.to_string_lossy().to_lowercase())
@@ -46,6 +53,11 @@ pub fn read_inventory(path: &Path, components_csv: Option<&Path>) -> Result<Work
                     "--components 只用於 CSV；Excel 請使用 components 工作表".to_string(),
                 ));
             }
+            if ips_csv.is_some() {
+                return Err(CoreError::Invalid(
+                    "--ips 只用於 CSV；Excel 請使用 ips 工作表".to_string(),
+                ));
+            }
             read_workbook(path)
         }
         "csv" => Ok(Workbook {
@@ -54,6 +66,7 @@ pub fn read_inventory(path: &Path, components_csv: Option<&Path>) -> Result<Work
                 .map(|p| read_csv(p, SheetKind::Components))
                 .transpose()?,
             systems: None,
+            ips: ips_csv.map(|p| read_csv(p, SheetKind::Ips)).transpose()?,
         }),
         _ => Err(CoreError::Invalid(format!(
             "不支援的清冊格式：{}（支援 .xlsx、.csv）",
@@ -97,10 +110,15 @@ fn read_workbook(path: &Path) -> Result<Workbook, CoreError> {
         Some(name) => Some(load(&name, SheetKind::Systems)?),
         None => None,
     };
+    let ips = match find(SheetKind::Ips) {
+        Some(name) => Some(load(&name, SheetKind::Ips)?),
+        None => None,
+    };
     Ok(Workbook {
         assets,
         components,
         systems,
+        ips,
     })
 }
 

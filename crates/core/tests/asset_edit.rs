@@ -141,6 +141,7 @@ fn adding_a_new_firewall_uses_import_defaults() {
         &w.classes,
         &firewall(),
         &[comp("paloalto-panos", "11.2.3")],
+        &[],
         now(),
     )
     .unwrap();
@@ -235,6 +236,7 @@ fn tag_used_by_a_retired_asset_is_refused() {
         &w.classes,
         &input,
         &[comp("synology-dsm", "7.2.2-72806")],
+        &[],
         now(),
     ));
     assert!(m.contains("已退役") && m.contains("恢復"), "{m}");
@@ -249,6 +251,7 @@ fn tag_used_by_a_retired_asset_is_refused() {
         &w.classes,
         &input,
         &[comp("paloalto-panos", "11.1.2")],
+        &[],
         now(),
     ));
     assert!(m.contains("已存在") && !m.contains("退役"), "{m}");
@@ -262,6 +265,7 @@ fn no_component_given_leaves_database_unchanged() {
         &w.catalog,
         &w.classes,
         &firewall(),
+        &[],
         &[],
         now(),
     ));
@@ -278,6 +282,7 @@ fn no_component_given_leaves_database_unchanged() {
         &w.classes,
         &bad,
         &[comp("paloalto-panos", "11.2.3")],
+        &[],
         now(),
     ));
     message(edit::create_asset(
@@ -289,6 +294,7 @@ fn no_component_given_leaves_database_unchanged() {
             comp("paloalto-panos", "11.2.3"),
             comp("paloalto-panos", "11.2.4"),
         ],
+        &[],
         now(),
     ));
     message(edit::create_asset(
@@ -297,6 +303,7 @@ fn no_component_given_leaves_database_unchanged() {
         &w.classes,
         &firewall(),
         &[comp("no-such-product", "1.0")],
+        &[],
         now(),
     ));
     assert_eq!(count(&w, "SELECT count(*) FROM asset"), 0);
@@ -419,6 +426,7 @@ fn isms_id_is_validated_on_edit() {
             ..firewall()
         },
         &[comp("paloalto-panos", "11.2.3")],
+        &[],
         now(),
     ));
     assert!(m.contains("已被 FW-01 使用"), "{m}");
@@ -739,6 +747,7 @@ fn tags_differing_only_in_case_are_refused() {
         &w.classes,
         &input,
         &[comp("paloalto-panos", "11.2.3")],
+        &[],
         now(),
     ));
     assert!(m.contains("FW-02 已存在"), "{m}");
@@ -1014,6 +1023,7 @@ fn every_edit_marks_matching_as_needed() {
                 &w.classes,
                 &firewall(),
                 &[comp("paloalto-panos", "11.2.3")],
+                &[],
                 now(),
             )
             .map(drop)
@@ -1109,6 +1119,7 @@ fn failed_edit_does_not_mark_matching() {
         &w.catalog,
         &w.classes,
         &firewall(),
+        &[],
         &[],
         now(),
     ));

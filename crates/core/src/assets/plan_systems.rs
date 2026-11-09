@@ -69,7 +69,36 @@ pub(super) fn keep_existing(
     inventory: &Inventory,
 ) -> AssetRecord {
     let keep = |f: StandardField| inventory.keeps(f);
+    let text = |f: StandardField, new: &Option<String>, old: &Option<String>| {
+        if keep(f) {
+            old.clone()
+        } else {
+            new.clone()
+        }
+    };
     AssetRecord {
+        brand: text(StandardField::Brand, &record.brand, &existing.brand),
+        model: text(StandardField::Model, &record.model, &existing.model),
+        serial_number: text(
+            StandardField::SerialNumber,
+            &record.serial_number,
+            &existing.serial_number,
+        ),
+        property_number: text(
+            StandardField::PropertyNumber,
+            &record.property_number,
+            &existing.property_number,
+        ),
+        hostname: text(
+            StandardField::Hostname,
+            &record.hostname,
+            &existing.hostname,
+        ),
+        management_url: text(
+            StandardField::ManagementUrl,
+            &record.management_url,
+            &existing.management_url,
+        ),
         isms_id: if keep(StandardField::IsmsId) {
             existing.isms_id.clone()
         } else {
@@ -134,7 +163,7 @@ pub(super) fn assign_system(
     }
 }
 
-/// 清冊缺少 16 新增的欄位、且有既有資產時的提醒（isms_id 另有原本的提醒）。
+/// 清冊缺少 16、20 新增的欄位、且有既有資產時的提醒（isms_id 另有原本的提醒）。
 pub(super) fn kept_columns_notice(
     inventory: &Inventory,
     any_existing: bool,

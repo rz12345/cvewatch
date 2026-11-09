@@ -114,6 +114,24 @@ fn csv_can_choose_components_file() {
     assert!(has(&calls[1], "--dry-run"));
 }
 
+/// 20 任務 6.4：Choosing an IP file
+#[test]
+fn csv_can_choose_ip_file() {
+    use cvewatch_gui::dialogs::import::{IP_FILE_LABEL, PICK_IPS_BUTTON};
+    let (mut h, f) = gui(seeded_world());
+    let ips = f.rec.dir.path().join("ips.csv");
+    *f.dialogs.ips.borrow_mut() = Some(ips.clone());
+    drop_files(&mut h, &[&f.rec.dir.path().join("assets.csv")]);
+    assert!(shows(&h, &format!("{IP_FILE_LABEL}（未選擇）")));
+    click(&mut h, PICK_IPS_BUTTON);
+    assert!(shows(&h, &format!("{IP_FILE_LABEL}{}", ips.display())));
+    let calls = f.companion.calls();
+    assert_eq!(calls.len(), 2, "選擇後重新預覽");
+    let i = calls[1].iter().position(|a| a == "--ips").expect("flag");
+    assert_eq!(calls[1][i + 1], ips.display().to_string());
+    assert!(has(&calls[1], "--dry-run"), "按「匯入」前不寫入");
+}
+
 #[test]
 fn unsupported_or_multiple_files_are_refused() {
     let (mut h, f) = gui(seeded_world());

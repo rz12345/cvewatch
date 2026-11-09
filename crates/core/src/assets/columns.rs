@@ -23,6 +23,13 @@ pub enum StandardField {
     UserUnit,
     Compliance,
     PersonalData,
+    /// 識別欄位（20 design D1）
+    Brand,
+    Model,
+    SerialNumber,
+    PropertyNumber,
+    Hostname,
+    ManagementUrl,
     Location,
     Notes,
     /// 舊欄名（16 design D3）：表頭視同 [`StandardField::Custodian`]，匯入時給出一次警告
@@ -31,10 +38,13 @@ pub enum StandardField {
     Criticality,
     /// `systems` 工作表的代碼
     Code,
+    /// `ips` 工作表的位址與用途（20 design D5）
+    Ip,
+    Purpose,
 }
 
 /// `assets` 工作表的欄位順序（範本、匯出與表頭解析；不含停用欄位與舊欄名）。
-const ASSET_COLUMNS: [StandardField; 18] = [
+const ASSET_COLUMNS: [StandardField; 24] = [
     StandardField::AssetTag,
     StandardField::Name,
     StandardField::Category,
@@ -51,6 +61,12 @@ const ASSET_COLUMNS: [StandardField; 18] = [
     StandardField::UserUnit,
     StandardField::Compliance,
     StandardField::PersonalData,
+    StandardField::Brand,
+    StandardField::Model,
+    StandardField::SerialNumber,
+    StandardField::PropertyNumber,
+    StandardField::Hostname,
+    StandardField::ManagementUrl,
     StandardField::Location,
     StandardField::Notes,
 ];
@@ -58,8 +74,16 @@ const ASSET_COLUMNS: [StandardField; 18] = [
 /// `systems` 工作表的欄位（16 design D3）。
 const SYSTEM_COLUMNS: [StandardField; 2] = [StandardField::Code, StandardField::Name];
 
-/// 清冊沒有該欄時保留既有資產值的欄位（13 的 isms_id 與 16 的新欄位，16 design D4）。
-pub const KEEPABLE_FIELDS: [StandardField; 7] = [
+/// `ips` 工作表的欄位（20 design D5）：`asset_tag`、`ip` 必填，`purpose` 選填。
+const IP_COLUMNS: [StandardField; 3] = [
+    StandardField::AssetTag,
+    StandardField::Ip,
+    StandardField::Purpose,
+];
+
+/// 清冊沒有該欄時保留既有資產值的欄位（13 的 isms_id、16 的新欄位與 20 的識別欄位，
+/// 16 design D4、20 design D7）。
+pub const KEEPABLE_FIELDS: [StandardField; 13] = [
     StandardField::IsmsId,
     StandardField::System,
     StandardField::ResponsibleUnit,
@@ -67,11 +91,17 @@ pub const KEEPABLE_FIELDS: [StandardField; 7] = [
     StandardField::UserUnit,
     StandardField::Compliance,
     StandardField::PersonalData,
+    StandardField::Brand,
+    StandardField::Model,
+    StandardField::SerialNumber,
+    StandardField::PropertyNumber,
+    StandardField::Hostname,
+    StandardField::ManagementUrl,
 ];
 
 impl StandardField {
     /// 所有可辨識的欄名（含停用欄位與舊欄名）。
-    pub const ALL: [StandardField; 21] = [
+    pub const ALL: [StandardField; 29] = [
         StandardField::AssetTag,
         StandardField::Name,
         StandardField::Category,
@@ -88,11 +118,19 @@ impl StandardField {
         StandardField::UserUnit,
         StandardField::Compliance,
         StandardField::PersonalData,
+        StandardField::Brand,
+        StandardField::Model,
+        StandardField::SerialNumber,
+        StandardField::PropertyNumber,
+        StandardField::Hostname,
+        StandardField::ManagementUrl,
         StandardField::Location,
         StandardField::Notes,
         StandardField::Owner,
         StandardField::Criticality,
         StandardField::Code,
+        StandardField::Ip,
+        StandardField::Purpose,
     ];
 
     /// 已停用、匯入時忽略的欄位。
@@ -118,11 +156,19 @@ impl StandardField {
             StandardField::UserUnit => "user_unit",
             StandardField::Compliance => "compliance",
             StandardField::PersonalData => "personal_data",
+            StandardField::Brand => "brand",
+            StandardField::Model => "model",
+            StandardField::SerialNumber => "serial_number",
+            StandardField::PropertyNumber => "property_number",
+            StandardField::Hostname => "hostname",
+            StandardField::ManagementUrl => "management_url",
             StandardField::Criticality => "criticality",
             StandardField::Location => "location",
             StandardField::Owner => "owner",
             StandardField::Notes => "notes",
             StandardField::Code => "code",
+            StandardField::Ip => "ip",
+            StandardField::Purpose => "purpose",
         }
     }
 
@@ -141,6 +187,8 @@ pub enum SheetKind {
     Components,
     /// 資產說明（16 design D3；選填）
     Systems,
+    /// 資產的 IP（20 design D5；選填）
+    Ips,
 }
 
 impl SheetKind {
@@ -149,6 +197,7 @@ impl SheetKind {
             SheetKind::Assets => "assets",
             SheetKind::Components => "components",
             SheetKind::Systems => "systems",
+            SheetKind::Ips => "ips",
         }
     }
 
@@ -167,6 +216,7 @@ impl SheetKind {
                 StandardField::Version,
             ],
             SheetKind::Systems => &SYSTEM_COLUMNS,
+            SheetKind::Ips => &IP_COLUMNS[..2],
         }
     }
 
@@ -174,6 +224,7 @@ impl SheetKind {
     pub fn columns(self) -> &'static [StandardField] {
         match self {
             SheetKind::Assets => &ASSET_COLUMNS,
+            SheetKind::Ips => &IP_COLUMNS,
             SheetKind::Components | SheetKind::Systems => self.required(),
         }
     }
@@ -240,10 +291,11 @@ impl ColumnMap {
         let mut found: HashMap<StandardField, usize> = HashMap::new();
         let mut legacy_owner = false;
         for (i, header) in headers.iter().enumerate() {
-            // `[import.columns]` 是為 assets／components 寫的；systems 工作表只認標準欄名，
-            // 以免自訂欄名（例如把 code 對應到 asset_tag）讓範本與匯出檔無法匯入（16 code review）
+            // `[import.columns]` 是為 assets／components 寫的；systems 與 ips 工作表只認標準欄名，
+            // 以免自訂欄名（例如把 code 對應到 asset_tag、把舊清冊的「IP」欄對應到 notes）讓範本與
+            // 匯出檔無法匯入（16、20 code review）
             let field = match kind {
-                SheetKind::Systems => StandardField::parse(header),
+                SheetKind::Systems | SheetKind::Ips => StandardField::parse(header),
                 _ => self.field_for(header),
             };
             let Some(mut field) = field else {
@@ -461,6 +513,43 @@ mod tests {
             err.to_string().contains("systems 工作表缺少欄位：name"),
             "{err}"
         );
+    }
+
+    #[test]
+    fn ips_sheet_columns_ignore_custom_names() {
+        let map = ColumnMap::from_config(&BTreeMap::from([
+            ("編號".to_string(), "asset_tag".to_string()),
+            ("ip".to_string(), "notes".to_string()),
+            ("財產編號".to_string(), "property_number".to_string()),
+        ]))
+        .unwrap();
+        // 匯出檔的 ips 工作表（標準欄名）在有自訂欄名時仍可匯入
+        let found = map
+            .locate(&headers(&["asset_tag", "IP", "purpose"]), SheetKind::Ips)
+            .unwrap();
+        assert_eq!(found[&StandardField::AssetTag], 0);
+        assert_eq!(found[&StandardField::Ip], 1);
+        assert_eq!(found[&StandardField::Purpose], 2);
+        let err = ColumnMap::default()
+            .locate(&headers(&["asset_tag", "purpose"]), SheetKind::Ips)
+            .unwrap_err();
+        assert!(err.to_string().contains("ips 工作表缺少欄位：ip"), "{err}");
+        let err = map
+            .locate(&headers(&["編號", "ip"]), SheetKind::Ips)
+            .unwrap_err();
+        assert!(
+            err.to_string().contains("asset_tag"),
+            "自訂欄名不套用：{err}"
+        );
+        // assets 工作表仍套用自訂欄名
+        let found = map
+            .locate(
+                &headers(&["編號", "name", "category", "product", "version", "財產編號"]),
+                SheetKind::Assets,
+            )
+            .unwrap();
+        assert_eq!(found[&StandardField::PropertyNumber], 5);
+        assert_eq!(SheetKind::Assets.columns().len(), 24);
     }
 
     #[test]

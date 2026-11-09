@@ -232,13 +232,16 @@ fn class_filter(raw: &str) -> Result<String, String> {
 
 #[derive(Debug, Subcommand)]
 pub enum AssetAction {
-    /// 匯入 Excel（assets / components / systems 工作表）或 CSV 清冊；以 asset_tag 新增或更新
+    /// 匯入 Excel（assets / components / systems / ips 工作表）或 CSV 清冊；以 asset_tag 新增或更新
     Import {
         /// 清冊檔（.xlsx 或 .csv）
         file: PathBuf,
         /// CSV 匯入時的元件檔（欄位 asset_tag、product、version）
         #[arg(long, value_name = "CSV")]
         components: Option<PathBuf>,
+        /// CSV 匯入時的 IP 檔（欄位 asset_tag、ip、purpose）
+        #[arg(long, value_name = "CSV")]
+        ips: Option<PathBuf>,
         /// 只顯示差異，不寫入資料庫
         #[arg(long)]
         dry_run: bool,
@@ -298,7 +301,7 @@ pub enum AssetAction {
         #[arg(long)]
         dry_run: bool,
     },
-    /// 匯出空白 Excel 範本（assets、components、systems 工作表與 classes 子類別說明）
+    /// 匯出空白 Excel 範本（assets、components、systems、ips 工作表與 classes 子類別說明）
     Template {
         /// 輸出路徑（.xlsx，不可已存在）
         path: PathBuf,

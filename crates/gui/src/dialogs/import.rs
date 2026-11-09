@@ -59,6 +59,14 @@ fn has_pending(r: &RunResult) -> bool {
 /// 不支援的檔案或一次多個檔案時的說明。
 pub const UNSUPPORTED: &str = "只支援 .xlsx 與 .csv 清冊";
 
+/// CSV 清冊的元件檔：標籤與按鈕。
+pub const COMPONENTS_FILE_LABEL: &str = "元件檔：";
+pub const PICK_COMPONENTS_BUTTON: &str = "選擇元件檔";
+
+/// CSV 清冊的 IP 檔（20 design D11）：標籤與按鈕。
+pub const IP_FILE_LABEL: &str = "IP 檔：";
+pub const PICK_IPS_BUTTON: &str = "選擇 IP 檔";
+
 /// 子程序輸出的顯示文字（stdout，失敗時附 stderr 與結束碼）。
 pub fn output_text(r: &RunResult) -> String {
     match r {
@@ -150,6 +158,7 @@ impl GuiApp {
             kind: import,
             file,
             components: None,
+            ips: None,
             prune: false,
         };
         let mut flow = ImportFlow {
@@ -295,9 +304,13 @@ impl GuiApp {
                 self.import = Some(flow);
             }
             Some(Action::Repreview) => self.repreview(flow),
-            Some(Action::PickComponents) => {
-                if let Some(path) = self.dialogs.open_components() {
-                    flow.args.components = Some(path);
+            Some(Action::PickFile(side)) => {
+                let picked = match side {
+                    SideFile::Components => self.dialogs.open_components(),
+                    SideFile::Ips => self.dialogs.open_ips(),
+                };
+                if let Some(path) = picked {
+                    *side.slot(&mut flow.args) = Some(path);
                     self.repreview(flow);
                 } else {
                     self.import = Some(flow);
@@ -311,7 +324,39 @@ enum Action {
     Close,
     Import,
     Repreview,
-    PickComponents,
+    PickFile(SideFile),
+}
+
+/// CSV 清冊另外指定的檔案（元件檔、IP 檔）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SideFile {
+    Components,
+    Ips,
+}
+
+impl SideFile {
+    const ALL: [SideFile; 2] = [SideFile::Components, SideFile::Ips];
+
+    fn label(self) -> &'static str {
+        match self {
+            SideFile::Components => COMPONENTS_FILE_LABEL,
+            SideFile::Ips => IP_FILE_LABEL,
+        }
+    }
+
+    fn button(self) -> &'static str {
+        match self {
+            SideFile::Components => PICK_COMPONENTS_BUTTON,
+            SideFile::Ips => PICK_IPS_BUTTON,
+        }
+    }
+
+    fn slot(self, args: &mut ImportArgs) -> &mut Option<PathBuf> {
+        match self {
+            SideFile::Components => &mut args.components,
+            SideFile::Ips => &mut args.ips,
+        }
+    }
 }
 
 fn body(ui: &mut egui::Ui, flow: &mut ImportFlow) -> Option<Action> {
@@ -327,21 +372,22 @@ fn body(ui: &mut egui::Ui, flow: &mut ImportFlow) -> Option<Action> {
     let mut action = None;
     let idle = !flow.running();
     if !isms && flow.kind == InventoryKind::Csv {
-        ui.horizontal(|ui| {
-            let comp = flow
-                .args
-                .components
-                .as_ref()
-                .map_or("（未選擇）".to_string(), |p| p.display().to_string());
-            ui.label(format!("元件檔：{comp}"));
-            let can_pick = idle && !matches!(flow.stage, Stage::Done(_));
-            if ui
-                .add_enabled(can_pick, egui::Button::new("選擇元件檔"))
-                .clicked()
-            {
-                action = Some(Action::PickComponents);
-            }
-        });
+        let can_pick = idle && !matches!(flow.stage, Stage::Done(_));
+        for side in SideFile::ALL {
+            ui.horizontal(|ui| {
+                let shown = side
+                    .slot(&mut flow.args)
+                    .as_ref()
+                    .map_or("（未選擇）".to_string(), |p| p.display().to_string());
+                ui.label(format!("{}{shown}", side.label()));
+                if ui
+                    .add_enabled(can_pick, egui::Button::new(side.button()))
+                    .clicked()
+                {
+                    action = Some(Action::PickFile(side));
+                }
+            });
+        }
     }
     // ISMS 匯入不提供退役選項（18 spec GUI ISMS import）
     if !isms {

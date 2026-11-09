@@ -151,13 +151,15 @@ pub enum ImportKind {
     Isms,
 }
 
-/// 匯入的參數：`asset import <file> [--components C] [--prune] [--dry-run]`，或
+/// 匯入的參數：`asset import <file> [--components C] [--ips I] [--prune] [--dry-run]`，或
 /// `asset import-isms <file> [--dry-run]`。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportArgs {
     pub kind: ImportKind,
     pub file: PathBuf,
     pub components: Option<PathBuf>,
+    /// CSV 清冊的 IP 檔（20 design D11）
+    pub ips: Option<PathBuf>,
     pub prune: bool,
 }
 
@@ -180,6 +182,9 @@ impl ImportArgs {
         }
         if let Some(c) = &self.components {
             args.extend(["--components".into(), c.clone().into_os_string()]);
+        }
+        if let Some(i) = &self.ips {
+            args.extend(["--ips".into(), i.clone().into_os_string()]);
         }
         if self.prune {
             args.push("--prune".into());
@@ -224,6 +229,7 @@ mod tests {
             kind: ImportKind::Inventory,
             file: PathBuf::from(r"C:\in\assets.csv"),
             components: Some(PathBuf::from(r"C:\in\components.csv")),
+            ips: Some(PathBuf::from(r"C:\in\ips.csv")),
             prune: true,
         };
         let c = ProcessCompanion::new(CliTarget {
@@ -242,12 +248,15 @@ mod tests {
                 r"C:\in\assets.csv",
                 "--components",
                 r"C:\in\components.csv",
+                "--ips",
+                r"C:\in\ips.csv",
                 "--prune",
                 "--dry-run"
             ]
         );
         let plain = ImportArgs {
             components: None,
+            ips: None,
             prune: false,
             ..a
         };
@@ -267,6 +276,7 @@ mod tests {
             kind: ImportKind::Isms,
             file: PathBuf::from(r"C:\in\isms.xlsx"),
             components: Some(PathBuf::from(r"C:\in\components.csv")),
+            ips: Some(PathBuf::from(r"C:\in\ips.csv")),
             prune: true,
         };
         let strings = |dry_run| -> Vec<String> {

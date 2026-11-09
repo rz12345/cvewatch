@@ -3,6 +3,8 @@
 //! 工具列分三組：新增資產說明、新增資產元件｜清冊檔案（匯入、範本、匯出、從 ISMS 清冊匯入）｜顯示已退役。
 //! 清單依資產說明分組（16 design D8；可收合，標題列出資產數與未處理命中數），組內為三欄表格（編號、
 //! 名稱、未處理），整列可點選、快速點兩下開啟編輯；名稱過長時截斷並以提示顯示全文。
+//! 清單上方的搜尋框（20 design D11）依編號、名稱、主機名稱、IP、序號、財產編號篩選；搜尋中
+//! 各組以另一個 id 一律展開，清除搜尋後恢復原本的收合狀態。
 
 use cvewatch_core::assets::AssetStatus;
 use cvewatch_frontend::data::{AssetEntry, AssetListFilter};
@@ -35,6 +37,20 @@ pub const SYSTEMS_BUTTON: &str = "新增資產說明";
 
 /// 「從 ISMS 清冊匯入」按鈕。
 pub const ISMS_IMPORT_BUTTON: &str = "從 ISMS 清冊匯入";
+
+/// 搜尋框的提示文字。
+pub const SEARCH_HINT: &str = "搜尋編號、名稱、主機名稱、IP、序號、財產編號";
+
+/// 搜尋框左側的標籤。
+pub const SEARCH_LABEL: &str = "搜尋";
+
+/// 清除搜尋字的按鈕。
+pub const CLEAR_SEARCH: &str = "清除";
+
+/// 沒有符合搜尋字的資產。
+pub fn no_match_text(query: &str) -> String {
+    format!("沒有符合「{}」的資產", one_line(query.trim()))
+}
 
 /// 清單的欄位標題。
 pub const LIST_COLUMNS: [&str; 3] = ["編號", "名稱", "未處理"];
@@ -86,20 +102,27 @@ impl GuiApp {
         });
     }
 
-    /// 左側清單；回傳被點選的資產。
-    pub(super) fn asset_list(&self, ui: &mut egui::Ui) -> Option<ListPick> {
-        let filter = AssetListFilter {
-            include_retired: self.assets_show_retired,
-            pending_only: self.assets_pending_only,
-            class: None,
-        };
+    /// 左側清單（頂端為搜尋框）；回傳被點選的資產。
+    pub(super) fn asset_list(&mut self, ui: &mut egui::Ui) -> Option<ListPick> {
         let mut picked = None;
         let default_width = ui.available_width() * LIST_WIDTH_RATIO;
         egui::Panel::left("asset-list")
             .resizable(true)
             .default_size(default_width)
             .show(ui, |ui| {
+                search_box(ui, &mut self.assets_search);
+                let filter = AssetListFilter {
+                    include_retired: self.assets_show_retired,
+                    pending_only: self.assets_pending_only,
+                    class: None,
+                    search: self.assets_search.clone(),
+                };
+                let searching = !filter.search.trim().is_empty();
                 let groups = self.ws.data.asset_groups(&filter);
+                if groups.is_empty() && searching {
+                    ui.label(no_match_text(&filter.search));
+                    return;
+                }
                 if groups.is_empty() {
                     ui.label(format!(
                         "尚無資產。請按「{NEW_ASSET_BUTTON}」或「匯入清冊」，{DROP_HINT}。"
@@ -111,7 +134,8 @@ impl GuiApp {
                     .auto_shrink([false, false])
                     .show(ui, |ui| {
                         for group in &groups {
-                            let hit = group_section(ui, group, self.assets_selected.as_deref());
+                            let selected = self.assets_selected.as_deref();
+                            let hit = group_section(ui, group, selected, searching);
                             picked = hit.or(picked.take());
                         }
                     });
@@ -131,6 +155,32 @@ pub fn group_id(key: &str) -> egui::Id {
     egui::Id::unique(("asset-group", key))
 }
 
+/// 搜尋中組的收合狀態 id（與 [`group_id`] 分開：搜尋時一律展開，原本的收合狀態不受影響）。
+pub fn search_group_id(key: &str) -> egui::Id {
+    egui::Id::unique(("asset-search", key))
+}
+
+/// 搜尋框與「清除」按鈕；搜尋框取得焦點時清單的 Enter／Delete 不作用（`assets_keys`）。
+fn search_box(ui: &mut egui::Ui, query: &mut String) {
+    ui.horizontal(|ui| {
+        let l = ui.label(SEARCH_LABEL);
+        // 「清除」按鈕的寬度
+        let clear_width = 48.0;
+        let edit = egui::TextEdit::singleline(query)
+            .id_salt("assets-search")
+            .hint_text(SEARCH_HINT)
+            .desired_width((ui.available_width() - clear_width).max(120.0));
+        ui.add(edit).labelled_by(l.id);
+        if ui
+            .add_enabled(!query.is_empty(), egui::Button::new(CLEAR_SEARCH))
+            .clicked()
+        {
+            query.clear();
+        }
+    });
+    ui.add_space(4.0);
+}
+
 /// 組的未處理命中標示。
 pub fn group_open_text(open: usize) -> String {
     format!("未處理 {open}")
@@ -141,22 +191,24 @@ fn group_section(
     ui: &mut egui::Ui,
     group: &AssetGroup<'_>,
     selected: Option<&str>,
+    searching: bool,
 ) -> Option<ListPick> {
     let mut picked = None;
-    egui::collapsing_header::CollapsingState::load_with_default_open(
-        ui.ctx(),
-        group_id(group.key()),
-        true,
-    )
-    .show_header(ui, |ui| {
-        ui.strong(group.heading());
-        if group.open_findings > 0 {
-            ui.colored_label(ALERT, group_open_text(group.open_findings));
-        }
-    })
-    .body(|ui| {
-        picked = list_table(ui, group.key(), &group.assets, selected);
-    });
+    let id = if searching {
+        search_group_id(group.key())
+    } else {
+        group_id(group.key())
+    };
+    egui::collapsing_header::CollapsingState::load_with_default_open(ui.ctx(), id, true)
+        .show_header(ui, |ui| {
+            ui.strong(group.heading());
+            if group.open_findings > 0 {
+                ui.colored_label(ALERT, group_open_text(group.open_findings));
+            }
+        })
+        .body(|ui| {
+            picked = list_table(ui, group.key(), &group.assets, selected);
+        });
     picked
 }
 

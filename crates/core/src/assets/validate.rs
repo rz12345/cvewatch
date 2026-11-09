@@ -8,9 +8,11 @@ use super::classes::AssetClasses;
 use super::columns::{ColumnMap, SheetKind, StandardField, KEEPABLE_FIELDS};
 use super::model::AssetRecord;
 use super::sheet::{Sheet, SheetRow, Workbook};
+use super::validate_ips::parse_ips;
 use super::validate_systems::parse_systems;
 use crate::error::CoreError;
 
+pub use super::validate_ips::IpsInput;
 pub use super::validate_systems::IncomingSystem;
 
 pub use super::record::{
@@ -34,6 +36,7 @@ impl fmt::Display for RowRef {
             SheetKind::Assets => write!(f, "第 {} 列", self.number),
             SheetKind::Components => write!(f, "components 工作表第 {} 列", self.number),
             SheetKind::Systems => write!(f, "systems 工作表第 {} 列", self.number),
+            SheetKind::Ips => write!(f, "ips 工作表第 {} 列", self.number),
         }
     }
 }
@@ -95,6 +98,8 @@ pub struct Inventory {
     /// assets 工作表缺少的可保留欄位（[`KEEPABLE_FIELDS`]）：既有資產沿用資料庫中的值
     /// （不視為清空；16 design D4）
     pub kept_fields: BTreeSet<StandardField>,
+    /// `ips` 工作表的 IP（20 design D5；預設為不處理）
+    pub ips: IpsInput,
 }
 
 impl Inventory {
@@ -104,14 +109,15 @@ impl Inventory {
     }
 }
 
-struct RowReader<'a> {
-    row: &'a SheetRow,
-    at: RowRef,
-    columns: &'a HashMap<StandardField, usize>,
+/// 讀取一列的儲存格（依欄位位置；沒有該欄或空白為空字串，已去除前後空白）。
+pub(super) struct RowReader<'a> {
+    pub(super) row: &'a SheetRow,
+    pub(super) at: RowRef,
+    pub(super) columns: &'a HashMap<StandardField, usize>,
 }
 
-impl RowReader<'_> {
-    fn get(&self, field: StandardField) -> &str {
+impl<'a> RowReader<'a> {
+    pub(super) fn get(&self, field: StandardField) -> &'a str {
         self.columns
             .get(&field)
             .and_then(|&i| self.row.cells.get(i))
@@ -165,11 +171,20 @@ pub fn parse_inventory(
         &mut notices,
         &mut errors,
     );
+    let known = column_values(&book.assets, &asset_cols, StandardField::AssetTag);
     if let Some(sheet) = &book.components {
         let comp_cols = columns.locate(&sheet.headers, SheetKind::Components)?;
-        let known = column_values(&book.assets, &asset_cols, StandardField::AssetTag);
         attach_components(sheet, &comp_cols, &known, &mut assets, &mut errors);
     }
+    let ips = match &book.ips {
+        Some(sheet) => {
+            let cols = columns.locate(&sheet.headers, SheetKind::Ips)?;
+            let incoming: HashSet<String> =
+                assets.iter().map(|a| a.record.asset_tag.clone()).collect();
+            IpsInput::Sheet(parse_ips(sheet, &cols, &incoming, &known, &mut errors))
+        }
+        None => IpsInput::Missing,
+    };
     if !errors.is_empty() {
         return Err(CoreError::ImportRejected(errors));
     }
@@ -182,14 +197,17 @@ pub fn parse_inventory(
         systems,
         notices,
         kept_fields,
+        ips,
     })
 }
 
-/// 同一份清冊內重複的值（asset_tag 區分大小寫，ISMS 編號不分大小寫）；含驗證失敗的列。
+/// 同一份清冊內重複的值（asset_tag 區分大小寫，ISMS 編號與財產編號不分大小寫）；
+/// 含驗證失敗的列。
 #[derive(Default)]
 struct SeenValues {
     tags: HashMap<String, usize>,
     isms: HashMap<String, usize>,
+    property_numbers: HashMap<String, usize>,
 }
 
 impl SeenValues {
@@ -205,6 +223,13 @@ impl SeenValues {
         if !isms.is_empty() {
             if let Some(first) = self.isms.insert(isms.to_ascii_lowercase(), r.row.number) {
                 errors.push(format!("{at}：ISMS 編號「{isms}」與第 {first} 列重複"));
+            }
+        }
+        let property = r.get(StandardField::PropertyNumber);
+        if !property.is_empty() {
+            let key = property.to_ascii_lowercase();
+            if let Some(first) = self.property_numbers.insert(key, r.row.number) {
+                errors.push(format!("{at}：財產編號「{property}」與第 {first} 列重複"));
             }
         }
     }
@@ -252,6 +277,12 @@ fn row_input<'a>(r: &'a RowReader<'_>) -> RecordInput<'a> {
         user_unit: r.get(StandardField::UserUnit),
         compliance: r.get(StandardField::Compliance),
         personal_data: r.get(StandardField::PersonalData),
+        brand: r.get(StandardField::Brand),
+        model: r.get(StandardField::Model),
+        serial_number: r.get(StandardField::SerialNumber),
+        property_number: r.get(StandardField::PropertyNumber),
+        hostname: r.get(StandardField::Hostname),
+        management_url: r.get(StandardField::ManagementUrl),
         location: r.get(StandardField::Location),
         notes: r.get(StandardField::Notes),
     }
@@ -391,6 +422,7 @@ mod tests {
             assets: sheet(&HEADERS, rows),
             components: None,
             systems: None,
+            ips: None,
         };
         parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin())
     }
@@ -441,6 +473,13 @@ mod tests {
 
         let inv = parse(&[&["NAS-03", "nas03", "HW05", "DSM", "", "", ""]]).unwrap();
         assert_eq!(inv.assets[0].components[0].version_raw, "");
+    }
+
+    #[test]
+    fn inventory_without_an_ips_sheet_is_missing() {
+        let inv = parse(&[&["NAS-01", "n1", "HW05", "DSM", "7.2", "", ""]]).unwrap();
+        assert_eq!(inv.ips, IpsInput::Missing);
+        assert_eq!(Inventory::default().ips, IpsInput::Untouched);
     }
 
     #[test]

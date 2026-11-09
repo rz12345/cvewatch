@@ -31,7 +31,7 @@ pub struct SheetData<'a> {
 
 /// 範本範例列（欄位順序同 [`SheetKind::columns`]；C/I/A 與 personal_data 留空表示依子類別）。
 fn example_assets() -> Vec<Vec<String>> {
-    let rows: [[&str; 18]; 3] = [
+    let rows: [[&str; 24]; 3] = [
         [
             "FW-01",
             "fw01",
@@ -49,6 +49,12 @@ fn example_assets() -> Vec<Vec<String>> {
             "網管組",
             "",
             "",
+            "Palo Alto Networks",
+            "XYZ-100",
+            "SN0001",
+            "P-0001",
+            "fw01",
+            "https://192.0.2.1/",
             "機房 A",
             "",
         ],
@@ -68,6 +74,12 @@ fn example_assets() -> Vec<Vec<String>> {
             "",
             "",
             "3",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
             "",
             "機房 A",
             "",
@@ -89,6 +101,12 @@ fn example_assets() -> Vec<Vec<String>> {
             "",
             "",
             "N",
+            "",
+            "",
+            "",
+            "",
+            "",
+            "",
             "機房 B",
             "",
         ],
@@ -96,6 +114,11 @@ fn example_assets() -> Vec<Vec<String>> {
     rows.iter()
         .map(|r| r.iter().map(|s| s.to_string()).collect())
         .collect()
+}
+
+/// `ips` 工作表的範例列（asset_tag、ip、purpose；20 design D13）。
+fn example_ips() -> Vec<Vec<String>> {
+    vec![vec!["FW-01".into(), "192.0.2.1".into(), "管理介面".into()]]
 }
 
 /// `systems` 工作表的範例列（代碼與名稱）。
@@ -137,9 +160,8 @@ pub(crate) fn headers(kind: SheetKind) -> Vec<String> {
         .collect()
 }
 
-/// 寫出含 `assets`、`components` 與 `systems` 工作表（標準欄名與範例列）及 `classes`
-/// 子類別說明的範本；
-/// 目的檔已存在時拒絕。
+/// 寫出含 `assets`、`components`、`systems` 與 `ips` 工作表（標準欄名與範例列）及
+/// `classes` 子類別說明的範本；目的檔已存在時拒絕。
 pub fn write_template(path: &Path, classes: &AssetClasses) -> Result<(), CoreError> {
     write_sheets(
         path,
@@ -158,6 +180,11 @@ pub fn write_template(path: &Path, classes: &AssetClasses) -> Result<(), CoreErr
                 name: SheetKind::Systems.sheet_name(),
                 headers: headers(SheetKind::Systems),
                 rows: example_systems(),
+            },
+            SheetData {
+                name: SheetKind::Ips.sheet_name(),
+                headers: headers(SheetKind::Ips),
+                rows: example_ips(),
             },
             class_sheet(classes),
         ],

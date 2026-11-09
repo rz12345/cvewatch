@@ -3,13 +3,17 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::columns::StandardField;
+use super::ips::AssetIp;
 use super::model::{is_pending_version, AssetRecord, AssetStatus};
 use super::plan_fields::changed_fields;
+use super::plan_identity::{ip_change, keeps_ips, planned_ips};
 use super::plan_systems::{assign_system, keep_existing, kept_columns_notice, plan_systems};
 use super::systems::SystemDirectory;
+use super::unique::{self, UniqueField};
 use super::validate::{ImportNotice, IncomingAsset, Inventory, RowRef, ISMS_KEPT_NOTICE};
 
 pub use super::plan_fields::FieldChange;
+pub use super::plan_identity::{property_in_use_message, IpChange, IPS_KEPT_NOTICE};
 pub use super::plan_systems::SystemChange;
 use crate::catalog::{Catalog, Product};
 use crate::error::CoreError;
@@ -131,12 +135,19 @@ pub struct AssetUpdate {
     pub components_added: Vec<String>,
     pub components_removed: Vec<String>,
     pub reactivated: bool,
+    /// IP 有變更時的新舊清單（20 design D6；不影響比對）
+    pub ip_change: Option<IpChange>,
 }
 
 impl AssetUpdate {
-    /// 變更的標準欄名（一般清冊匯入的預覽）。
+    /// 變更的標準欄名（一般清冊匯入的預覽）；IP 有變更時最後加上 `ip`。
     pub fn field_names(&self) -> Vec<&'static str> {
-        self.changed_fields.iter().map(FieldChange::name).collect()
+        let mut names: Vec<&'static str> =
+            self.changed_fields.iter().map(FieldChange::name).collect();
+        if self.ip_change.is_some() {
+            names.push(StandardField::Ip.as_str());
+        }
+        names
     }
 }
 
@@ -146,6 +157,8 @@ pub struct PlannedAsset {
     pub record: AssetRecord,
     pub components: Vec<ResolvedComponent>,
     pub unresolved: Vec<(String, String)>,
+    /// 要寫入的 IP（清冊有 `ips` 工作表時；None 為不變更，20 design D6）
+    pub ips: Option<Vec<AssetIp>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -200,6 +213,8 @@ pub struct CurrentAsset {
     pub status: AssetStatus,
     /// Excel 來源的產品元件：product_key → version_raw
     pub components: BTreeMap<String, String>,
+    /// IP（依儲存順序）
+    pub ips: Vec<AssetIp>,
 }
 
 pub type Snapshot = HashMap<String, CurrentAsset>;
@@ -219,14 +234,17 @@ pub fn plan_import(
         ..ImportPlan::default()
     };
     let folded = folded_tags(current);
-    let isms_owners = isms_owners(inventory, current);
+    let owners = UniqueField::ALL.map(|f| (f, unique::owners(f, inventory, current)));
     let mut kept_isms = false;
+    let mut kept_ips = false;
     let mut any_existing = false;
     for incoming in &inventory.assets {
         let mut planned = resolve_asset(incoming, catalog, &mut plan, &mut errors);
+        planned.ips = planned_ips(inventory, &planned.record.asset_tag);
         let existing = current.get(&planned.record.asset_tag);
         if let Some(existing) = existing {
             any_existing = true;
+            kept_ips |= keeps_ips(inventory, existing);
             kept_isms |=
                 inventory.keeps(StandardField::IsmsId) && existing.record.isms_id.is_some();
             planned.record = keep_existing(&planned.record, &existing.record, inventory);
@@ -242,8 +260,10 @@ pub fn plan_import(
             Err(message) => errors.push(message),
         }
         let tag = &planned.record.asset_tag;
-        if let Some(message) = isms_conflict(&planned.record, &isms_owners) {
-            errors.push(format!("{}：{message}", incoming.row));
+        for (field, owners) in &owners {
+            if let Some(message) = unique::conflict(*field, &planned.record, owners) {
+                errors.push(format!("{}：{message}", incoming.row));
+            }
         }
         match current.get(tag) {
             None => match folded.get(&tag.to_ascii_lowercase()) {
@@ -273,6 +293,13 @@ pub fn plan_import(
     }
     plan.notices
         .extend(kept_columns_notice(inventory, any_existing));
+    if kept_ips {
+        plan.notices.push(ImportNotice {
+            row: None,
+            asset_tag: None,
+            message: IPS_KEPT_NOTICE.to_string(),
+        });
+    }
     let incoming_tags: HashSet<&str> = plan
         .assets
         .iter()
@@ -287,34 +314,6 @@ pub fn plan_import(
     disappeared.sort();
     plan.disappeared = disappeared;
     Ok(plan)
-}
-
-/// 匯入後仍保留 ISMS 編號的既有資產（不在這次清冊中者，含 retired）：
-/// 編號（不分大小寫）→（asset_tag, 是否退役）。清冊中的資產會改用清冊的編號，不列入。
-fn isms_owners(inventory: &Inventory, current: &Snapshot) -> HashMap<String, (String, bool)> {
-    let incoming: HashSet<&str> = inventory
-        .assets
-        .iter()
-        .map(|a| a.record.asset_tag.as_str())
-        .collect();
-    current
-        .values()
-        .filter(|a| !incoming.contains(a.record.asset_tag.as_str()))
-        .filter_map(|a| {
-            let id = a.record.isms_id.as_ref()?;
-            Some((
-                id.to_ascii_lowercase(),
-                (a.record.asset_tag.clone(), a.status == AssetStatus::Retired),
-            ))
-        })
-        .collect()
-}
-
-/// ISMS 編號已被清冊以外的既有資產使用（含 retired，不分大小寫）時的錯誤訊息。
-fn isms_conflict(record: &AssetRecord, owners: &HashMap<String, (String, bool)>) -> Option<String> {
-    let id = record.isms_id.as_ref()?;
-    let (owner, retired) = owners.get(&id.to_ascii_lowercase())?;
-    Some(isms_in_use_message(id, owner, *retired))
 }
 
 /// 「ISMS 編號 sys-hw-005 已被 NAS-02 使用（該資產已退役）」（匯入與畫面編修共用）。
@@ -381,6 +380,7 @@ fn resolve_asset(
         record: incoming.record.clone(),
         components,
         unresolved,
+        ips: None,
     }
 }
 
@@ -418,8 +418,10 @@ fn diff_asset(existing: &CurrentAsset, planned: &PlannedAsset) -> Option<AssetUp
             .cloned()
             .collect(),
         reactivated: existing.status == AssetStatus::Retired,
+        ip_change: ip_change(existing, planned.ips.as_deref()),
     };
-    let changed = !update.changed_fields.is_empty()
+    let changed = update.ip_change.is_some()
+        || !update.changed_fields.is_empty()
         || !update.version_changes.is_empty()
         || !update.components_added.is_empty()
         || !update.components_removed.is_empty()

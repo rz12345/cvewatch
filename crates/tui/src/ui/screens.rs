@@ -12,7 +12,7 @@ use crate::app::App;
 use crate::width::sanitize;
 use cvewatch_core::matching::dashboard::{is_interrupted, SourceStatus};
 use cvewatch_frontend::display::{
-    class_label, pending_versions_text, rating_summary, version_text,
+    class_label, identity_rows, pending_versions_text, rating_summary, version_text,
 };
 
 /// 資產畫面下方「未辨識產品」區塊最多顯示的列數。
@@ -260,6 +260,16 @@ pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cur
             r.custodian.as_deref().unwrap_or("-")
         )),
     ];
+    // 識別欄位與 IP（20 design D12）：「廠牌 … 財產編號 …」「主機名稱 … IP …」兩行，未填為「-」
+    let identity = identity_rows(r, &entry.ips);
+    for chunk in [&identity[..4], &identity[4..]] {
+        // 清冊值可能含換行或控制字元（Excel 的 Alt+Enter）：與其他欄位一樣先轉成單行
+        let text: Vec<String> = chunk
+            .iter()
+            .map(|(l, v)| format!("{l} {}", sanitize(v)))
+            .collect();
+        info.push(Line::raw(text.join("  ")));
+    }
     for u in &entry.unresolved {
         info.push(Line::raw(format!(
             "未辨識產品「{}」 {}",

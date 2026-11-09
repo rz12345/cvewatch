@@ -8,6 +8,7 @@
 pub mod asset_admin;
 pub mod asset_components;
 pub mod asset_edit;
+pub mod asset_identity;
 pub mod asset_systems;
 pub mod confirm_leave;
 pub mod import;

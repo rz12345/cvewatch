@@ -53,6 +53,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "0008_isms_admin",
         sql: include_str!("migrations/0008_isms_admin.sql"),
     },
+    Migration {
+        version: 9,
+        name: "0009_asset_identity",
+        sql: include_str!("migrations/0009_asset_identity.sql"),
+    },
 ];
 
 pub fn latest_version() -> u32 {

@@ -89,6 +89,8 @@ pub struct FakeDialogs {
     pub xlsx_titles: Rc<RefCell<Vec<String>>>,
     pub inventory: Rc<RefCell<Option<PathBuf>>>,
     pub components: Rc<RefCell<Option<PathBuf>>>,
+    /// 「選擇 IP 檔」的回傳值（None 表示取消）
+    pub ips: Rc<RefCell<Option<PathBuf>>>,
     /// 「選擇 ISMS 資訊資產清冊」的回傳值（None 表示取消）
     pub isms: Rc<RefCell<Option<PathBuf>>>,
 }
@@ -116,6 +118,10 @@ impl FileDialogs for FakeDialogs {
 
     fn open_components(&self) -> Option<PathBuf> {
         self.components.borrow().clone()
+    }
+
+    fn open_ips(&self) -> Option<PathBuf> {
+        self.ips.borrow().clone()
     }
 
     fn open_isms_workbook(&self) -> Option<PathBuf> {

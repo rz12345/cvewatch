@@ -230,6 +230,16 @@ fn asset_subcommands_support_help() {
         .success();
 }
 
+/// 20 任務 5.1：CSV 匯入的 IP 檔。
+#[test]
+fn asset_import_help_lists_ips_option() {
+    cvewatch()
+        .args(["asset", "import", "--help"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("--ips"));
+}
+
 #[test]
 fn asset_without_subcommand_exits_1() {
     cvewatch().arg("asset").assert().code(1);

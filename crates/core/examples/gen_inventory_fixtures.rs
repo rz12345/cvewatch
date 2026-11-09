@@ -1,4 +1,4 @@
-//! 產生 `tests/fixtures/inventory_*.xlsx`（測試用清冊）。
+//! 產生 `tests/fixtures/inventory_*.xlsx`（測試用清冊）與 `inventory_ips.csv`。
 //!
 //! 執行：`cargo run -p cvewatch-core --example gen_inventory_fixtures`
 //! 輸出固定內容，重新產生後 git diff 應只有 xlsx 內部時間戳記不同。
@@ -24,6 +24,16 @@ const ASSET_HEADERS: [&str; 16] = [
     "user_unit",
     "compliance",
     "personal_data",
+];
+
+/// 20 的識別欄位（接在 [`ASSET_HEADERS`] 之後）。
+const IDENTITY_HEADERS: [&str; 6] = [
+    "brand",
+    "model",
+    "serial_number",
+    "property_number",
+    "hostname",
+    "management_url",
 ];
 
 /// 16 之前的清冊：有 isms_id 與 owner 欄，沒有資產說明與 ISMS 管理欄位（相容測試用）。
@@ -391,6 +401,77 @@ fn main() {
     );
 
     write_isms_fixtures();
+    write_identity_fixtures();
+}
+
+/// 一列 assets：前 6 欄、空白的 C/I/A 與 ISMS 管理欄位，再接 6 個識別欄位。
+fn identity_row(head: [&str; 6], identity: [&str; 6]) -> Vec<String> {
+    let mut r: Vec<&str> = head.to_vec();
+    r.extend(vec![""; ASSET_HEADERS.len() - head.len()]);
+    r.extend(identity);
+    r.iter().map(|s| s.to_string()).collect()
+}
+
+/// 20 的識別欄位與 IP（虛構的型號、序號、財產編號與文件保留位址）：
+/// `inventory_identity.xlsx`（含 `ips` 工作表）與 CSV 的 IP 檔 `inventory_ips.csv`。
+fn write_identity_fixtures() {
+    let mut asset_headers = headers(&ASSET_HEADERS);
+    asset_headers.extend(headers(&IDENTITY_HEADERS));
+    let assets = vec![
+        identity_row(
+            [
+                "FW-EDGE",
+                "fw-edge",
+                "HW03",
+                "PAN-OS",
+                "11.1.4-h7",
+                "internet",
+            ],
+            [
+                "Palo Alto Networks",
+                "XYZ-100",
+                "SN0001",
+                "P-0001",
+                "fw-edge",
+                "https://192.0.2.1/",
+            ],
+        ),
+        identity_row(
+            ["SRV-01", "esx01", "HW01", "ESXi", "8.0 U3c", "mgmt"],
+            ["", "", "", "P-0002", "srv01", ""],
+        ),
+        identity_row(
+            ["NAS-01", "nas01", "HW05", "DSM", "7.2.1-69057", "internal"],
+            ["", "", "", "", "", ""],
+        ),
+    ];
+    write(
+        "inventory_identity.xlsx",
+        &[
+            SheetData {
+                name: "assets",
+                headers: asset_headers,
+                rows: assets,
+            },
+            SheetData {
+                name: "ips",
+                headers: headers(&["asset_tag", "ip", "purpose"]),
+                rows: rows(&[
+                    &["FW-EDGE", "192.0.2.1", "管理"],
+                    &["SRV-01", "192.0.2.10", "管理"],
+                    &["SRV-01", "2001:db8::10", ""],
+                ]),
+            },
+        ],
+    );
+    // Excel 另存的「CSV UTF-8」帶 BOM
+    let path = fixtures_dir().join("inventory_ips.csv");
+    std::fs::write(
+        &path,
+        "\u{feff}asset_tag,ip,purpose\r\nSRV-01,192.0.2.10,\r\n",
+    )
+    .expect("inventory_ips.csv");
+    println!("wrote {}", path.display());
 }
 
 /// ISMS 資訊資產清冊的表頭（17；與機構 v2.0／v2.1 相同的欄名寫法，含換行與括號註記）。

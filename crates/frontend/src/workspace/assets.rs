@@ -18,7 +18,10 @@ use cvewatch_core::CoreError;
 
 use super::reload::Refreshed;
 use super::Workspace;
-use crate::asset_form::{isms_conflict, rename_conflict, AssetForm, FormErrors, UnresolvedAction};
+use crate::asset_form::{
+    isms_conflict, property_number_conflict, rename_conflict, AssetForm, FormErrors,
+    UnresolvedAction,
+};
 use crate::data::AssetEntry;
 use crate::display::product_name;
 use crate::findings::ListView;
@@ -131,6 +134,10 @@ fn edit_steps<'a>(
             EditOp::Fields(Box::new(form.record_input())),
         ));
     }
+    // IP 不影響比對（EditOp::affects_matching 為 false），只改 IP 時不需要重新比對
+    if form.ips_changed(&entry.ips) {
+        steps.push(("修改 IP".to_string(), EditOp::SetIps(form.ip_inputs())));
+    }
     steps.extend(removal_steps(form, catalog));
     steps.extend(component_steps(form, catalog));
     steps
@@ -202,6 +209,10 @@ impl<V: ListView> Workspace<V> {
         if let Some(msg) = isms_conflict(form, &self.data).filter(|_| isms_ok) {
             errors.fields.push((StandardField::IsmsId, msg));
         }
+        let property_ok = errors.field(StandardField::PropertyNumber).is_none();
+        if let Some(msg) = property_number_conflict(form, &self.data).filter(|_| property_ok) {
+            errors.fields.push((StandardField::PropertyNumber, msg));
+        }
         if errors.is_empty() {
             Ok(())
         } else {
@@ -217,6 +228,7 @@ impl<V: ListView> Workspace<V> {
             &self.settings.classes,
             &form.record_input(),
             &new_components(form),
+            &form.ip_inputs(),
             self.services.now(),
         );
         self.after_save(format!("已新增資產 {tag}"), &tag, result, open)

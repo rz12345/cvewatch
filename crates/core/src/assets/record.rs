@@ -5,6 +5,7 @@ use super::classes::{AssetClass, AssetClasses, Cia, ClassCode, MAX_RATING, MIN_R
 use super::columns::StandardField;
 use super::model::{AssetRecord, Exposure};
 use super::record_admin::{parse_compliance, parse_personal_data, resolve_system};
+use super::record_identity::parse_identity;
 use super::systems::SystemDirectory;
 
 /// 單筆資產欄位的原始輸入（清冊儲存格或畫面輸入框）；前後空白在驗證時去除。
@@ -31,6 +32,13 @@ pub struct RecordInput<'a> {
     pub compliance: &'a str,
     /// Y／N／是／否；空白時帶入子類別預設值
     pub personal_data: &'a str,
+    /// 識別欄位（20 design D2）
+    pub brand: &'a str,
+    pub model: &'a str,
+    pub serial_number: &'a str,
+    pub property_number: &'a str,
+    pub hostname: &'a str,
+    pub management_url: &'a str,
     pub location: &'a str,
     pub notes: &'a str,
 }
@@ -53,12 +61,20 @@ impl RecordInput<'_> {
             StandardField::UserUnit => self.user_unit,
             StandardField::Compliance => self.compliance,
             StandardField::PersonalData => self.personal_data,
+            StandardField::Brand => self.brand,
+            StandardField::Model => self.model,
+            StandardField::SerialNumber => self.serial_number,
+            StandardField::PropertyNumber => self.property_number,
+            StandardField::Hostname => self.hostname,
+            StandardField::ManagementUrl => self.management_url,
             StandardField::Location => self.location,
             StandardField::Notes => self.notes,
             StandardField::Product
             | StandardField::Version
             | StandardField::Criticality
-            | StandardField::Code => "",
+            | StandardField::Code
+            | StandardField::Ip
+            | StandardField::Purpose => "",
         }
     }
 }
@@ -92,6 +108,12 @@ pub enum FieldErrorKind {
     SystemMismatch,
     /// 資產說明（或 ISMS 編號的系統代碼）尚未定義
     UnknownSystem,
+    /// 格式不符（主機名稱、管理介面位址；20 design D2）
+    Format,
+    /// 管理介面位址含帳號或密碼
+    Credentials,
+    /// 超過長度上限（主機名稱）
+    TooLong,
 }
 
 /// 單一欄位的驗證錯誤；`message` 不含列位置（匯入時加上「第 N 列：」）。
@@ -119,7 +141,7 @@ pub struct ValidRecord {
     pub legacy: Option<String>,
 }
 
-fn optional_text(v: &str) -> Option<String> {
+pub(super) fn optional_text(v: &str) -> Option<String> {
     let v = v.trim();
     (!v.is_empty()).then(|| v.to_string())
 }
@@ -203,6 +225,7 @@ fn validate_with(
     let isms_id = parse_isms_id(input.isms_id.trim(), class.map(|c| &c.code), &mut errors);
     let compliance = parse_compliance(input.compliance.trim(), &mut errors);
     let personal_data = parse_personal_data(input.personal_data.trim(), class, &mut errors);
+    let identity = parse_identity(input, &mut errors);
     match (errors.is_empty(), resolved, cia, personal_data) {
         (true, Some(resolved), Some(cia), Some(personal_data)) => Ok(ValidRecord {
             record: AssetRecord {
@@ -219,6 +242,12 @@ fn validate_with(
                 user_unit: optional_text(input.user_unit),
                 compliance,
                 personal_data,
+                brand: identity.brand,
+                model: identity.model,
+                serial_number: identity.serial_number,
+                property_number: identity.property_number,
+                hostname: identity.hostname,
+                management_url: identity.management_url,
                 notes: optional_text(input.notes),
             },
             legacy: resolved.legacy,

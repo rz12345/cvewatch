@@ -24,12 +24,14 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
         AssetAction::Import {
             file,
             components,
+            ips,
             dry_run,
             prune,
         } => import(
             app,
             &file,
             components.as_deref(),
+            ips.as_deref(),
             ImportOptions { dry_run, prune },
         ),
         AssetAction::ImportPackages {
@@ -62,11 +64,12 @@ fn import(
     app: &App,
     file: &Path,
     components: Option<&Path>,
+    ips: Option<&Path>,
     options: ImportOptions,
 ) -> Result<ExitCode, CoreError> {
     let columns = ColumnMap::from_config(&app.loaded.config.import.columns)?;
     let classes = app.loaded.config.asset_classes()?;
-    let book = read_inventory(file, components)?;
+    let book = read_inventory(file, components, ips)?;
     let inventory = parse_inventory(&book, &columns, &classes)?;
     let catalog = app.load_catalog()?;
     let mut conn = open_working_db(&app.paths, &app.store)?;
@@ -233,6 +236,7 @@ fn template(app: &App, path: &Path) -> Result<ExitCode, CoreError> {
     println!("已產生範本：{}", path.display());
     println!(
         "工作表 assets：一列一台設備；components：同一台設備的其他元件（選填）；\
+         systems：資產說明（選填）；ips：設備的 IP，一列一筆（選填，有此工作表時以它為準）；\
          classes：子類別代碼與 C/I/A 範本值（匯入時不讀）。"
     );
     Ok(ExitCode::Success)

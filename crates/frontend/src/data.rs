@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use chrono::{DateTime, Utc};
 use cvewatch_core::assets::systems::SystemRepo;
 use cvewatch_core::assets::{
-    Asset, AssetClasses, AssetFilter, AssetRepo, AssetStatus, ClassFilter, Component,
-    ComponentRepo, HistoryEntry, SystemCode, SystemDirectory, UnresolvedEntry,
+    Asset, AssetClasses, AssetFilter, AssetIp, AssetIpRepo, AssetRepo, AssetStatus, ClassFilter,
+    Component, ComponentRepo, HistoryEntry, SystemCode, SystemDirectory, UnresolvedEntry,
 };
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::ingest::runlog::{self, RunRow};
@@ -44,6 +44,8 @@ pub struct AssetListFilter {
     pub pending_only: bool,
     /// 子類別或大類（None = 全部；選項見 [`crate::filter::class_filter_choices`]）
     pub class: Option<ClassFilter>,
+    /// 搜尋字（編號、名稱、主機名稱、序號、財產編號、IP；空白不篩選，20 design D10）
+    pub search: String,
 }
 
 #[derive(Debug, Clone)]
@@ -54,6 +56,8 @@ pub struct AssetEntry {
     pub unresolved: Vec<UnresolvedEntry>,
     /// 元件 id → 版本歷史（新到舊）
     pub history: HashMap<i64, Vec<HistoryEntry>>,
+    /// IP（依儲存順序）
+    pub ips: Vec<AssetIp>,
 }
 
 impl AssetEntry {
@@ -140,6 +144,9 @@ impl Snapshot {
         if filter.pending_only {
             list.retain(|a| a.has_pending());
         }
+        if let Some(search) = crate::filter::AssetSearch::new(&filter.search) {
+            list.retain(|a| search.matches(a));
+        }
         list
     }
 
@@ -160,6 +167,7 @@ fn assets(
 ) -> Result<(Vec<AssetEntry>, Vec<AssetEntry>), CoreError> {
     let mut components = ComponentRepo::new(conn).all_by_asset()?;
     let mut history = ComponentRepo::new(conn).history_by_component()?;
+    let mut ips = AssetIpRepo::new(conn).all_by_asset()?;
     let mut open: HashMap<&str, usize> = HashMap::new();
     for f in findings.iter().filter(|f| f.status == Status::Open) {
         *open.entry(f.asset_tag.as_str()).or_default() += 1;
@@ -189,6 +197,7 @@ fn assets(
                 history,
                 open_findings: open.get(tag).copied().unwrap_or(0),
                 unresolved: unresolved_by.remove(tag).unwrap_or_default(),
+                ips: ips.remove(&asset.id).unwrap_or_default(),
                 asset,
             }
         })

@@ -70,6 +70,48 @@ fn asset_detail_shows_system_and_custodian() {
     assert!(!out.contains("負責人"), "{out}");
 }
 
+/// 20 任務 5.3：Identity in the asset detail。
+#[test]
+fn asset_detail_shows_identity_and_addresses() {
+    use cvewatch_core::assets::{AssetIp, AssetIpRepo};
+    let world = seeded_world();
+    world
+        .conn
+        .execute(
+            "UPDATE asset SET brand = 'Aruba', model = 'XYZ-100' WHERE asset_tag = 'FW-EDGE'",
+            [],
+        )
+        .unwrap();
+    let id: i64 = world
+        .conn
+        .query_row(
+            "SELECT id FROM asset WHERE asset_tag = 'FW-EDGE'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    let ip = |a: &str, p: Option<&str>| AssetIp {
+        address: a.parse().unwrap(),
+        purpose: p.map(str::to_string),
+    };
+    AssetIpRepo::new(&world.conn)
+        .replace(
+            id,
+            &[ip("192.0.2.1", Some("管理")), ip("2001:db8::1", None)],
+        )
+        .unwrap();
+    let (mut app, _) = app(world);
+    keys(&mut app, "3");
+    keys(&mut app, "j");
+    press(&mut app, KeyCode::Enter);
+    let out = render(&app);
+    assert!(
+        out.contains("廠牌 Aruba  型號 XYZ-100  序號 -  財產編號 -"),
+        "{out}"
+    );
+    assert!(out.contains("IP 192.0.2.1（管理）、2001:db8::1"), "{out}");
+}
+
 #[test]
 fn pending_screen_snapshot() {
     let (mut app, _) = app(seeded_world());

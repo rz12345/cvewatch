@@ -98,7 +98,7 @@ pub fn validate_ips(inputs: &[IpInput<'_>]) -> Result<Vec<AssetIp>, Vec<IpError>
 
 ### D5. `ips` 工作表與 CSV IP 檔
 
-- `SheetKind::Ips`：必填 `asset_tag`、`ip`，選填 `purpose`；`StandardField` 新增 `Ip`、`Purpose`；`RowRef` 顯示為「ips 工作表第 N 列」。`[import.columns]` 的自訂欄名與 `components` 工作表一樣會套用（使用者可能把「財產編號」等中文欄名對應到 `asset_tag`，各工作表應一致）
+- `SheetKind::Ips`：必填 `asset_tag`、`ip`，選填 `purpose`；`StandardField` 新增 `Ip`、`Purpose`；`RowRef` 顯示為「ips 工作表第 N 列」。`ips` 工作表與 `systems` 工作表一樣**只認標準欄名**，不套用 `[import.columns]`（code review 修正：原本比照 `components` 套用自訂欄名，但使用者若已把舊清冊的「IP」欄對應到 `notes`，匯出檔 `ips` 工作表的 `ip` 表頭就會被解讀成 notes，匯出檔無法重匯；`ips` 工作表是本版新增，沒有既有的自訂欄名需要相容）
 - `sheet.rs`：`Workbook.ips: Option<Sheet>`。`read_inventory(path, components_csv, ips_csv)` 新增 `ips_csv` 參數；Excel 清冊又指定 `--ips` 時，比照 `--components` 以錯誤結束（「--ips 只用於 CSV；Excel 請使用 ips 工作表」）
 - 新檔 `validate_ips.rs`：逐列讀取，比照 `attach_components` 依 `asset_tag` 分組；`asset_tag` 不在 assets 工作表時回報列錯誤（該資產列本身有錯時不重複提示）。每個資產的 IP 交給 `validate_ips`，錯誤換成列號
 - `Inventory.ips: IpsInput`：
@@ -163,7 +163,7 @@ pub fn validate_ips(inputs: &[IpInput<'_>]) -> Result<Vec<AssetIp>, Vec<IpError>
 
 - 資產對話框：新檔 `dialogs/asset_identity.rs` 繪製「識別與網路」區塊，作為一般欄位、ISMS 管理之後的第三欄（`horizontal_top` 內再加一個 `vertical`，寬度 `FIELD_WIDTH`）。放在下方會讓對話框變高，元件區被捲出可視範圍（16 apply 決定的同一個理由）。IP 清單每列為「IP」（寬 160）、「用途」（寬 120）與「移除」，列下方顯示錯誤；按「新增 IP」後焦點移到新列的 IP 欄位。`asset_edit.rs` 只增加呼叫，維持在 800 行以下
 - 資產詳情：在管理欄位之後加入識別欄位與 IP。管理介面位址用 `ui.link(url)`，點擊後呼叫 `GuiApp::open_management_link` → `Workspace::open_management_url`，結果顯示在狀態列；滑鼠提示顯示完整網址。不用 `egui::Hyperlink`：它會送出 egui 的 `OpenUrl` 輸出，由 eframe 自行開啟，既不經過 frontend 的 `Opener`（測試替身無法攔截），也不會在狀態列回報結果。gui crate 也因此不需要新增 `open` 相依
-- 搜尋框：`GuiApp.assets_search: String`，放在左側 Panel 頂端（`TextEdit::singleline`，提示文字「搜尋編號、名稱、主機名稱、IP、序號、財產編號」，右側有「清除」按鈕），存入 `AssetListFilter.search`。搜尋字不為空時，各組改用 `id_salt(("asset-search", group.key()))` 並設 `default_open(true)`，所以搜尋中一律展開；原本以代碼為 id 的收合狀態不受影響，清除搜尋後自然恢復。沒有結果時顯示「沒有符合「{查詢字}」的資產」，與「尚無資產」的訊息分開。搜尋框取得焦點時，Enter／Delete 不會觸發清單操作（`assets_keys` 已在有焦點時略過）。選取中的資產被篩掉時，選取與詳情保持不變（與收合組的現有行為一致）
+- 搜尋框：`GuiApp.assets_search: String`，放在左側 Panel 頂端（`TextEdit::singleline`，提示文字「搜尋編號、名稱、主機名稱、IP、序號、財產編號」，右側有「清除」按鈕），存入 `AssetListFilter.search`。搜尋字不為空時，各組改用 `id_salt(("asset-search", group.key()))` 並設 `default_open(true)`，所以搜尋中一律展開；原本以代碼為 id 的收合狀態不受影響，清除搜尋後自然恢復。沒有結果時顯示「沒有符合「{查詢字}」的資產」，與「尚無資產」的訊息分開。搜尋框取得焦點時，Enter／Delete 不會觸發清單操作（`assets_keys` 已在有焦點時略過）。選取中的資產被篩掉時，選取與詳情保持不變（與收合組的現有行為一致），但 Enter／Delete 不作用：清單中看不到的資產不以按鍵編輯或退役（code review 修正）
 - 匯入對話框：CSV 清冊在「元件檔」下方新增「IP 檔：…」與「選擇 IP 檔」按鈕；`ImportArgs.ips` 轉成 `--ips`；`FileDialogs` 新增 `open_ips`（.csv 篩選），測試替身同步實作
 
 ### D12. TUI 與 CLI
@@ -206,3 +206,33 @@ pub fn validate_ips(inputs: &[IpInput<'_>]) -> Result<Vec<AssetIp>, Vec<IpError>
 ## 與既有規則的差異
 
 - GUI 會以 http 開啟管理介面位址（D10），與視窗版「參考連結只開 https」的規則不同。這是依需求「只接受 http／https 網址，點擊後以預設瀏覽器開啟」所做的決定；若之後改為只開 https，需要修改 gui-console 的 GUI asset identity detail scenario 與 D10
+
+## Apply 決策（/opsx-auto）
+
+apply 時依建議做法自行決定、未另行詢問的項目：
+
+1. **`IpError` 多兩個欄位**：`first`（重複時先出現那筆的位置）與 `looks_like_network`（原文含 `/`）。frontend 據此產生「與第 N 列重複」與「只能填單一位址，不能填網段」，不必解析 core 的訊息文字（D4 只列出 `index`、`kind`、`message`）
+2. **`FieldErrorKind::TooLong`**：主機名稱超過 253 字元時的種類，與字元不符的 `Format` 分開，畫面才能說明「最長 253 個字元」而不是「只能包含英數字…」
+3. **管理介面位址的錯誤不帶出密碼**：`Credentials` 的訊息不含原文；`Format` 錯誤在原文含 `@` 時也不帶出原文（例如沒有 scheme 的 `admin:pw@192.0.2.1`）。另外要求原文以 `http://`／`https://` 開頭，因為 `url` crate 也接受 `http:192.0.2.1` 這種寫法
+4. **清冊 `ips` 工作表的列錯誤**：`asset_tag` 或 `ip` 空白回報「缺少 …」；同資產重複位址為「ips 工作表第 5 列：NAS-01 的 ip「…」與第 4 列重複」；只有用途、沒有位址的畫面列回報「請填寫 IP」（`IpErrorKind::Missing`）
+5. **CLI 匯入預覽的 IP 明細**：IP 有變更時，欄位變更列出 `ip`，同一行再加上「IP 舊清單 → 新清單」（沒有 IP 時為「-」）
+6. **測試檔位置**：畫面編修的識別欄位與 IP 測試放在新檔 `crates/core/tests/asset_edit_identity.rs`，而不是任務 2.2／2.3 寫的 `tests/asset_edit.rs`（該檔已 1140 行）；GUI 測試放在 `crates/gui/tests/asset_identity.rs`（任務 6.1 指定）。frontend 的測試仍加在 `crates/frontend/tests/asset_edit.rs`
+7. **frontend 檔案大小**：`asset_form/mod.rs` 加入 6 個欄位與 IP 後仍超過 700 行，另把 `used_by`、`rename_conflict`、`isms_conflict` 原樣移到 `asset_form/conflicts.rs`（由 `asset_form` 重新匯出，呼叫端不變），`mod.rs` 為 674 行
+8. **GUI 的 IP 列與搜尋框標籤**：IP 列顯示「IP 1」「IP 2」…與「用途」標籤（同時作為輔助技術標籤），按鈕「移除」；移除一列後清除 IP 列錯誤（索引已不對應）。搜尋框左側有「搜尋」標籤，搜尋字為空時「清除」停用
+9. **TUI 第二行的標籤**：與 GUI 共用 `display::identity_rows`，因此寫「管理介面位址」而非 D12 的「管理介面」；CLI `asset show` 仍為「管理介面：…」
+10. **fixture 重新產生**：`gen_inventory_fixtures` 重新產生時既有 xlsx 只有內部時間戳記不同，已以 `git checkout` 還原，只新增 `inventory_identity.xlsx` 與 `inventory_ips.csv`（任務 3.7 的完成條件）
+11. **`open_management_url` 拒絕時為 Warning**：「只能開啟 http:// 或 https:// 位址」，與 `open_url` 拒絕時的等級相同
+
+## Code review 修正（/opsx-auto 一輪）
+
+1. **`ips` 工作表只認標準欄名**：不套用 `[import.columns]`，避免舊的自訂欄名（例如把「IP」對應到 `notes`）讓匯出檔無法重匯（D5 已同步修改；`columns.rs` 的測試改為斷言自訂欄名不套用）
+2. **TUI 識別欄位轉成單行**：清冊值可能含換行或控制字元，TUI 詳情的兩行改用 `sanitize`（`display::one_line`）
+3. **被搜尋篩掉的選取資產**：詳情保留，但 Enter／Delete 不再作用（D11 已同步修改；GUI 測試 `keys_do_not_act_on_an_asset_hidden_by_the_search`）
+4. **唯一欄位的邏輯合併**：ISMS 編號與財產編號共用新檔 `assets/unique.rs` 的 `UniqueField`（資料庫查詢 `AssetRepo::value_in_use`／`clear_value`、匯入的 `owners`／`conflict` 與寫入前的 `release_changed_unique_values`、編修的 `ensure_unique_free`）。D3 所列的 `property_number_in_use`、`clear_property_number`、`property_owners`、`property_conflict`、`release_changed_property_numbers`、`ensure_property_number_free` 都由這些共用函式取代；`isms_id_in_use` 保留為包裝（資產說明代碼修改使用）
+5. **搜尋只正規化一次**：`filter::AssetSearch` 在篩選前處理查詢字（小寫、解析 IP），再逐一比對資產；`matches_asset_search` 保留為單一資產的便利函式
+6. **重複程式碼**：`validate_ips.rs` 改用 `validate.rs` 的 `RowReader`；`record_identity.rs` 改用 `record.rs` 的 `optional_text`；匯入對話框的元件檔與 IP 檔共用 `SideFile` 的列與挑選流程
+7. 其他：`filter.rs` 中錯置的 `desc_score` 文件註解歸位；`repo.rs` 的 `ASSET_COLUMNS` 字串補回換行接續
+
+## 架構圖
+
+不需更新：沒有 crate 增刪或 workspace 內部相依的改變，也沒有新的執行檔或外部整合。新增的 `asset_ip` 表與識別欄位屬資料庫 schema 與 core 內部模組；開啟管理介面位址沿用 frontend 既有的 Opener（系統瀏覽器），不是新的外部系統互動。

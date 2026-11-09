@@ -24,7 +24,7 @@ fn assets_export_saving_the_template() {
         ))
     );
     assert_eq!(f.dialogs.xlsx_titles.borrow().as_slice(), ["下載清冊範本"]);
-    let book = read_inventory(&path, None).expect("範本可讀");
+    let book = read_inventory(&path, None, None).expect("範本可讀");
     assert!(!book.assets.rows.is_empty(), "含範例列");
     assert!(book.components.is_some(), "含 components 工作表");
     assert!(
@@ -62,7 +62,7 @@ fn assets_export_exporting_the_inventory() {
         f.dialogs.save_asked.borrow().last().cloned(),
         Some((f.rec.documents_dir(), name.to_string()))
     );
-    let book = read_inventory(&path, None).expect("清冊可讀");
+    let book = read_inventory(&path, None, None).expect("清冊可讀");
     assert_eq!(book.assets.rows.len(), 3);
     let s = status(&h);
     assert!(

@@ -123,6 +123,7 @@ fn new_components_need_a_version() {
         &w.classes,
         &input,
         &[comp("paloalto-panos", " ")],
+        &[],
         at(NOW),
     ));
     assert!(AssetRepo::new(&w.conn)

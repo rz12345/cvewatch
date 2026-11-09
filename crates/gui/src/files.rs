@@ -1,4 +1,4 @@
-//! Windows 檔案對話框（另存 VEX、範本與清冊、選擇清冊、元件檔與 ISMS 清冊）。以 trait 抽象，測試以替身取代。
+//! Windows 檔案對話框（另存 VEX、範本與清冊、選擇清冊、元件檔、IP 檔與 ISMS 清冊）。以 trait 抽象，測試以替身取代。
 
 use std::path::{Path, PathBuf};
 
@@ -11,6 +11,8 @@ pub trait FileDialogs {
     fn open_inventory(&self) -> Option<PathBuf>;
     /// 開啟 CSV 清冊的元件檔。
     fn open_components(&self) -> Option<PathBuf>;
+    /// 開啟 CSV 清冊的 IP 檔（20 design D11）。
+    fn open_ips(&self) -> Option<PathBuf>;
     /// 開啟 ISMS 資訊資產清冊（.xlsx）。
     fn open_isms_workbook(&self) -> Option<PathBuf>;
 }
@@ -48,6 +50,13 @@ impl FileDialogs for NativeDialogs {
         rfd::FileDialog::new()
             .set_title("選擇元件檔")
             .add_filter("元件檔（.csv）", &["csv"])
+            .pick_file()
+    }
+
+    fn open_ips(&self) -> Option<PathBuf> {
+        rfd::FileDialog::new()
+            .set_title("選擇 IP 檔")
+            .add_filter("IP 檔（.csv）", &["csv"])
             .pick_file()
     }
 

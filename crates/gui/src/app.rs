@@ -140,6 +140,8 @@ pub struct GuiApp {
     pub assets_show_retired: bool,
     /// 只顯示有版本待補元件的資產（Dashboard 的版本待補數字開啟；18 design D8）
     pub assets_pending_only: bool,
+    /// 資產清單的搜尋字（20 design D11）
+    pub assets_search: String,
     /// 資產編輯、退役與永久刪除確認
     pub asset_dialog: Option<AssetDialog>,
     /// 資產編修後的背景比對
@@ -178,6 +180,7 @@ impl GuiApp {
             assets_selected: None,
             assets_show_retired: false,
             assets_pending_only: false,
+            assets_search: String::new(),
             asset_dialog: None,
             matching: Matching::default(),
             pending_selected: None,
@@ -365,6 +368,12 @@ impl GuiApp {
     /// 開啟連結（`Workspace` 依連結規則只允許 https）。
     pub fn open_link(&mut self, url: &str) {
         let r = self.ws.open_url(url);
+        self.report(r);
+    }
+
+    /// 開啟資產的管理介面位址（http 與 https；使用者輸入且已驗證，20 design D10）。
+    pub fn open_management_link(&mut self, url: &str) {
+        let r = self.ws.open_management_url(url);
         self.report(r);
     }
 

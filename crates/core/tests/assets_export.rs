@@ -24,7 +24,7 @@ fn fixture(name: &str) -> PathBuf {
 }
 
 fn import(w: &mut World, path: &Path, dry_run: bool) -> ImportPlan {
-    let book = read_inventory(path, None).unwrap();
+    let book = read_inventory(path, None, None).unwrap();
     let inventory =
         parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
     import_inventory(

@@ -65,7 +65,7 @@ fn import_with(
     now: DateTime<Utc>,
 ) {
     let components = components.map(fixture);
-    let book = read_inventory(&fixture(inventory), components.as_deref()).expect("讀取清冊");
+    let book = read_inventory(&fixture(inventory), components.as_deref(), None).expect("讀取清冊");
     let parsed =
         parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).expect("驗證清冊");
     let plan =

@@ -378,6 +378,7 @@ fn the_old_tag_can_be_reused_by_a_new_asset() {
             product_key: "paloalto-panos".into(),
             version_raw: "11.2.3".into(),
         }],
+        &[],
         now(),
     )
     .unwrap();

@@ -249,12 +249,19 @@ fn convert_asset(
         });
     }
     let (record, items) = match existing {
-        // ISMS 欄位取自 ISMS 清冊；編號、名稱、曝露度、地點與備註沿用既有資產
+        // ISMS 欄位取自 ISMS 清冊；編號、名稱、曝露度、識別欄位（20 design D8）、地點與備註
+        // 沿用既有資產
         Some(e) => (
             AssetRecord {
                 asset_tag: e.record.asset_tag.clone(),
                 name: e.record.name.clone(),
                 exposure: e.record.exposure,
+                brand: e.record.brand.clone(),
+                model: e.record.model.clone(),
+                serial_number: e.record.serial_number.clone(),
+                property_number: e.record.property_number.clone(),
+                hostname: e.record.hostname.clone(),
+                management_url: e.record.management_url.clone(),
                 location: e.record.location.clone(),
                 notes: e.record.notes.clone(),
                 isms_id: e

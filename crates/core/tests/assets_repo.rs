@@ -36,6 +36,12 @@ fn record(tag: &str) -> AssetRecord {
         user_unit: None,
         compliance: None,
         personal_data: false,
+        brand: None,
+        model: None,
+        serial_number: None,
+        property_number: None,
+        hostname: None,
+        management_url: None,
         notes: None,
     }
 }

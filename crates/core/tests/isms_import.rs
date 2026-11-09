@@ -261,3 +261,65 @@ fn not_an_isms_workbook() {
     assert!(e.contains("找不到 ISMS 資訊資產清冊的表頭"), "{e}");
     assert_eq!(count(&w, "asset"), 0);
 }
+
+/// 20 isms-inventory：Updating an asset that has identity data / New asset from the ISMS workbook
+#[test]
+fn isms_import_keeps_identity_fields_and_addresses() {
+    use cvewatch_core::assets::{AssetIp, AssetIpRepo};
+    let mut w = isms_world();
+    import(&mut w, false);
+    let repo = AssetRepo::new(&w.conn);
+    let fresh = repo.find_by_tag("NET-HW-002").unwrap().unwrap();
+    let r = &fresh.record;
+    assert_eq!(
+        (
+            &r.brand,
+            &r.model,
+            &r.serial_number,
+            &r.property_number,
+            &r.hostname,
+            &r.management_url
+        ),
+        (&None, &None, &None, &None, &None, &None),
+        "新資產不填識別欄位"
+    );
+    assert!(AssetIpRepo::new(&w.conn)
+        .for_asset(fresh.id)
+        .unwrap()
+        .is_empty());
+
+    let id = repo.find_by_tag("NET-HW-001").unwrap().unwrap().id;
+    w.conn
+        .execute(
+            "UPDATE asset SET brand = 'Aruba', property_number = 'P-0001',
+                              confidentiality = 1 WHERE id = ?1",
+            params![id],
+        )
+        .unwrap();
+    let ip = AssetIp {
+        address: "192.0.2.1".parse().unwrap(),
+        purpose: None,
+    };
+    AssetIpRepo::new(&w.conn)
+        .replace(id, std::slice::from_ref(&ip))
+        .unwrap();
+
+    let again = import(&mut w, false);
+    let net = again
+        .plan
+        .updated
+        .iter()
+        .find(|u| u.asset_tag == "NET-HW-001")
+        .expect("ISMS 欄位依清冊更新");
+    assert_eq!(net.field_names(), ["confidentiality"], "{net:?}");
+    assert!(net.ip_change.is_none());
+    assert!(again.plan.notices.is_empty(), "{:?}", again.plan.notices);
+    let after = AssetRepo::new(&w.conn)
+        .find_by_tag("NET-HW-001")
+        .unwrap()
+        .unwrap();
+    assert_eq!(after.record.brand.as_deref(), Some("Aruba"));
+    assert_eq!(after.record.property_number.as_deref(), Some("P-0001"));
+    assert_ne!(after.record.cia.confidentiality, 1, "ISMS 欄位依清冊更新");
+    assert_eq!(AssetIpRepo::new(&w.conn).for_asset(id).unwrap(), [ip]);
+}

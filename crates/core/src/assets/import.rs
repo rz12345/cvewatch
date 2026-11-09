@@ -5,10 +5,12 @@ use std::collections::{BTreeMap, HashMap};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension};
 
+use super::ips::AssetIpRepo;
 use super::model::{AssetStatus, ComponentKind, ComponentSource};
 use super::plan::{plan_import, CurrentAsset, ImportPlan, PlannedAsset, Snapshot};
 use super::repo::{AssetFilter, AssetRepo, ComponentRepo};
 use super::systems::{AssetSystem, SystemDirectory, SystemRepo};
+use super::unique::UniqueField;
 use super::validate::Inventory;
 use crate::catalog::store::sync_catalog;
 use crate::catalog::Catalog;
@@ -39,7 +41,7 @@ pub fn import_inventory(
     }
     // 資產以外鍵參照資產說明，先寫資產說明
     apply_systems(&tx, &plan)?;
-    release_changed_isms_ids(&tx, &plan, &snapshot)?;
+    release_changed_unique_values(&tx, &plan, &snapshot)?;
     for planned in &plan.assets {
         apply_asset(
             &tx,
@@ -91,32 +93,36 @@ fn apply_systems(conn: &Connection, plan: &ImportPlan) -> Result<(), CoreError> 
     Ok(())
 }
 
-/// 先清除這次會變更的 ISMS 編號：兩個資產互換編號時，逐筆寫入不會暫時違反唯一索引
+/// 先清除這次會變更的 ISMS 編號與財產編號：兩個資產互換時，逐筆寫入不會暫時違反唯一索引
 /// （重複已在 [`plan_import`] 檢查）。
-fn release_changed_isms_ids(
+fn release_changed_unique_values(
     conn: &Connection,
     plan: &ImportPlan,
     snapshot: &Snapshot,
 ) -> Result<(), CoreError> {
     let assets = AssetRepo::new(conn);
     for planned in &plan.assets {
-        if let Some(current) = snapshot.get(&planned.record.asset_tag) {
-            if current.record.isms_id.is_some() && current.record.isms_id != planned.record.isms_id
-            {
-                assets.clear_isms_id(current.id)?;
+        let Some(current) = snapshot.get(&planned.record.asset_tag) else {
+            continue;
+        };
+        for field in UniqueField::ALL {
+            let old = field.value(&current.record);
+            if old.is_some() && old != field.value(&planned.record) {
+                assets.clear_value(field, current.id)?;
             }
         }
     }
     Ok(())
 }
 
-/// 所有資產（含 retired）與其 Excel 來源的產品元件。
+/// 所有資產（含 retired）與其 Excel 來源的產品元件、IP。
 pub fn load_snapshot(conn: &Connection) -> Result<Snapshot, CoreError> {
     let assets = AssetRepo::new(conn).list(&AssetFilter {
         category: None,
         include_retired: true,
     })?;
     let components = ComponentRepo::new(conn);
+    let mut ips = AssetIpRepo::new(conn).all_by_asset()?;
     assets
         .into_iter()
         .map(|asset| {
@@ -136,6 +142,7 @@ pub fn load_snapshot(conn: &Connection) -> Result<Snapshot, CoreError> {
                 record: asset.record,
                 status: asset.status,
                 components: excel,
+                ips: ips.remove(&asset.id).unwrap_or_default(),
             };
             Ok((current.record.asset_tag.clone(), current))
         })
@@ -179,6 +186,9 @@ fn apply_asset(
         remove_dropped_components(conn, asset_id, current, planned, now)?;
     }
     assets.replace_unresolved(asset_id, &planned.unresolved, now)?;
+    if let Some(ips) = &planned.ips {
+        AssetIpRepo::new(conn).replace(asset_id, ips)?;
+    }
     Ok(())
 }
 

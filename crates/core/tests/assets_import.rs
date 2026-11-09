@@ -49,7 +49,7 @@ fn run_with(
     classes: &AssetClasses,
     options: ImportOptions,
 ) -> Result<ImportPlan, CoreError> {
-    let book = read_inventory(&fixture(file), None)?;
+    let book = read_inventory(&fixture(file), None, None)?;
     let inventory = parse_inventory(&book, columns, classes)?;
     import_inventory(conn, &catalog(), &inventory, options, Utc::now())
 }
@@ -345,6 +345,7 @@ fn csv_with_separate_components_file() {
     let book = read_inventory(
         &fixture("inventory_basic.csv"),
         Some(&fixture("inventory_components.csv")),
+        None,
     )
     .unwrap();
     let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
@@ -369,7 +370,7 @@ fn template_roundtrips_through_importer() {
     let path = env.dir.path().join("inv.xlsx");
     write_template(&path, &classes()).unwrap();
     assert!(write_template(&path, &classes()).is_err(), "不覆蓋既有檔案");
-    let book = read_inventory(&path, None).unwrap();
+    let book = read_inventory(&path, None, None).unwrap();
     assert_eq!(book.assets.headers[0], "asset_tag");
     assert!(!book.assets.headers.iter().any(|h| h == "criticality"));
     assert_eq!(book.components.as_ref().unwrap().headers[0], "asset_tag");
@@ -389,6 +390,24 @@ fn template_roundtrips_through_importer() {
         plan.unresolved.is_empty() && plan.warnings.is_empty(),
         "{plan:?}"
     );
+    let fw = plan
+        .assets
+        .iter()
+        .find(|a| a.record.asset_tag == "FW-01")
+        .unwrap();
+    assert_eq!(fw.record.property_number.as_deref(), Some("P-0001"));
+    assert_eq!(
+        fw.record.management_url.as_deref(),
+        Some("https://192.0.2.1/")
+    );
+    let ips: Vec<String> = fw
+        .ips
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|i| i.to_string())
+        .collect();
+    assert_eq!(ips, ["192.0.2.1（管理介面）"], "範本的 ips 範例列可匯入");
 }
 
 #[test]
@@ -407,6 +426,7 @@ fn invalid_category_aborts_with_row_number() {
         },
         components: None,
         systems: None,
+        ips: None,
     };
     let err = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap_err();
     let msg = err.to_string();
@@ -554,7 +574,7 @@ FW-01,fw01,HW03,PAN-OS,11.1.4-h7,
 ",
     )
     .unwrap();
-    let book = read_inventory(&path, None).unwrap();
+    let book = read_inventory(&path, None, None).unwrap();
     let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
     assert!(!inventory.keeps(cvewatch_core::assets::columns::StandardField::IsmsId));
     import_inventory(
@@ -641,7 +661,7 @@ fn duplicate_isms_id_with_a_retired_asset_is_rejected() {
          NAS-01,nas01,HW05,Synology DSM,7.2.1-69057,sys-hw-005\n",
     )
     .unwrap();
-    let book = read_inventory(&dir, None).unwrap();
+    let book = read_inventory(&dir, None, None).unwrap();
     let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
     let err = import_inventory(
         &mut conn,
@@ -680,7 +700,7 @@ fn swapping_isms_ids_in_one_import() {
     let first = write("a.csv", "SYS-HW-001", "SYS-HW-002");
     let second = write("b.csv", "SYS-HW-002", "SYS-HW-001");
     for path in [first, second] {
-        let book = read_inventory(&path, None).unwrap();
+        let book = read_inventory(&path, None, None).unwrap();
         let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
         import_inventory(
             &mut conn,
@@ -717,8 +737,30 @@ fn template_has_class_sheet_following_configuration() {
     let mut book = open_workbook_auto(&path).unwrap();
     assert_eq!(
         book.sheet_names(),
-        vec!["assets", "components", "systems", "classes"]
+        vec!["assets", "components", "systems", "ips", "classes"]
     );
+    let mut header = |name: &str| -> Vec<String> {
+        let range = book.worksheet_range(name).unwrap();
+        range
+            .rows()
+            .next()
+            .unwrap()
+            .iter()
+            .map(|c| c.to_string())
+            .collect()
+    };
+    let assets = header("assets");
+    for col in [
+        "brand",
+        "model",
+        "serial_number",
+        "property_number",
+        "hostname",
+        "management_url",
+    ] {
+        assert!(assets.iter().any(|h| h == col), "{col}：{assets:?}");
+    }
+    assert_eq!(header("ips"), ["asset_tag", "ip", "purpose"]);
     let range = book.worksheet_range("classes").unwrap();
     let rows: Vec<Vec<String>> = range
         .rows()

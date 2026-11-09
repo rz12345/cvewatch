@@ -358,3 +358,224 @@ fn asset_export_and_template_reports() {
     assert!(r.message.contains("已產生範本"), "{}", r.message);
     assert_eq!(ws.write_template(&dir.join(&name)).level, Level::Error);
 }
+
+// ── 20：識別欄位與 IP ─────────────────────────────────────────
+
+fn identity_world() -> World {
+    let w = assets_world();
+    w.asset("SRV-01", "internal", &[("vmware-esxi", "8.0")]);
+    w.conn
+        .execute(
+            "UPDATE asset SET property_number = 'P-0002' WHERE asset_tag = 'NAS-02'",
+            [],
+        )
+        .unwrap();
+    w
+}
+
+fn ip_draft(address: &str, purpose: &str) -> cvewatch_frontend::asset_form::IpDraft {
+    cvewatch_frontend::asset_form::IpDraft {
+        address: address.into(),
+        purpose: purpose.into(),
+    }
+}
+
+#[test]
+fn invalid_ip_is_reported_on_its_row_and_blank_rows_are_ignored() {
+    use cvewatch_frontend::asset_form::{IP_INVALID, IP_SINGLE_ADDRESS};
+    let (mut ws, _rec) = open(identity_world());
+    let mut form = edit_form(&ws, "SRV-01");
+    form.ips = vec![
+        ip_draft("192.0.2.10", "管理"),
+        ip_draft("192.0.2.300", ""),
+        ip_draft("  ", " "),
+        ip_draft("192.0.2.0/24", ""),
+        ip_draft("192.0.2.10", ""),
+    ];
+    let e = ws.validate_asset_form(&form).unwrap_err();
+    assert_eq!(e.ip_row(0), Vec::<&str>::new());
+    assert_eq!(e.ip_row(1), vec![IP_INVALID]);
+    assert!(e.ip_row(2).is_empty(), "空白列不產生錯誤");
+    assert_eq!(
+        e.ip_row(3),
+        vec![format!("{IP_INVALID}；{IP_SINGLE_ADDRESS}")]
+    );
+    assert_eq!(e.ip_row(4), vec!["與第 1 列重複"]);
+    let r = ws.save_asset_form(&form, &[]);
+    assert_eq!(r.report.level, Level::Error);
+    assert!(ws.data.asset("SRV-01").unwrap().ips.is_empty(), "未寫入");
+
+    form.ips = vec![ip_draft("", ""), ip_draft("2001:DB8::10", "")];
+    assert_eq!(form.ip_inputs().len(), 1, "空白列不送出");
+    let r = ws.save_asset_form(&form, &[]);
+    assert_eq!(r.report.level, Level::Info, "{}", r.report.message);
+    let ips: Vec<String> = ws
+        .data
+        .asset("SRV-01")
+        .unwrap()
+        .ips
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    assert_eq!(ips, ["2001:db8::10"]);
+}
+
+#[test]
+fn only_changing_addresses_does_not_need_matching() {
+    let (mut ws, _rec) = open(identity_world());
+    let mut form = edit_form(&ws, "SRV-01");
+    form.add_ip();
+    form.ips[0].address = "192.0.2.10".into();
+    let r = ws.save_asset_form(&form, &[]);
+    assert_eq!(r.report.message, "已儲存 SRV-01（修改 IP）");
+    assert!(!r.needs_match);
+    // 重新開啟表單：帶入既有 IP，沒有變更
+    let form = edit_form(&ws, "SRV-01");
+    assert_eq!(form.ips, vec![ip_draft("192.0.2.10", "")]);
+    assert!(ws
+        .save_asset_form(&form, &[])
+        .report
+        .message
+        .contains("沒有變更"));
+}
+
+#[test]
+fn property_number_in_use_by_a_retired_asset_is_reported_on_the_field() {
+    use cvewatch_core::assets::columns::StandardField;
+    let (mut ws, _rec) = open(identity_world());
+    let mut form = edit_form(&ws, "FW-01");
+    form.property_number = "p-0002".into();
+    let e = ws.validate_asset_form(&form).unwrap_err();
+    assert_eq!(
+        e.field(StandardField::PropertyNumber),
+        Some("已被使用（已退役的 NAS-02）")
+    );
+    let r = ws.save_asset_form(&form, &[]);
+    assert_eq!(r.report.level, Level::Error);
+    assert_eq!(
+        ws.data.asset("FW-01").unwrap().asset.record.property_number,
+        None
+    );
+}
+
+#[test]
+fn identity_errors_use_interface_wording() {
+    use cvewatch_core::assets::columns::StandardField;
+    use cvewatch_frontend::asset_form::{HOSTNAME_FORMAT, MANAGEMENT_URL_FORMAT, URL_CREDENTIALS};
+    let (ws, _rec) = open(identity_world());
+    let mut form = edit_form(&ws, "FW-01");
+    form.hostname = "https://fw-edge".into();
+    form.management_url = "192.0.2.1".into();
+    let e = ws.validate_asset_form(&form).unwrap_err();
+    assert_eq!(e.field(StandardField::Hostname), Some(HOSTNAME_FORMAT));
+    assert_eq!(
+        e.field(StandardField::ManagementUrl),
+        Some(MANAGEMENT_URL_FORMAT)
+    );
+    let summary = e.summary();
+    for internal in ["hostname", "management_url"] {
+        assert!(!summary.contains(internal), "{internal}: {summary}");
+    }
+    form.hostname = "fw-edge".into();
+    form.management_url = "https://admin:secret@192.0.2.1/".into();
+    let e = ws.validate_asset_form(&form).unwrap_err();
+    assert_eq!(e.field(StandardField::ManagementUrl), Some(URL_CREDENTIALS));
+    assert!(!e.summary().contains("secret"));
+}
+
+#[test]
+fn opening_the_management_address() {
+    let (ws, rec) = open(identity_world());
+    let r = ws.open_management_url("http://192.0.2.1/");
+    assert_eq!(r.level, Level::Info);
+    assert_eq!(r.message, "已開啟 http://192.0.2.1/");
+    let r = ws.open_management_url("ftp://192.0.2.1");
+    assert_eq!(r.level, Level::Warning);
+    assert_eq!(*rec.opened.borrow(), ["http://192.0.2.1/"]);
+}
+
+#[test]
+fn identity_rows_show_dash_for_blank_values() {
+    use cvewatch_frontend::display::identity_rows;
+    let (ws, _rec) = open(identity_world());
+    let e = ws.data.asset("FW-01").unwrap();
+    let rows = identity_rows(&e.asset.record, &e.ips);
+    assert_eq!(rows.len(), 7);
+    assert!(rows.iter().all(|(_, v)| v == "-"), "{rows:?}");
+}
+
+fn search_world() -> World {
+    let w = identity_world();
+    w.asset("NAS-01", "internal", &[("synology-dsm", "7.2.1-69057")]);
+    w.conn
+        .execute_batch(
+            "UPDATE asset SET hostname = 'srv01.lab', serial_number = 'SN0001' WHERE asset_tag = 'SRV-01';
+             UPDATE asset SET property_number = 'P-0001' WHERE asset_tag = 'NAS-01';
+             UPDATE asset SET hostname = 'nas02' WHERE asset_tag = 'NAS-02';",
+        )
+        .unwrap();
+    let id = |tag: &str| -> i64 {
+        w.conn
+            .query_row("SELECT id FROM asset WHERE asset_tag = ?1", [tag], |r| {
+                r.get(0)
+            })
+            .unwrap()
+    };
+    let ip = |a: &str| cvewatch_core::assets::AssetIp {
+        address: a.parse().unwrap(),
+        purpose: None,
+    };
+    let repo = cvewatch_core::assets::AssetIpRepo::new(&w.conn);
+    repo.replace(id("SRV-01"), &[ip("192.0.2.10"), ip("2001:db8::1")])
+        .unwrap();
+    repo.replace(id("FW-01"), &[ip("198.51.100.1")]).unwrap();
+    w
+}
+
+fn found(ws: &Workspace, search: &str, include_retired: bool, pending_only: bool) -> Vec<String> {
+    ws.data
+        .asset_list(&AssetListFilter {
+            include_retired,
+            pending_only,
+            search: search.into(),
+            ..AssetListFilter::default()
+        })
+        .iter()
+        .map(|a| a.asset.record.asset_tag.clone())
+        .collect()
+}
+
+#[test]
+fn asset_list_search_matches_identity_and_addresses() {
+    let (ws, _rec) = open(search_world());
+    assert_eq!(found(&ws, "192.0.2.1", false, false), ["SRV-01"]);
+    assert_eq!(found(&ws, "p-00", false, false), ["NAS-01"], "不分大小寫");
+    assert_eq!(found(&ws, "sn00", false, false), ["SRV-01"]);
+    assert_eq!(
+        found(&ws, "SRV01.LAB", false, false),
+        ["SRV-01"],
+        "主機名稱"
+    );
+    assert_eq!(found(&ws, "fw-0", false, false), ["FW-01"], "編號");
+    assert_eq!(
+        found(&ws, "2001:DB8:0::1", false, false),
+        ["SRV-01"],
+        "位址相等"
+    );
+    assert_eq!(
+        found(&ws, "2001:db8::", false, false),
+        ["SRV-01"],
+        "部分相符"
+    );
+    assert!(
+        found(&ws, "nas0", false, false).is_empty(),
+        "未勾選顯示已退役"
+    );
+    assert_eq!(found(&ws, "nas0", true, false), ["NAS-02"]);
+    assert!(found(&ws, "zzz", false, false).is_empty());
+    assert_eq!(found(&ws, "  ", false, false).len(), 3, "空白查詢不篩選");
+    assert!(
+        found(&ws, "srv", false, true).is_empty(),
+        "與只顯示版本待補同時套用"
+    );
+}

@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use cvewatch_core::assets::plan::version_or;
 use cvewatch_core::assets::{
-    AssetClasses, AssetRecord, Cia, ClassCode, Component, Exposure, PendingCounts,
+    AssetClasses, AssetIp, AssetRecord, Cia, ClassCode, Component, Exposure, PendingCounts,
 };
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::matching::evidence::{Source, Verdict};
@@ -121,6 +121,39 @@ pub fn rating_summary(cia: &Cia) -> String {
 /// 「英文值（中文）」，例如「internal（內部網路）」。
 pub fn exposure_label(e: Exposure) -> String {
     format!("{}（{}）", e.as_str(), exposure_zh(e))
+}
+
+/// 未填的識別欄位與沒有 IP 時的顯示。
+pub const BLANK: &str = "-";
+
+/// 一筆 IP：「192.0.2.1（管理）」「2001:db8::1」。
+pub fn ip_text(ip: &AssetIp) -> String {
+    ip.to_string()
+}
+
+/// 全部 IP，以「、」分隔；沒有 IP 時為「-」。
+pub fn ips_text(ips: &[AssetIp]) -> String {
+    if ips.is_empty() {
+        return BLANK.to_string();
+    }
+    ips.iter().map(ip_text).collect::<Vec<_>>().join("、")
+}
+
+/// 管理介面位址的標籤（詳情與連結的說明）。
+pub const MANAGEMENT_URL_LABEL: &str = "管理介面位址";
+
+/// 資產詳情的識別欄位與 IP（20 design D10；GUI、TUI 共用）：未填為「-」。
+pub fn identity_rows(record: &AssetRecord, ips: &[AssetIp]) -> Vec<(&'static str, String)> {
+    let text = |v: &Option<String>| v.clone().unwrap_or_else(|| BLANK.to_string());
+    vec![
+        ("廠牌", text(&record.brand)),
+        ("型號", text(&record.model)),
+        ("序號", text(&record.serial_number)),
+        ("財產編號", text(&record.property_number)),
+        ("主機名稱", text(&record.hostname)),
+        (MANAGEMENT_URL_LABEL, text(&record.management_url)),
+        ("IP", ips_text(ips)),
+    ]
 }
 
 /// 詳情中的符號（TUI 在舊主控台改用 ASCII）。
@@ -400,6 +433,12 @@ mod tests {
             user_unit: None,
             compliance: None,
             personal_data: false,
+            brand: None,
+            model: None,
+            serial_number: None,
+            property_number: None,
+            hostname: None,
+            management_url: None,
             notes: None,
         };
         assert_eq!(shown_name(&r), None);

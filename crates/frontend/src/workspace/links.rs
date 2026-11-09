@@ -28,6 +28,19 @@ impl<V> Workspace<V> {
         }
     }
 
+    /// 開啟資產的管理介面位址（20 design D10）：只檢查 http／https 與不含空白、控制字元，
+    /// 不套用 [`crate::services::LinkPolicy`]——這是使用者自己輸入、已通過驗證的位址，
+    /// 許多設備只提供 http。
+    pub fn open_management_url(&self, url: &str) -> Report {
+        if !crate::links::is_safe_url(url) {
+            return Report::warning(format!("只能開啟 http:// 或 https:// 位址：{url}"));
+        }
+        match self.services.opener.open(url) {
+            Ok(()) => Report::info(format!("已開啟 {url}")),
+            Err(e) => Report::error(format!("無法開啟瀏覽器：{e}")),
+        }
+    }
+
     pub fn copy(&self, text: &str) -> Report {
         match self.services.clipboard.copy(text) {
             Ok(()) => Report::info(format!("已複製 {text}")),

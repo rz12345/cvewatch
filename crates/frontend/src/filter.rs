@@ -1,7 +1,9 @@
-//! Findings 的篩選、即時搜尋與排序（在記憶體中進行；不改變載入的資料），以及資產清單的類別篩選選項。
+//! Findings 的篩選、即時搜尋與排序（在記憶體中進行；不改變載入的資料），以及資產清單的類別篩選選項
+//! 與搜尋。
 
 use std::cmp::Ordering;
 
+use cvewatch_core::assets::ips::parse_ip;
 use cvewatch_core::assets::{AssetClasses, ClassFilter, MajorClass};
 use cvewatch_core::matching::engine::Confidence;
 use cvewatch_core::matching::query::FindingRow;
@@ -211,6 +213,53 @@ pub fn search_key(r: &FindingRow) -> String {
 pub fn matches_search(key: &str, query: &str) -> bool {
     let q = normalize(query);
     q.is_empty() || key.split(FIELD_SEPARATOR).any(|field| field.contains(&q))
+}
+
+/// 資產清單的搜尋（20 design D10）：編號、名稱、主機名稱、序號、財產編號與每筆 IP 的標準寫法，
+/// 部分相符、不分大小寫；查詢字是完整 IP 時也比對位址相等（`2001:DB8:0::1` 找得到
+/// `2001:db8::1`）。查詢字只正規化一次，再逐一比對資產。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssetSearch {
+    /// 去除前後空白後轉小寫
+    query: String,
+    /// 查詢字可解析為 IP 時的位址
+    exact: Option<std::net::IpAddr>,
+}
+
+impl AssetSearch {
+    /// 空白查詢為 None（不篩選）。
+    pub fn new(query: &str) -> Option<AssetSearch> {
+        let query = query.trim().to_lowercase();
+        (!query.is_empty()).then(|| AssetSearch {
+            exact: parse_ip(&query),
+            query,
+        })
+    }
+
+    pub fn matches(&self, entry: &crate::data::AssetEntry) -> bool {
+        let r = &entry.asset.record;
+        let texts = [
+            Some(&r.asset_tag),
+            Some(&r.name),
+            r.hostname.as_ref(),
+            r.serial_number.as_ref(),
+            r.property_number.as_ref(),
+        ];
+        let q = self.query.as_str();
+        texts
+            .into_iter()
+            .flatten()
+            .any(|t| t.to_lowercase().contains(q))
+            || entry
+                .ips
+                .iter()
+                .any(|ip| Some(ip.address) == self.exact || ip.address.to_string().contains(q))
+    }
+}
+
+/// 單一資產是否符合搜尋字（空白查詢一律符合）。
+pub fn matches_asset_search(entry: &crate::data::AssetEntry, query: &str) -> bool {
+    AssetSearch::new(query).is_none_or(|s| s.matches(entry))
 }
 
 /// 分數高到低，沒有分數的排最後。

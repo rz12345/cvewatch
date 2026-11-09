@@ -8,13 +8,15 @@ use super::model::{
     is_pending_version, Asset, AssetRecord, AssetStatus, Component, ComponentKind, ComponentSource,
     Exposure, HistoryEntry, UnresolvedEntry,
 };
+use super::unique::UniqueField;
 use crate::error::CoreError;
 
 // criticality 欄自 0007、owner 欄自 0008 起停用（保留在資料表、不再讀寫）
 const ASSET_COLUMNS: &str = "id, asset_tag, name, category, location, custodian, exposure, \
                              confidentiality, integrity, availability, isms_id, notes, status, \
                              first_seen, last_seen, retired_at, system_code, responsible_unit, \
-                             user_unit, compliance, personal_data";
+                             user_unit, compliance, personal_data, brand, model, serial_number, \
+                             property_number, hostname, management_url";
 
 const COMPONENT_SELECT: &str = "SELECT c.id, c.asset_id, c.kind, c.product_id, p.key, c.purl, \
      c.purl_full, c.version_raw, c.version_norm, c.source, c.updated_at \
@@ -54,6 +56,12 @@ fn asset_from_row(row: &Row<'_>) -> rusqlite::Result<Asset> {
             user_unit: row.get(18)?,
             compliance: row.get(19)?,
             personal_data: row.get(20)?,
+            brand: row.get(21)?,
+            model: row.get(22)?,
+            serial_number: row.get(23)?,
+            property_number: row.get(24)?,
+            hostname: row.get(25)?,
+            management_url: row.get(26)?,
             notes: row.get(11)?,
         },
         status: parse_col(row, 12, AssetStatus::parse)?,
@@ -157,23 +165,35 @@ impl<'c> AssetRepo<'c> {
         isms_id: &str,
         exclude: Option<i64>,
     ) -> Result<Option<(String, AssetStatus)>, CoreError> {
+        self.value_in_use(UniqueField::IsmsId, isms_id, exclude)
+    }
+
+    /// 已使用此值的資產（唯一欄位，含 retired，不分大小寫）；`exclude` 為不列入的資產 id。
+    pub fn value_in_use(
+        &self,
+        field: UniqueField,
+        value: &str,
+        exclude: Option<i64>,
+    ) -> Result<Option<(String, AssetStatus)>, CoreError> {
+        let column = field.column();
+        let sql = format!(
+            "SELECT asset_tag, status FROM asset
+             WHERE {column} = ?1 COLLATE NOCASE AND (?2 IS NULL OR id <> ?2)
+             ORDER BY id LIMIT 1"
+        );
         let row: Option<(String, String)> = self
             .conn
-            .query_row(
-                "SELECT asset_tag, status FROM asset
-                 WHERE isms_id = ?1 COLLATE NOCASE AND (?2 IS NULL OR id <> ?2)
-                 ORDER BY id LIMIT 1",
-                params![isms_id.trim(), exclude],
-                |r| Ok((r.get(0)?, r.get(1)?)),
-            )
+            .query_row(&sql, params![value.trim(), exclude], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
             .optional()?;
         Ok(row.map(|(t, s)| (t, AssetStatus::parse(&s).unwrap_or(AssetStatus::Active))))
     }
 
-    /// 清除 ISMS 編號（匯入時先清除會變更的編號，避免互換編號時違反唯一索引）。
-    pub fn clear_isms_id(&self, id: i64) -> Result<(), CoreError> {
-        self.conn
-            .execute("UPDATE asset SET isms_id = NULL WHERE id = ?1", params![id])?;
+    /// 清除唯一欄位的值（匯入時先清除會變更的值，避免互換時違反唯一索引）。
+    pub fn clear_value(&self, field: UniqueField, id: i64) -> Result<(), CoreError> {
+        let sql = format!("UPDATE asset SET {} = NULL WHERE id = ?1", field.column());
+        self.conn.execute(&sql, params![id])?;
         Ok(())
     }
 
@@ -191,9 +211,10 @@ impl<'c> AssetRepo<'c> {
             "INSERT INTO asset (asset_tag, name, category, location, custodian, exposure,
                                 confidentiality, integrity, availability, isms_id, notes, status,
                                 first_seen, last_seen, system_code, responsible_unit, user_unit,
-                                compliance, personal_data)
+                                compliance, personal_data, brand, model, serial_number,
+                                property_number, hostname, management_url)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12, ?12,
-                     ?13, ?14, ?15, ?16, ?17)",
+                     ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23)",
             params![
                 record.asset_tag,
                 record.name,
@@ -211,7 +232,13 @@ impl<'c> AssetRepo<'c> {
                 record.responsible_unit,
                 record.user_unit,
                 record.compliance,
-                record.personal_data
+                record.personal_data,
+                record.brand,
+                record.model,
+                record.serial_number,
+                record.property_number,
+                record.hostname,
+                record.management_url
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -238,7 +265,9 @@ impl<'c> AssetRepo<'c> {
                     exposure = ?6, confidentiality = ?7, integrity = ?8, availability = ?9,
                     isms_id = ?10, notes = ?11, status = 'active', retired_at = NULL,
                     last_seen = ?12, system_code = ?13, responsible_unit = ?14, user_unit = ?15,
-                    compliance = ?16, personal_data = ?17
+                    compliance = ?16, personal_data = ?17, brand = ?18, model = ?19,
+                    serial_number = ?20, property_number = ?21, hostname = ?22,
+                    management_url = ?23
              WHERE id = ?1",
             params![
                 id,
@@ -257,7 +286,13 @@ impl<'c> AssetRepo<'c> {
                 record.responsible_unit,
                 record.user_unit,
                 record.compliance,
-                record.personal_data
+                record.personal_data,
+                record.brand,
+                record.model,
+                record.serial_number,
+                record.property_number,
+                record.hostname,
+                record.management_url
             ],
         )?;
         Ok(())

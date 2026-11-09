@@ -8,6 +8,8 @@
 //! - category 寫子類別代碼，C/I/A 寫實際值（13 design D4）
 //! - `system` 寫資產說明代碼、`personal_data` 寫 Y／N；`systems` 工作表列出所有資產說明
 //!   （含沒有使用中資產者，16 design D3）
+//! - 識別欄位寫原值（未填為空白）；`ips` 工作表依資產編號、儲存順序每筆 IP 一列
+//!   （20 design D13）
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -15,6 +17,7 @@ use std::path::Path;
 use rusqlite::{params, Connection};
 
 use super::columns::{SheetKind, StandardField};
+use super::ips::AssetIpRepo;
 use super::model::{Asset, AssetRecord};
 use super::repo::{AssetFilter, AssetRepo};
 use super::systems::SystemRepo;
@@ -30,12 +33,14 @@ pub struct ExportSummary {
     pub warnings: Vec<String>,
 }
 
-/// 三個工作表的資料列（不含表頭）。
+/// 四個工作表的資料列（不含表頭）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InventoryRows {
     pub assets: Vec<Vec<String>>,
     pub components: Vec<Vec<String>>,
     pub systems: Vec<Vec<String>>,
+    /// `ips` 工作表（asset_tag、ip、purpose）
+    pub ips: Vec<Vec<String>>,
     pub warnings: Vec<String>,
 }
 
@@ -160,12 +165,20 @@ pub(crate) fn asset_row(r: &AssetRecord, first: Option<&InventoryItem>) -> Vec<S
             StandardField::UserUnit => text(&r.user_unit),
             StandardField::Compliance => r.compliance.map(|d| d.to_string()).unwrap_or_default(),
             StandardField::PersonalData => personal_data_text(r.personal_data).to_string(),
+            StandardField::Brand => text(&r.brand),
+            StandardField::Model => text(&r.model),
+            StandardField::SerialNumber => text(&r.serial_number),
+            StandardField::PropertyNumber => text(&r.property_number),
+            StandardField::Hostname => text(&r.hostname),
+            StandardField::ManagementUrl => text(&r.management_url),
             StandardField::Location => text(&r.location),
             StandardField::Notes => text(&r.notes),
-            // 停用欄位、舊欄名與 systems 工作表的欄位不在 columns() 中
-            StandardField::Criticality | StandardField::Owner | StandardField::Code => {
-                String::new()
-            }
+            // 停用欄位、舊欄名與其他工作表的欄位不在 columns() 中
+            StandardField::Criticality
+            | StandardField::Owner
+            | StandardField::Code
+            | StandardField::Ip
+            | StandardField::Purpose => String::new(),
         })
         .collect()
 }
@@ -181,6 +194,7 @@ pub(crate) fn component_rows<'a>(
 /// 讀取使用中資產並轉成工作表資料列。
 pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryRows, CoreError> {
     let assets: Vec<Asset> = AssetRepo::new(conn).list(&AssetFilter::default())?;
+    let mut ips = AssetIpRepo::new(conn).all_by_asset()?;
     let mut rows = InventoryRows::default();
     for asset in &assets {
         let r = &asset.record;
@@ -194,6 +208,18 @@ pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryR
         rows.assets.push(asset_row(r, items.first()));
         rows.components
             .extend(component_rows(&r.asset_tag, items.iter().skip(1)));
+        rows.ips.extend(
+            ips.remove(&asset.id)
+                .unwrap_or_default()
+                .into_iter()
+                .map(|ip| {
+                    vec![
+                        r.asset_tag.clone(),
+                        ip.address.to_string(),
+                        ip.purpose.unwrap_or_default(),
+                    ]
+                }),
+        );
     }
     rows.systems = SystemRepo::new(conn)
         .list()?
@@ -203,7 +229,7 @@ pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryR
     Ok(rows)
 }
 
-/// `assets`、`components`、`systems` 三個工作表（標準欄名表頭）。
+/// `assets`、`components`、`systems`、`ips` 四個工作表（標準欄名表頭）。
 pub(crate) fn inventory_sheets(rows: InventoryRows) -> Vec<SheetData<'static>> {
     vec![
         SheetData {
@@ -220,6 +246,11 @@ pub(crate) fn inventory_sheets(rows: InventoryRows) -> Vec<SheetData<'static>> {
             name: SheetKind::Systems.sheet_name(),
             headers: headers(SheetKind::Systems),
             rows: rows.systems,
+        },
+        SheetData {
+            name: SheetKind::Ips.sheet_name(),
+            headers: headers(SheetKind::Ips),
+            rows: rows.ips,
         },
     ]
 }

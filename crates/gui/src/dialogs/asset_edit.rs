@@ -7,7 +7,8 @@
 //! （design 11 D3）。C/I/A 的第一項「依類別（N）」= 空白（儲存時帶入子類別範本值）。
 //! 驗證錯誤以介面用語紅字顯示在欄位下方，失敗時保留對話框與輸入內容；本地驗證失敗不寫狀態列，
 //! 以「取消」或 Esc 關閉時清除對話框留在狀態列的寫入失敗訊息（design 11 D5）。
-//! ISMS 管理欄位（資產說明、單位、法規遵循性、個資、防護等級）在 [`super::asset_admin`]。
+//! ISMS 管理欄位（資產說明、單位、法規遵循性、個資、防護等級）在 [`super::asset_admin`]，
+//! 識別欄位與 IP 在 [`super::asset_identity`]（20 design D11）。
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -24,6 +25,7 @@ use eframe::egui;
 
 use super::asset_admin::{admin_fields, system_choices};
 use super::asset_components::{add_component, components, unresolved};
+use super::asset_identity::identity_fields;
 use super::product_picker::PickerState;
 use super::{escape_pressed, AssetDialog};
 use crate::app::GuiApp;
@@ -61,6 +63,8 @@ pub struct AssetEdit {
     pub unresolved_pickers: HashMap<i64, PickerState>,
     /// 下一幀讓這個元件列的版本欄取得焦點（剛加入的元件）
     pub focus_version: Option<usize>,
+    /// 下一幀讓這個 IP 列的 IP 欄位取得焦點（剛按「新增 IP」）
+    pub focus_ip: Option<usize>,
     /// 子類別選單（開啟時依設定檔建立一次，不在每一幀重新組字）
     class_options: Vec<Choice>,
     /// 資產說明選單（開啟時依資料建立一次）
@@ -79,6 +83,7 @@ impl AssetEdit {
             add_picker: PickerState::default(),
             unresolved_pickers: HashMap::new(),
             focus_version: None,
+            focus_ip: None,
         }
     }
 
@@ -189,12 +194,14 @@ fn body(
     egui::ScrollArea::vertical()
         .max_height(560.0)
         .show(ui, |ui| {
-            // 一般欄位與 ISMS 管理欄位左右並排，元件區不必捲動才看得到
+            // 一般欄位、ISMS 管理與識別與網路三欄並排，元件區不必捲動才看得到
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| fields(ui, edit, classes));
                 // 水平排列中的 separator 會撐滿捲動區的高度，改用間距
                 ui.add_space(16.0);
                 ui.vertical(|ui| admin_fields(ui, edit, classes, systems));
+                ui.add_space(16.0);
+                ui.vertical(|ui| identity_fields(ui, edit));
             });
             ui.separator();
             components(ui, edit, catalog);
@@ -204,7 +211,8 @@ fn body(
     ui.separator();
     let marked = !edit.errors.fields.is_empty()
         || !edit.errors.components.is_empty()
-        || !edit.errors.unresolved.is_empty();
+        || !edit.errors.unresolved.is_empty()
+        || !edit.errors.ips.is_empty();
     if marked {
         ui.colored_label(ALERT, FIX_FIELDS);
     }

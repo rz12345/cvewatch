@@ -4,7 +4,8 @@ use std::collections::BTreeMap;
 
 use cvewatch_core::assets::plan::ImportPlan;
 use cvewatch_core::assets::{
-    AssetClasses, AssetFilter, AssetRecord, AssetRepo, ClassFilter, ComponentRepo, SystemDirectory,
+    AssetClasses, AssetFilter, AssetIp, AssetIpRepo, AssetRecord, AssetRepo, ClassFilter,
+    ComponentRepo, SystemDirectory,
 };
 use cvewatch_core::catalog::Product;
 use cvewatch_core::db::open_working_db;
@@ -64,7 +65,7 @@ pub fn plan_detail_lines_with(plan: &ImportPlan, fields: FieldDetail<'_>) -> Vec
             ));
         }
         let mut notes = Vec::new();
-        if !u.changed_fields.is_empty() {
+        if !u.changed_fields.is_empty() || u.ip_change.is_some() {
             let changes = match fields {
                 FieldDetail::Names => u.field_names().join("、"),
                 FieldDetail::Values(classes) => u
@@ -74,7 +75,12 @@ pub fn plan_detail_lines_with(plan: &ImportPlan, fields: FieldDetail<'_>) -> Vec
                     .collect::<Vec<_>>()
                     .join("、"),
             };
-            notes.push(format!("欄位變更：{changes}"));
+            if !changes.is_empty() {
+                notes.push(format!("欄位變更：{changes}"));
+            }
+        }
+        if let Some(c) = &u.ip_change {
+            notes.push(format!("IP {}", c.describe()));
         }
         if !u.components_added.is_empty() {
             notes.push(format!("新增元件：{}", u.components_added.join("、")));
@@ -196,6 +202,9 @@ pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
     for line in admin_lines(r, &SystemDirectory::load(&conn)?) {
         println!("  {line}");
     }
+    for line in identity_lines(r, &AssetIpRepo::new(&conn).for_asset(asset.id)?) {
+        println!("  {line}");
+    }
     for (label, value) in [("地點", &r.location), ("備註", &r.notes)] {
         if let Some(v) = value {
             println!("  {label}：{v}");
@@ -249,6 +258,24 @@ pub fn admin_lines(r: &AssetRecord, systems: &SystemDirectory) -> Vec<String> {
         rated_text(r.protection_level()),
         personal_data_label(r.personal_data)
     ));
+    out
+}
+
+/// `asset show` 的識別欄位與 IP（20 design D12）：只列出有值的欄位，每筆 IP 一行
+/// （「IP：192.0.2.1（管理）」）。
+pub fn identity_lines(r: &AssetRecord, ips: &[AssetIp]) -> Vec<String> {
+    let mut out: Vec<String> = [
+        ("廠牌", &r.brand),
+        ("型號", &r.model),
+        ("序號", &r.serial_number),
+        ("財產編號", &r.property_number),
+        ("主機名稱", &r.hostname),
+        ("管理介面", &r.management_url),
+    ]
+    .into_iter()
+    .filter_map(|(label, value)| value.as_ref().map(|v| format!("{label}：{v}")))
+    .collect();
+    out.extend(ips.iter().map(|ip| format!("IP：{ip}")));
     out
 }
 
@@ -381,7 +408,7 @@ mod tests {
     fn show_lists_admin_fields_and_preview_lists_system_changes() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/inventory_basic.xlsx");
-        let book = read_inventory(&path, None).unwrap();
+        let book = read_inventory(&path, None, None).unwrap();
         let inventory =
             parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
         let mut conn = rusqlite::Connection::open_in_memory().unwrap();
@@ -418,12 +445,80 @@ mod tests {
         );
     }
 
+    /// 20 任務 5.2：Showing a firewall with identity data，以及預覽列出 IP 變更。
+    #[test]
+    fn show_lists_identity_fields_and_preview_lists_address_changes() {
+        let fixture = |name: &str| {
+            PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+                .join("../../tests/fixtures")
+                .join(name)
+        };
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let mut run = |file: &str, dry_run: bool| {
+            let book = read_inventory(&fixture(file), None, None).unwrap();
+            let inventory =
+                parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
+            import_inventory(
+                &mut conn,
+                &Catalog::seed().unwrap(),
+                &inventory,
+                ImportOptions {
+                    dry_run,
+                    prune: false,
+                },
+                chrono::Utc::now(),
+            )
+            .unwrap()
+        };
+        run("inventory_basic.xlsx", false);
+        let preview = run("inventory_identity.xlsx", true);
+        let lines = plan_detail_lines(&preview);
+        let srv = lines
+            .iter()
+            .find(|l| l.starts_with("  SRV-01 "))
+            .expect("SRV-01 列為更新");
+        assert!(
+            srv.contains("property_number、hostname、ip；IP - → 192.0.2.10（管理）、2001:db8::10"),
+            "{srv}"
+        );
+        run("inventory_identity.xlsx", false);
+        conn.execute(
+            "UPDATE asset SET brand = 'Aruba', serial_number = NULL WHERE asset_tag = 'FW-EDGE'",
+            [],
+        )
+        .unwrap();
+        let fw = AssetRepo::new(&conn)
+            .find_by_tag("FW-EDGE")
+            .unwrap()
+            .unwrap();
+        let ips = AssetIpRepo::new(&conn).for_asset(fw.id).unwrap();
+        let lines = identity_lines(&fw.record, &ips);
+        assert_eq!(
+            lines,
+            [
+                "廠牌：Aruba",
+                "型號：XYZ-100",
+                "財產編號：P-0001",
+                "主機名稱：fw-edge",
+                "管理介面：https://192.0.2.1/",
+                "IP：192.0.2.1（管理）",
+            ]
+        );
+        assert!(!lines.iter().any(|l| l.starts_with("序號")));
+        let nas = AssetRepo::new(&conn)
+            .find_by_tag("NAS-01")
+            .unwrap()
+            .unwrap();
+        assert!(identity_lines(&nas.record, &[]).is_empty());
+    }
+
     /// 13 任務 5.4：舊清冊的預覽在版本警告之後列出舊值轉換與 criticality 停用的提醒。
     #[test]
     fn legacy_inventory_preview_lists_notices_after_version_warnings() {
         let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../tests/fixtures/inventory_legacy.xlsx");
-        let book = read_inventory(&path, None).unwrap();
+        let book = read_inventory(&path, None, None).unwrap();
         let inventory =
             parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
         let mut conn = rusqlite::Connection::open_in_memory().unwrap();
@@ -472,7 +567,7 @@ mod tests {
             }],
         )
         .unwrap();
-        let book = read_inventory(&path, None).unwrap();
+        let book = read_inventory(&path, None, None).unwrap();
         let inventory =
             parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
         let mut conn = rusqlite::Connection::open_in_memory().unwrap();

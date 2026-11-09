@@ -1,5 +1,5 @@
-//! 畫面編修（design D1、D9）：新增資產、修改欄位、更名（12 design D1）、元件與未辨識產品的編修、
-//! 退役、恢復與永久刪除。
+//! 畫面編修（design D1、D9）：新增資產、修改欄位與 IP（20 design D9）、更名（12 design D1）、
+//! 元件與未辨識產品的編修；退役、恢復與永久刪除見 [`super::edit_lifecycle`]（由此重新匯出）。
 //!
 //! 每個公開操作一個交易；表單儲存以 [`apply_edits`] 把多個步驟包在同一個交易（任何一步失敗就
 //! 全部不寫入）。檢查（資產狀態、重複產品、至少一個清冊元件）都在交易內查詢，不信任呼叫端的
@@ -10,15 +10,21 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use super::classes::AssetClasses;
+use super::ips::{validate_ips, AssetIpRepo, IpError, IpInput};
 use super::model::{is_pending_version, Asset, AssetRecord, AssetStatus, Component, ComponentKind};
-use super::plan::{isms_in_use_message, resolve_version, VersionWarning};
+use super::plan::{resolve_version, VersionWarning};
 use super::repo::{AssetRepo, ComponentRepo};
 use super::systems::SystemDirectory;
+use super::unique::UniqueField;
 use super::validate::{validate_record, FieldError, RecordContext, RecordInput};
 use crate::catalog::store::sync_catalog;
 use crate::catalog::Catalog;
 use crate::error::CoreError;
 use crate::matching::run::mark_match_stale;
+
+pub use super::edit_lifecycle::{
+    purge_asset, purge_preview, restore_asset, retire_asset, PurgePreview,
+};
 
 /// 編修的結果：版本格式警告（仍保存原始字串）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -60,25 +66,19 @@ pub enum EditOp<'a> {
         product_key: String,
     },
     DeleteUnresolved(i64),
+    /// 以整份清單取代 IP（位址與用途的原文；20 design D9）
+    SetIps(Vec<IpInput<'a>>),
 }
 
 impl EditOp<'_> {
-    /// 這個步驟是否影響比對（12 design D2）：比對結果與編號無關，更名不需要重新比對。
+    /// 這個步驟是否影響比對（12 design D2）：比對結果與編號、IP 無關，更名與修改 IP
+    /// 不需要重新比對。
     pub fn affects_matching(&self) -> bool {
-        !matches!(self, EditOp::Rename(_))
+        !matches!(self, EditOp::Rename(_) | EditOp::SetIps(_))
     }
 }
 
-/// 永久刪除會一併移除的資料量（確認對話框用）。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct PurgePreview {
-    /// 元件數（含先前已移除、仍保留紀錄的元件）
-    pub components: usize,
-    /// 命中數
-    pub findings: usize,
-}
-
-fn invalid(message: impl Into<String>) -> CoreError {
+pub(super) fn invalid(message: impl Into<String>) -> CoreError {
     CoreError::Invalid(message.into())
 }
 
@@ -90,7 +90,7 @@ fn commit(tx: Transaction<'_>, now: DateTime<Utc>) -> Result<(), CoreError> {
 }
 
 /// 以一個交易執行 `op`，成功時記錄「比對待補」並提交；失敗時整批回復。
-fn in_tx<T>(
+pub(super) fn in_tx<T>(
     conn: &mut Connection,
     now: DateTime<Utc>,
     op: impl FnOnce(&Connection) -> Result<T, CoreError>,
@@ -101,7 +101,7 @@ fn in_tx<T>(
     Ok(out)
 }
 
-fn find_asset(conn: &Connection, tag: &str) -> Result<Asset, CoreError> {
+pub(super) fn find_asset(conn: &Connection, tag: &str) -> Result<Asset, CoreError> {
     AssetRepo::new(conn)
         .find_by_tag(tag)?
         .ok_or_else(|| invalid(format!("找不到資產 {tag}")))
@@ -256,36 +256,50 @@ pub(crate) fn tag_in_use_message(tag: &str, status: AssetStatus) -> String {
     }
 }
 
-/// ISMS 編號已被其他資產（含 retired、不分大小寫）使用時拒絕；`exclude` 為資產自身。
-fn ensure_isms_id_free(
+/// ISMS 編號或財產編號已被其他資產（含 retired、不分大小寫）使用時拒絕；`exclude` 為資產自身
+/// （20 design D3）。
+fn ensure_unique_free(
     conn: &Connection,
     record: &AssetRecord,
     exclude: Option<i64>,
 ) -> Result<(), CoreError> {
-    let Some(id) = &record.isms_id else {
-        return Ok(());
-    };
-    match AssetRepo::new(conn).isms_id_in_use(id, exclude)? {
-        Some((owner, status)) => Err(invalid(isms_in_use_message(
-            id,
-            &owner,
-            status == AssetStatus::Retired,
-        ))),
-        None => Ok(()),
+    let repo = AssetRepo::new(conn);
+    for field in UniqueField::ALL {
+        let Some(value) = field.value(record) else {
+            continue;
+        };
+        if let Some((owner, status)) = repo.value_in_use(field, value, exclude)? {
+            let retired = status == AssetStatus::Retired;
+            return Err(invalid(field.in_use_message(value, &owner, retired)));
+        }
     }
+    Ok(())
+}
+
+fn join_ip_errors(errors: Vec<IpError>) -> CoreError {
+    let messages: Vec<String> = errors.into_iter().map(|e| e.message).collect();
+    invalid(messages.join("；"))
+}
+
+/// 驗證並寫入 IP（整份取代）。
+fn set_ips(conn: &Connection, asset: &Asset, ips: &[IpInput<'_>]) -> Result<(), CoreError> {
+    let parsed = validate_ips(ips).map_err(join_ip_errors)?;
+    AssetIpRepo::new(conn).replace(asset.id, &parsed)
 }
 
 /// 新增 active 資產（至少一個目錄產品元件）。`asset_tag` 已被任何資產（含 retired、
-/// 不分大小寫）使用時拒絕；ISMS 編號亦同。
+/// 不分大小寫）使用時拒絕；ISMS 編號與財產編號亦同。`ips` 依輸入順序寫入。
 pub fn create_asset(
     conn: &mut Connection,
     catalog: &Catalog,
     classes: &AssetClasses,
     input: &RecordInput<'_>,
     components: &[NewComponent],
+    ips: &[IpInput<'_>],
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
     let record = validate_in(conn, classes, input)?;
+    let ips = validate_ips(ips).map_err(join_ip_errors)?;
     if components.is_empty() {
         return Err(invalid("至少需要一個元件（產品與版本）"));
     }
@@ -298,9 +312,10 @@ pub fn create_asset(
                 AssetStatus::Active => format!("資產編號 {existing} 已存在"),
             }));
         }
-        ensure_isms_id_free(tx, &record, None)?;
+        ensure_unique_free(tx, &record, None)?;
         AssetRepo::new(tx).insert(&record, now)?;
         let asset = find_asset(tx, &record.asset_tag)?;
+        AssetIpRepo::new(tx).replace(asset.id, &ips)?;
         let mut outcome = EditOutcome::default();
         for c in components {
             ensure_new_product(tx, &asset, &c.product_key)?;
@@ -326,7 +341,7 @@ fn update_fields(
         ..*input
     };
     let record = validate_in(conn, classes, &input)?;
-    ensure_isms_id_free(conn, &record, Some(asset.id))?;
+    ensure_unique_free(conn, &record, Some(asset.id))?;
     AssetRepo::new(conn).update_record(asset.id, &record, now)?;
     Ok(EditOutcome::default())
 }
@@ -499,6 +514,10 @@ fn apply_op(
             product_key,
         } => resolve_in(conn, catalog, asset, *unresolved_id, product_key, now),
         EditOp::DeleteUnresolved(id) => delete_in(conn, asset, *id),
+        EditOp::SetIps(ips) => {
+            set_ips(conn, asset, ips)?;
+            Ok(EditOutcome::default())
+        }
     }
 }
 
@@ -656,95 +675,4 @@ pub fn delete_unresolved(
         ensure_minimum(tx, &asset)?;
         Ok(out)
     })
-}
-
-/// 刪除 = 標為退役（與匯入 `--prune` 相同：保留命中與處理紀錄、不再參與比對）。
-pub fn retire_asset(
-    conn: &mut Connection,
-    tag: &str,
-    now: DateTime<Utc>,
-) -> Result<EditOutcome, CoreError> {
-    in_tx(conn, now, |tx| {
-        let asset = find_asset(tx, tag)?;
-        if asset.status == AssetStatus::Retired {
-            return Err(invalid(format!("{tag} 已經是退役狀態")));
-        }
-        AssetRepo::new(tx).retire(asset.id, now)?;
-        Ok(EditOutcome::default())
-    })?;
-    tracing::info!(asset = %tag, "畫面退役資產");
-    Ok(EditOutcome::default())
-}
-
-/// 恢復已退役資產（design D8）。
-pub fn restore_asset(
-    conn: &mut Connection,
-    tag: &str,
-    now: DateTime<Utc>,
-) -> Result<EditOutcome, CoreError> {
-    in_tx(conn, now, |tx| {
-        let asset = find_asset(tx, tag)?;
-        if asset.status == AssetStatus::Active {
-            return Err(invalid(format!("{tag} 未退役，不需要恢復")));
-        }
-        let repo = AssetRepo::new(tx);
-        repo.restore(asset.id, now)?;
-        repo.mark_components_updated(asset.id, now)?;
-        Ok(EditOutcome::default())
-    })?;
-    tracing::info!(asset = %tag, "畫面恢復資產");
-    Ok(EditOutcome::default())
-}
-
-fn retired_asset(conn: &Connection, tag: &str) -> Result<Asset, CoreError> {
-    let asset = find_asset(conn, tag)?;
-    if asset.status == AssetStatus::Active {
-        return Err(invalid(format!(
-            "{tag} 仍在使用中，需先標為退役才能永久刪除"
-        )));
-    }
-    Ok(asset)
-}
-
-fn preview_of(conn: &Connection, asset_id: i64) -> Result<PurgePreview, CoreError> {
-    let (components, findings): (i64, i64) = conn.query_row(
-        "SELECT (SELECT count(*) FROM component WHERE asset_id = ?1),
-                (SELECT count(*) FROM finding f JOIN component c ON c.id = f.component_id
-                 WHERE c.asset_id = ?1)",
-        params![asset_id],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
-    Ok(PurgePreview {
-        components: usize::try_from(components).unwrap_or(0),
-        findings: usize::try_from(findings).unwrap_or(0),
-    })
-}
-
-/// 永久刪除前的預覽（唯讀）；只允許 retired 資產。
-pub fn purge_preview(conn: &Connection, tag: &str) -> Result<PurgePreview, CoreError> {
-    let asset = retired_asset(conn, tag)?;
-    preview_of(conn, asset.id)
-}
-
-/// 永久刪除 retired 資產（design D7）：刪除 `asset` 一列，元件、版本歷史、未辨識產品、命中與
-/// 處理紀錄依外鍵 `ON DELETE CASCADE` 一併移除。CVE、等待區、Redmine 議題對應與送出佇列不受影響
-/// （佇列項目自帶內容，不回查命中）。
-pub fn purge_asset(
-    conn: &mut Connection,
-    tag: &str,
-    now: DateTime<Utc>,
-) -> Result<PurgePreview, CoreError> {
-    let preview = in_tx(conn, now, |tx| {
-        let asset = retired_asset(tx, tag)?;
-        let preview = preview_of(tx, asset.id)?;
-        tx.execute("DELETE FROM asset WHERE id = ?1", params![asset.id])?;
-        Ok(preview)
-    })?;
-    tracing::info!(
-        asset = %tag,
-        components = preview.components,
-        findings = preview.findings,
-        "永久刪除資產"
-    );
-    Ok(preview)
 }
