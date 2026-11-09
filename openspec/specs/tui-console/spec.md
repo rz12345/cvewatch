@@ -196,3 +196,14 @@ TUI 資產詳情 SHALL 顯示廠牌、型號、序號、財產編號、主機名
 #### Scenario: Identity in the asset detail
 - **WHEN** 使用者在資產畫面選取廠牌「Aruba」、型號 `XYZ-100`、IP 為 `192.0.2.1`（用途「管理」）與 `2001:db8::1`、沒有序號的 `FW-EDGE`
 - **THEN** 詳情顯示廠牌 Aruba、型號 `XYZ-100`、序號 -，以及 IP `192.0.2.1（管理）、2001:db8::1`
+
+### Requirement: TUI component roles
+TUI 資產詳情的元件表格 SHALL 在第一欄顯示每個元件所屬組的名稱（角色中文名稱，套件元件為「套件」），並 SHALL 依 asset-inventory 的 Component grouping by role 的組順序排列，同組的元件相鄰且維持原本順序。其餘欄位（元件、版本、來源、更新時間）SHALL 不變。
+
+#### Scenario: Role column in the asset detail
+- **WHEN** 使用者在資產畫面開啟有 Ubuntu、iDRAC9 兩個清冊元件與一個 dpkg 套件元件的 `SRV-01`
+- **THEN** 元件表格的第一欄標題為「角色」，各列依序為「BMC」（iDRAC9）、「作業系統」（Ubuntu）、「套件」（該套件）
+
+#### Scenario: Single firmware component
+- **WHEN** 使用者開啟只有 PAN-OS 元件的 `FW-EDGE`
+- **THEN** 元件表格只有一列，角色欄為「韌體」
