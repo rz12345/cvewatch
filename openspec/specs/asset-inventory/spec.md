@@ -25,7 +25,7 @@
 - **THEN** 第二次的結果為「新增 0、更新 0」
 
 ### Requirement: Import dry-run
-系統 SHALL 提供 `--dry-run`，只輸出新增、更新、版本變更、未辨識產品、清冊中消失的資產數量與明細，不寫入資料庫。
+系統 SHALL 提供 `--dry-run`，只輸出新增、更新、版本變更、未辨識產品、清冊中消失的資產與版本待補的元件數量與明細，不寫入資料庫。
 
 #### Scenario: Previewing a version change
 - **WHEN** Excel 將 `FW-01` 的版本從 `11.1.4-h7` 改為 `11.1.6`，以 `--dry-run` 匯入
@@ -35,8 +35,8 @@
 匯入 SHALL 在單一交易內完成；任何一列缺少必填欄位時 SHALL 中止整批並列出錯誤列號。
 
 #### Scenario: Missing required field
-- **WHEN** 第 12 列沒有 `version`
-- **THEN** 匯入中止，錯誤訊息包含「第 12 列：缺少 version」，資料庫維持匯入前狀態
+- **WHEN** 第 12 列沒有 `product`
+- **THEN** 匯入中止，錯誤訊息包含「第 12 列：缺少 product」，資料庫維持匯入前狀態
 
 ### Requirement: Retiring assets
 清冊中不再出現的資產 SHALL 只在使用 `--prune` 時標為退役；退役資產 SHALL 保留歷史紀錄且不再參與比對。
@@ -50,11 +50,15 @@
 - **THEN** `NAS-02` 狀態變為 retired 並記錄退役時間
 
 ### Requirement: Version change history
-元件版本變更時，系統 SHALL 記錄舊版本與變更時間。
+元件版本變更時，系統 SHALL 記錄舊版本與變更時間。版本待補的元件填上版本時沒有舊版本，MUST NOT 新增歷史紀錄。
 
 #### Scenario: Firmware upgraded
 - **WHEN** 重匯後 `NAS-01` 的 DSM 版本由 `7.2.1-69057` 變為 `7.2.2-72806`
 - **THEN** 該元件的歷史中有一筆 `7.2.1-69057` 及變更時間
+
+#### Scenario: Pending version filled
+- **WHEN** `NET-HW-003` 的 DSM 元件由版本待補填為 `7.2.2-72806`
+- **THEN** 該元件的版本歷史沒有新增紀錄
 
 ### Requirement: Exposure attribute
 每個資產 SHALL 有曝露度（internet、dmz、internal、mgmt 之一，預設 internal）。
@@ -186,6 +190,10 @@
 - **WHEN** `PVE-01` 有一筆未辨識產品 `Proxmox Backup 3.2`，執行匯出
 - **THEN** `components` 工作表有一列 `PVE-01`、`Proxmox Backup`、`3.2` 原文，重匯後該資產仍列出同一筆未辨識產品
 
+#### Scenario: Pending version is exported blank
+- **WHEN** `NET-HW-003` 的 DSM 元件為版本待補，執行匯出後再以 `--dry-run` 匯入同一檔案
+- **THEN** 檔案中該元件的 `version` 為空白，預覽結果為「新增 0、更新 0」，該元件仍為版本待補
+
 #### Scenario: Retired assets and packages are left out
 - **WHEN** `NAS-02` 為 retired，`WEB-01` 另有 dpkg 匯入的套件元件，執行匯出
 - **THEN** 檔案中沒有 `NAS-02`，`WEB-01` 只匯出清冊元件，不含套件
@@ -261,6 +269,10 @@
 #### Scenario: Mapping to a catalog product
 - **WHEN** `PVE-01` 有未辨識產品 `PVE 8.2.4`，使用者將它改為目錄產品 Proxmox VE
 - **THEN** `PVE-01` 多一個 Proxmox VE `8.2.4` 元件，未辨識產品清單不再列出這一筆
+
+#### Scenario: Mapping a pending unresolved product
+- **WHEN** `NET-HW-004` 有一筆版本待補的未辨識產品「Zyxel ABCD」，使用者將它改為目錄產品 Zyxel 防火牆
+- **THEN** `NET-HW-004` 多一個版本待補的 Zyxel 防火牆元件，未辨識產品清單不再列出這一筆
 
 ### Requirement: Edits are matched automatically
 每次資產或元件編修 SHALL 在寫入的同一交易記錄「比對待補」，寫入後 SHALL 自動執行比對；比對失敗時已完成的編修 MUST NOT 回復，「比對待補」保留到下次比對成功。
@@ -481,3 +493,32 @@
 #### Scenario: Upgrading a database with ISMS IDs
 - **WHEN** 升級前 `FW-01` 的 owner 為「王小明」、ISMS 編號為 `SYS-HW-003`，`NAS-01` 沒有 ISMS 編號
 - **THEN** 升級後有資產說明 `SYS`（名稱 `SYS`），`FW-01` 歸屬它且保管人為「王小明」；`NAS-01` 不歸屬任何資產說明；兩者的命中數與升級前相同
+
+### Requirement: Pending component version
+清冊元件與未辨識產品的版本 SHALL 可以是空白，狀態為「版本待補」。版本待補的元件 SHALL 依 vuln-matching 的 Pending versions are not matched 處理。主機套件元件 MUST NOT 是版本待補。資產只有版本待補的元件時，仍 SHALL 滿足「至少一個清冊元件或未辨識產品」的要求。
+
+#### Scenario: Asset with only pending components
+- **WHEN** 匯入後 `NET-HW-003` 只有一個版本待補的 Synology DSM 元件
+- **THEN** `NET-HW-003` 為 active 資產，元件版本顯示為版本待補
+
+### Requirement: Blank version on import
+清冊匯入時，`version` 空白的元件列 SHALL 成為版本待補，MUST NOT 中止匯入。資料庫中該元件已有版本、檔案中為空白時，元件 SHALL 改為版本待補，預覽 SHALL 將其列為版本變更（例如 `11.1.6 → 待補`）。預覽與完成摘要 SHALL 列出匯入後版本待補的元件數。
+
+#### Scenario: New component without version
+- **WHEN** 清冊中 `NAS-03` 的 Synology DSM 元件 `version` 空白
+- **THEN** 匯入成功，`NAS-03` 有一個版本待補的 DSM 元件，摘要列出「版本待補 1 個元件」
+
+#### Scenario: Known version cleared in the spreadsheet
+- **WHEN** 資料庫的 `FW-01` PAN-OS 版本為 `11.1.6`，重匯的清冊中該元件 `version` 空白
+- **THEN** 預覽列出 `FW-01` 版本 `11.1.6 → 待補`；匯入後該元件為版本待補，版本歷史中有一筆 `11.1.6`
+
+### Requirement: Filling pending versions
+在畫面或指令編修元件時，版本待補的元件 SHALL 可以填上版本，填上後成為一般元件並依 Edits are matched automatically 自動比對。已有版本的元件 MUST NOT 被改成空白版本；新增資產與加入元件時 MUST 填寫版本。
+
+#### Scenario: Filling a pending version
+- **WHEN** `NET-HW-003` 的 DSM 元件為版本待補，使用者把版本填為 `7.2.2-72806` 並儲存
+- **THEN** 元件版本為 `7.2.2-72806`，該元件開始參與比對
+
+#### Scenario: Clearing a known version
+- **WHEN** 使用者把 `FW-01` 的 PAN-OS 版本 `11.1.6` 清成空白並儲存
+- **THEN** 系統拒絕並在版本欄旁顯示「必填」，元件不變
