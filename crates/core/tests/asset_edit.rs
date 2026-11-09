@@ -589,7 +589,12 @@ fn empty_version_is_refused() {
         "  ",
         now(),
     ));
-    assert!(m.contains("version"), "{m}");
+    assert!(m.contains("必填"), "{m}");
+    assert_eq!(
+        versions(&w, "FW-01"),
+        vec![("paloalto-panos".to_string(), "11.1.4-h7".to_string())],
+        "元件不變"
+    );
 }
 
 // ── Requirement: Resolving unresolved products ──────────────

@@ -1,6 +1,6 @@
 //! 資產畫面的工具列與左側資產清單（design 11 D4、D8）。
 //!
-//! 工具列分三組：新增資產、資產說明…｜清冊檔案（匯入、範本、匯出）｜顯示已退役。清單依資產說明
+//! 工具列分三組：新增資產、資產說明…｜清冊檔案（匯入、範本、匯出、從 ISMS 清冊匯入）｜顯示已退役。清單依資產說明
 //! 分組（16 design D8；可收合，標題列出資產數與未處理命中數），組內為三欄表格（編號、名稱、
 //! 未處理），整列可點選；名稱過長時截斷並以提示顯示全文。
 
@@ -21,8 +21,14 @@ pub const RETIRED_MARK: &str = "（已退役）";
 /// 拖放匯入的提示（「匯入清冊」的滑鼠提示與空清單）。
 pub const DROP_HINT: &str = "也可以把 .xlsx 或 .csv 清冊拖進視窗";
 
-/// 「由 ISMS 清冊產生草稿」按鈕。
-pub const ISMS_DRAFT_BUTTON: &str = "由 ISMS 清冊產生草稿";
+/// 有版本待補元件的資產在清單中的標示。
+pub const PENDING_MARK: &str = "（版本待補）";
+
+/// 「只顯示版本待補」篩選。
+pub const PENDING_FILTER: &str = "只顯示版本待補";
+
+/// 「從 ISMS 清冊匯入」按鈕。
+pub const ISMS_IMPORT_BUTTON: &str = "從 ISMS 清冊匯入";
 
 /// 清單的欄位標題。
 pub const LIST_COLUMNS: [&str; 3] = ["編號", "名稱", "未處理"];
@@ -57,14 +63,18 @@ impl GuiApp {
                 self.export_inventory();
             }
             if ui
-                .button(ISMS_DRAFT_BUTTON)
-                .on_hover_text("ISMS 清冊沒有版本：產生草稿後補上版本，再以「匯入清冊」匯入")
+                .add_enabled(enabled, egui::Button::new(ISMS_IMPORT_BUTTON))
+                .on_hover_text(
+                    "先預覽再匯入；描述中的產品成為版本待補元件，匯入後在編輯對話框補上版本",
+                )
+                .on_disabled_hover_text(NO_COMPANION)
                 .clicked()
             {
-                self.generate_isms_draft();
+                self.pick_isms_workbook();
             }
             ui.separator();
             ui.checkbox(&mut self.assets_show_retired, "顯示已退役");
+            ui.checkbox(&mut self.assets_pending_only, PENDING_FILTER);
         });
     }
 
@@ -72,6 +82,7 @@ impl GuiApp {
     pub(super) fn asset_list(&self, ui: &mut egui::Ui) -> Option<String> {
         let filter = AssetListFilter {
             include_retired: self.assets_show_retired,
+            pending_only: self.assets_pending_only,
             class: None,
         };
         let mut picked = None;
@@ -194,10 +205,10 @@ fn list_row(
         }
     };
     let name = shown_name(r).map(one_line).unwrap_or_default();
-    let name = if retired {
-        format!("{name}{RETIRED_MARK}")
-    } else {
-        name
+    let name = match (retired, a.has_pending()) {
+        (true, _) => format!("{name}{RETIRED_MARK}"),
+        (false, true) => format!("{name}{PENDING_MARK}"),
+        (false, false) => name,
     };
     row.col(|ui| {
         ui.add(egui::Label::new(paint(one_line(&r.asset_tag))).selectable(false));

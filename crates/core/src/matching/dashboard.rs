@@ -6,6 +6,7 @@ use rusqlite::{params, Connection};
 use super::pending::stale_cutoff;
 use super::run::MATCH_LAST_RUN_KEY;
 use super::scoring::Priority;
+use crate::assets::pending::{pending_counts, PendingCounts, PENDING_COMPONENT_SQL};
 use crate::db::lock::stale_after;
 use crate::db::meta;
 use crate::error::CoreError;
@@ -55,8 +56,10 @@ pub struct Dashboard {
     pub kev_open: i64,
     pub pending: i64,
     pub pending_stale: i64,
-    /// 來源矛盾（使用中元件）
+    /// 來源矛盾（使用中元件；版本待補元件的舊紀錄不計，18 design D2）
     pub conflicts: i64,
+    /// 版本待補的元件數與資產數（18 design D7）
+    pub pending_versions: PendingCounts,
     /// 無法送出（dead）的通知
     pub dead_notifications: i64,
     /// 各來源最近一次同步，依同步順序（cvelist → nvd → csaf:* → kev → epss → osv → 其他）
@@ -93,10 +96,14 @@ pub fn load(
         pending,
         pending_stale,
         conflicts: conn.query_row(
-            "SELECT count(*) FROM match_conflict m JOIN active_component c ON c.id = m.component_id",
+            &format!(
+                "SELECT count(*) FROM match_conflict m JOIN active_component c ON c.id = m.component_id
+                 WHERE NOT ({PENDING_COMPONENT_SQL})"
+            ),
             [],
             |r| r.get(0),
         )?,
+        pending_versions: pending_counts(conn)?,
         dead_notifications: conn.query_row(
             "SELECT count(*) FROM outbox WHERE dead_at IS NOT NULL",
             [],

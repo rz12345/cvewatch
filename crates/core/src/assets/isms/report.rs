@@ -1,25 +1,11 @@
-//! 草稿報表（17 design D6）：CLI 摘要、`isms_report` 工作表與 GUI 摘要共用。
+//! ISMS 匯入報表（17 design D6、18 design D6）：CLI 預覽與完成摘要（GUI 預覽顯示同一份輸出）。
 
 use std::collections::BTreeMap;
 
 use super::row::SkipReason;
 
-/// `isms_report` 工作表名稱（匯入時不讀）。
-pub const REPORT_SHEET: &str = "isms_report";
-/// `isms_report` 工作表的表頭。
-pub const REPORT_HEADERS: [&str; 2] = ["項目", "內容"];
-/// CLI 每類最多列出的明細筆數。
-pub const CLI_DETAIL_LIMIT: usize = 20;
-
 /// 依大類略過時的顯示順序（其他大類依代碼排序接在後面）。
 const MAJOR_ORDER: [&str; 3] = ["PE", "IF", "SE"];
-
-/// 匯入草稿時不要使用 `--prune`（GUI 的退役選項）。
-pub const PRUNE_REMINDER: &str = "匯入草稿時不要使用 --prune（畫面上不要勾選「將清冊中消失的資產標為退役」）：草稿只含 ISMS 清冊中的資產，其他資產會被標為退役";
-
-/// 補版本後再匯入的提醒。
-pub const NEXT_STEP: &str =
-    "請在草稿補上所有元件的版本，再以 cvewatch asset import（或畫面的「匯入清冊」）匯入";
 
 /// 同一列有兩行以上比對到同一個目錄產品。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -37,9 +23,9 @@ pub struct UnresolvedLine {
     pub suggestions: Vec<String>,
 }
 
-/// 草稿報表。
+/// ISMS 匯入報表。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct DraftReport {
+pub struct IsmsReport {
     pub converted_new: usize,
     pub converted_existing: usize,
     /// HW、SW 以外的大類 → 列數
@@ -47,13 +33,11 @@ pub struct DraftReport {
     pub skipped_rows: Vec<SkipReason>,
     pub merged: Vec<MergedProducts>,
     pub unresolved_lines: Vec<UnresolvedLine>,
-    /// 版本空白的元件數
-    pub missing_versions: usize,
-    /// 沒有任何元件的資產（匯入前須補上產品與版本）
-    pub no_components: Vec<String>,
-    /// 資料庫中 active、但不在這次轉換結果中的資產
+    /// 這次新增的版本待補目錄產品元件數（既有的待補元件不計）
+    pub pending_components: usize,
+    /// 資料庫中 active、但不在這次匯入結果中的資產（維持 active）
     pub not_in_workbook: Vec<String>,
-    /// 資產說明名稱的警告（同代碼不同名稱、與其他資產說明衝突）
+    /// 同一系統代碼出現不同資產說明的警告
     pub system_name_conflicts: Vec<String>,
 }
 
@@ -64,7 +48,7 @@ pub struct Section {
     pub entries: Vec<String>,
 }
 
-impl DraftReport {
+impl IsmsReport {
     pub fn converted(&self) -> usize {
         self.converted_new + self.converted_existing
     }
@@ -74,14 +58,21 @@ impl DraftReport {
         self.skipped_by_major.values().sum::<usize>() + self.skipped_rows.len()
     }
 
-    /// 「轉換 6 個資產（沿用既有 1）、略過 5 列、待補版本 7 個元件」。
+    /// 併入一列的描述比對結果（合併的產品、未辨識的描述行、新增的待補元件數）。
+    pub(super) fn absorb(&mut self, other: IsmsReport) {
+        self.merged.extend(other.merged);
+        self.unresolved_lines.extend(other.unresolved_lines);
+        self.pending_components += other.pending_components;
+    }
+
+    /// 「ISMS 清冊：可匯入 6 列（既有資產 1）、略過 11 列；這次新加入的版本待補元件 7 個」。
     pub fn summary(&self) -> String {
         format!(
-            "轉換 {} 個資產（沿用既有 {}）、略過 {} 列、待補版本 {} 個元件",
+            "ISMS 清冊：可匯入 {} 列（既有資產 {}）、略過 {} 列；這次新加入的版本待補元件 {} 個",
             self.converted(),
             self.converted_existing,
             self.skipped(),
-            self.missing_versions
+            self.pending_components
         )
     }
 
@@ -107,7 +98,7 @@ impl DraftReport {
         let merged = self.merged.iter().map(|m| {
             let lines: Vec<String> = m.lines.iter().map(|l| format!("「{l}」")).collect();
             format!(
-                "{}：{} 已合併為一個 {} 元件；兩處版本不同時，請把該資產拆成多個資產",
+                "{}：{} 已合併為一個 {} 元件；兩處版本不同時，請匯入後在畫面另外新增資產",
                 m.isms_id,
                 lines.join("與"),
                 m.key
@@ -119,7 +110,10 @@ impl DraftReport {
             } else {
                 format!("相似產品：{}", u.suggestions.join("、"))
             };
-            format!("{}：「{}」比對不到目錄產品（{hint}）", u.isms_id, u.text)
+            format!(
+                "{}：「{}」比對不到目錄產品，匯入為版本待補的未辨識產品（{hint}）",
+                u.isms_id, u.text
+            )
         });
         let sections = [
             (
@@ -128,19 +122,12 @@ impl DraftReport {
             ),
             ("合併的產品", merged.collect()),
             ("未辨識的描述行", unresolved.collect()),
-            (
-                "沒有元件",
-                self.no_components
-                    .iter()
-                    .map(|t| format!("{t} 沒有任何元件，匯入前須補上產品與版本"))
-                    .collect(),
-            ),
             ("資產說明", self.system_name_conflicts.clone()),
             (
                 "不在 ISMS 清冊",
                 self.not_in_workbook
                     .iter()
-                    .map(|t| format!("{t} 不在 ISMS 清冊中"))
+                    .map(|t| format!("{t} 不在 ISMS 清冊中（維持使用中）"))
                     .collect(),
             ),
         ];
@@ -151,52 +138,14 @@ impl DraftReport {
             .collect()
     }
 
-    /// 結尾的提醒：補版本後再匯入、不要使用 `--prune`（一律提醒：草稿只含 ISMS 清冊的資產）。
-    pub fn reminders(&self) -> [&'static str; 2] {
-        [NEXT_STEP, PRUNE_REMINDER]
-    }
-
-    /// CLI 輸出：摘要、各類前 [`CLI_DETAIL_LIMIT`] 筆明細與提醒。
+    /// CLI 輸出：摘要、依大類略過與各類明細（全部列出：沒有另外的報表檔可查）。
     pub fn cli_lines(&self) -> Vec<String> {
         let mut out = vec![self.summary()];
         out.extend(self.major_line());
         for section in self.sections() {
             out.push(format!("{}（{}）：", section.title, section.entries.len()));
-            out.extend(
-                section
-                    .entries
-                    .iter()
-                    .take(CLI_DETAIL_LIMIT)
-                    .map(|e| format!("  {e}")),
-            );
-            if section.entries.len() > CLI_DETAIL_LIMIT {
-                out.push(format!(
-                    "  …還有 {} 筆，請查看草稿的 {REPORT_SHEET} 工作表",
-                    section.entries.len() - CLI_DETAIL_LIMIT
-                ));
-            }
+            out.extend(section.entries.iter().map(|e| format!("  {e}")));
         }
-        out.extend(self.reminders().iter().map(|r| r.to_string()));
-        out
-    }
-
-    /// `isms_report` 工作表的資料列（項目、內容；每筆一列）。
-    pub fn sheet_rows(&self) -> Vec<Vec<String>> {
-        let mut out = vec![vec!["摘要".to_string(), self.summary()]];
-        out.extend(self.major_line().map(|l| vec!["依大類略過".to_string(), l]));
-        for section in self.sections() {
-            out.extend(
-                section
-                    .entries
-                    .into_iter()
-                    .map(|e| vec![section.title.to_string(), e]),
-            );
-        }
-        out.extend(
-            self.reminders()
-                .into_iter()
-                .map(|r| vec!["提醒".to_string(), r.to_string()]),
-        );
         out
     }
 }
@@ -205,8 +154,8 @@ impl DraftReport {
 mod tests {
     use super::*;
 
-    fn report() -> DraftReport {
-        DraftReport {
+    fn report() -> IsmsReport {
+        IsmsReport {
             converted_new: 5,
             converted_existing: 1,
             skipped_by_major: [("SE".into(), 2), ("IF".into(), 5), ("PE".into(), 3)]
@@ -216,9 +165,9 @@ mod tests {
                 row: 44,
                 message: "ISMS 編號「WEB-SE-003」的大類 SE 與資產類別 SW01 不符".into(),
             }],
-            missing_versions: 7,
+            pending_components: 7,
             not_in_workbook: vec!["PVE-01".into()],
-            ..DraftReport::default()
+            ..IsmsReport::default()
         }
     }
 
@@ -227,57 +176,38 @@ mod tests {
         let r = report();
         assert_eq!(
             r.summary(),
-            "轉換 6 個資產（沿用既有 1）、略過 11 列、待補版本 7 個元件"
+            "ISMS 清冊：可匯入 6 列（既有資產 1）、略過 11 列；這次新加入的版本待補元件 7 個"
         );
         assert_eq!(r.major_line().as_deref(), Some("略過 PE 3、IF 5、SE 2"));
-        assert_eq!(DraftReport::default().major_line(), None);
+        assert_eq!(IsmsReport::default().major_line(), None);
     }
 
     #[test]
     fn assets_missing_from_the_isms_workbook() {
         let lines = report().cli_lines();
         assert!(
-            lines.iter().any(|l| l == "  PVE-01 不在 ISMS 清冊中"),
+            lines
+                .iter()
+                .any(|l| l == "  PVE-01 不在 ISMS 清冊中（維持使用中）"),
             "{lines:?}"
         );
-        assert!(
-            lines.iter().any(|l| l.contains("不要使用 --prune")),
-            "{lines:?}"
-        );
-        let rows = report().sheet_rows();
-        assert!(rows.contains(&vec![
-            "不在 ISMS 清冊".into(),
-            "PVE-01 不在 ISMS 清冊中".into()
-        ]));
-        assert!(rows
-            .iter()
-            .any(|r| r[0] == "提醒" && r[1].contains("--prune")));
+        assert!(!lines.iter().any(|l| l.contains("--prune")), "{lines:?}");
     }
 
     #[test]
-    fn cli_lists_at_most_twenty_per_section() {
-        let r = DraftReport {
+    fn cli_lists_every_entry() {
+        let r = IsmsReport {
             not_in_workbook: (0..25).map(|i| format!("A-{i:02}")).collect(),
-            ..DraftReport::default()
+            ..IsmsReport::default()
         };
         let lines = r.cli_lines();
         assert!(lines.contains(&"不在 ISMS 清冊（25）：".to_string()));
-        assert_eq!(lines.iter().filter(|l| l.starts_with("  A-")).count(), 20);
-        assert!(lines
-            .iter()
-            .any(|l| l.contains("還有 5 筆") && l.contains(REPORT_SHEET)));
-        assert_eq!(
-            r.sheet_rows()
-                .iter()
-                .filter(|r| r[0] == "不在 ISMS 清冊")
-                .count(),
-            25
-        );
+        assert_eq!(lines.iter().filter(|l| l.starts_with("  A-")).count(), 25);
     }
 
     #[test]
     fn merged_and_unresolved_entries() {
-        let r = DraftReport {
+        let r = IsmsReport {
             merged: vec![MergedProducts {
                 isms_id: "NET-HW-004".into(),
                 key: "hpe-aoscx".into(),
@@ -291,12 +221,13 @@ mod tests {
                 text: "Zyxel ABCD".into(),
                 suggestions: vec![],
             }],
-            ..DraftReport::default()
+            ..IsmsReport::default()
         };
         let sections = r.sections();
         assert_eq!(sections[0].title, "合併的產品");
         assert!(sections[0].entries[0]
             .contains("「Core: Aruba XYZ-100 *2」與「Edge: Aruba XYZ-100 *9」"));
+        assert!(sections[0].entries[0].contains("在畫面另外新增資產"));
         assert!(sections[1].entries[0].contains("「Zyxel ABCD」比對不到目錄產品"));
     }
 }

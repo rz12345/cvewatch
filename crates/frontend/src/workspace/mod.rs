@@ -4,10 +4,9 @@
 //! 不直接寫入任何畫面欄位。寫入一律呼叫 core 與 CLI 相同的函式，確保事件紀錄一致。
 //! 各操作依類別放在子模組：狀態變更（[`triage`]）、等待區（[`pending`]）、重新載入
 //! （[`reload`]）、背景 sync 與新資料偵測（[`sync`]）、連結與剪貼簿（[`links`]）、VEX（[`vex`]）、
-//! 資產編修、清冊匯出與範本（[`assets`]）、由 ISMS 清冊產生草稿（[`isms`]）。
+//! 資產編修、清冊匯出與範本（[`assets`]）。
 
 pub mod assets;
-pub mod isms;
 pub mod links;
 pub mod pending;
 pub mod reload;

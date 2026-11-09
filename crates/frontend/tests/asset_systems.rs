@@ -69,6 +69,7 @@ fn headings(ws: &Workspace, include_retired: bool) -> Vec<(String, Vec<String>, 
         .asset_groups(&AssetListFilter {
             include_retired,
             class: None,
+            ..AssetListFilter::default()
         })
         .iter()
         .map(|g| {

@@ -1,4 +1,4 @@
-//! `draft.rs` 的單元測試（17 任務 3.1）。
+//! `conversion.rs` 的單元測試（17 任務 3.1、18 任務 4.2）。
 
 use super::*;
 use crate::assets::classes::{Cia, ClassCode};
@@ -69,14 +69,14 @@ fn system(code: &str, name: &str) -> AssetSystem {
     }
 }
 
-fn run(rows: Vec<IsmsRow>, existing: Vec<ExistingAsset>) -> Draft {
+fn run(rows: Vec<IsmsRow>, existing: Vec<ExistingAsset>) -> Conversion {
     let classes = AssetClasses::builtin();
     let catalog = catalog();
-    let ctx = DraftContext {
+    let ctx = ConversionContext {
         existing,
-        ..DraftContext::empty(&classes, &catalog)
+        ..ConversionContext::empty(&classes, &catalog)
     };
-    build_draft(&book(rows), &ctx)
+    build_conversion(&book(rows), &ctx)
 }
 
 #[test]
@@ -93,8 +93,8 @@ fn mapping_a_storage_row() {
     r.integrity = "3".into();
     r.availability = "4".into();
     r.personal_data = "N".into();
-    let draft = run(vec![r], vec![]);
-    let a = &draft.assets[0];
+    let conv = run(vec![r], vec![]);
+    let a = &conv.assets[0];
     assert_eq!(a.record.asset_tag, "NET-HW-003");
     assert_eq!(a.record.isms_id.as_deref(), Some("NET-HW-003"));
     assert_eq!(a.record.category.as_str(), "HW05");
@@ -103,20 +103,21 @@ fn mapping_a_storage_row() {
     assert_eq!(a.record.custodian.as_deref(), Some("王小明"));
     assert_eq!(a.record.cia, Cia::new(2, 3, 4));
     assert!(!a.record.personal_data);
-    assert!(a.blank_exposure && !a.reused);
+    assert_eq!(a.record.exposure, Exposure::Internal);
+    assert!(!a.reused);
     assert_eq!(
         a.record.notes.as_deref(),
         Some("ISMS 描述：Synology XYZ-200 *1")
     );
     assert_eq!(a.items, vec![item(None, "Synology XYZ-200", "")]);
-    assert_eq!(draft.systems, vec![system("NET", "網路服務")]);
-    assert_eq!(draft.report.converted_new, 1);
-    assert_eq!(draft.report.missing_versions, 1);
+    assert_eq!(conv.systems, vec![system("NET", "網路服務")]);
+    assert_eq!(conv.report.converted_new, 1);
+    assert_eq!(conv.report.pending_components, 0, "未辨識產品不計入");
 }
 
 #[test]
 fn two_names_for_one_system_code() {
-    let draft = run(
+    let conv = run(
         vec![
             isms_row(5, ("NET-", "HW-001"), "HW02", "網路服務", "PAN-OS"),
             isms_row(9, ("NET-", "HW-002"), "HW02", "網路服務組", "PAN-OS"),
@@ -125,12 +126,12 @@ fn two_names_for_one_system_code() {
         vec![],
     );
     assert_eq!(
-        draft.systems,
+        conv.systems,
         vec![system("NET", "網路服務"), system("WEB", "WEB")],
         "都空白時以代碼為名稱"
     );
     assert_eq!(
-        draft.report.system_name_conflicts,
+        conv.report.system_name_conflicts,
         ["第 9 列的資產說明「網路服務組」與第 5 列不同，NET 使用「網路服務」"]
     );
 }
@@ -139,37 +140,14 @@ fn two_names_for_one_system_code() {
 fn blank_system_name_uses_the_database_name() {
     let classes = AssetClasses::builtin();
     let catalog = catalog();
-    let ctx = DraftContext {
+    let ctx = ConversionContext {
         systems: SystemDirectory::new(vec![system("NET", "網路")]),
-        ..DraftContext::empty(&classes, &catalog)
+        ..ConversionContext::empty(&classes, &catalog)
     };
     let rows = vec![isms_row(5, ("NET-", "HW-001"), "HW02", "", "PAN-OS")];
-    let draft = build_draft(&book(rows), &ctx);
-    assert_eq!(draft.systems, vec![system("NET", "網路")]);
-    assert!(draft.report.system_name_conflicts.is_empty());
-}
-
-#[test]
-fn system_name_used_by_another_system_is_reported() {
-    let classes = AssetClasses::builtin();
-    let catalog = catalog();
-    let ctx = DraftContext {
-        systems: SystemDirectory::new(vec![system("SYS", "網路服務")]),
-        ..DraftContext::empty(&classes, &catalog)
-    };
-    let rows = vec![isms_row(
-        5,
-        ("NET-", "HW-001"),
-        "HW02",
-        "網路服務",
-        "PAN-OS",
-    )];
-    let draft = build_draft(&book(rows), &ctx);
-    let warnings = &draft.report.system_name_conflicts;
-    assert!(
-        warnings.len() == 1 && warnings[0].contains("已被資產說明 SYS 使用"),
-        "{warnings:?}"
-    );
+    let conv = build_conversion(&book(rows), &ctx);
+    assert_eq!(conv.systems, vec![system("NET", "網路")]);
+    assert!(conv.report.system_name_conflicts.is_empty());
 }
 
 #[test]
@@ -194,8 +172,8 @@ fn isms_id_already_in_cvewatch() {
             item(None, "zyxel abcd", "1.0"),
         ],
     );
-    let draft = run(vec![r], vec![fw]);
-    let a = &draft.assets[0];
+    let conv = run(vec![r], vec![fw]);
+    let a = &conv.assets[0];
     assert_eq!(a.record.asset_tag, "FW-01");
     assert_eq!(a.record.name, "fw-01");
     assert_eq!(a.record.exposure, Exposure::Internet);
@@ -208,7 +186,7 @@ fn isms_id_already_in_cvewatch() {
     );
     assert_eq!(a.record.cia, Cia::new(3, 3, 4), "ISMS 欄位取自 ISMS 清冊");
     assert_eq!(a.record.custodian.as_deref(), Some("王小明"));
-    assert!(a.reused && !a.blank_exposure);
+    assert!(a.reused);
     assert_eq!(
         a.items,
         vec![
@@ -217,8 +195,8 @@ fn isms_id_already_in_cvewatch() {
         ],
         "既有元件保留版本，未辨識產品不重複"
     );
-    assert_eq!(draft.report.converted_existing, 1);
-    assert_eq!(draft.report.missing_versions, 0);
+    assert_eq!(conv.report.converted_existing, 1);
+    assert_eq!(conv.report.pending_components, 0);
 }
 
 #[test]
@@ -231,10 +209,89 @@ fn reused_asset_gains_new_described_products() {
         "網路服務",
         "PAN-OS",
     )];
-    let draft = run(rows, vec![fw]);
+    let conv = run(rows, vec![fw]);
     assert_eq!(
-        draft.assets[0].items,
+        conv.assets[0].items,
         vec![item(Some("paloalto-panos"), "PAN-OS", "")]
+    );
+    assert_eq!(conv.report.pending_components, 1);
+}
+
+#[test]
+fn existing_asset_with_blank_description_keeps_its_items() {
+    let fw = existing(
+        "FW-01",
+        Some("NET-HW-002"),
+        AssetStatus::Active,
+        vec![item(Some("paloalto-panos"), "PAN-OS", "11.1.6")],
+    );
+    let rows = vec![isms_row(6, ("NET-", "HW-002"), "HW03", "網路服務", "")];
+    let conv = run(rows, vec![fw]);
+    assert_eq!(conv.assets.len(), 1, "既有資產照常更新 ISMS 欄位");
+    assert_eq!(
+        conv.assets[0].items,
+        vec![item(Some("paloalto-panos"), "PAN-OS", "11.1.6")]
+    );
+    assert!(conv.report.skipped_rows.is_empty());
+}
+
+#[test]
+fn unresolved_item_now_in_the_catalog_is_not_added_twice() {
+    // 既有的未辨識產品「PAN-OS」（例如當時目錄還沒有別名）在規劃時會成為 paloalto-panos
+    let fw = existing(
+        "FW-01",
+        Some("NET-HW-002"),
+        AssetStatus::Active,
+        vec![item(None, "PAN-OS", "11.1.6")],
+    );
+    let rows = vec![isms_row(
+        6,
+        ("NET-", "HW-002"),
+        "HW03",
+        "網路服務",
+        "PAN-OS",
+    )];
+    let conv = run(rows, vec![fw]);
+    assert_eq!(conv.assets[0].items, vec![item(None, "PAN-OS", "11.1.6")]);
+    assert_eq!(conv.report.pending_components, 0);
+}
+
+#[test]
+fn existing_items_that_cannot_be_imported_skip_the_row() {
+    let duplicate = existing(
+        "FW-01",
+        Some("NET-HW-002"),
+        AssetStatus::Active,
+        vec![
+            item(Some("paloalto-panos"), "PAN-OS", "11.1.6"),
+            item(None, "PAN-OS", "11.1.4"),
+        ],
+    );
+    let gone = existing(
+        "FW-02",
+        Some("NET-HW-003"),
+        AssetStatus::Active,
+        vec![item(Some("no-such-product"), "no-such-product", "1.0")],
+    );
+    let rows = vec![
+        isms_row(6, ("NET-", "HW-002"), "HW03", "網路服務", "PAN-OS"),
+        isms_row(7, ("NET-", "HW-003"), "HW03", "網路服務", "PAN-OS"),
+    ];
+    let conv = run(rows, vec![duplicate, gone]);
+    assert!(conv.assets.is_empty(), "{:?}", conv.assets);
+    let reasons: Vec<String> = conv
+        .report
+        .skipped_rows
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    assert!(
+        reasons[0].starts_with("第 6 列：FW-01 的未辨識產品「PAN-OS」已可辨識為 paloalto-panos"),
+        "{reasons:?}"
+    );
+    assert!(
+        reasons[1].starts_with("第 7 列：FW-02 的元件 no-such-product 已不在產品目錄中"),
+        "{reasons:?}"
     );
 }
 
@@ -242,14 +299,14 @@ fn reused_asset_gains_new_described_products() {
 fn isms_id_of_a_retired_asset() {
     let nas = existing("NAS-02", Some("NET-HW-005"), AssetStatus::Retired, vec![]);
     let rows = vec![isms_row(8, ("NET-", "HW-005"), "HW05", "網路服務", "NAS")];
-    let draft = run(rows, vec![nas]);
-    assert!(draft.assets.is_empty());
-    assert!(draft.systems.is_empty());
+    let conv = run(rows, vec![nas]);
+    assert!(conv.assets.is_empty());
+    assert!(conv.systems.is_empty());
     assert_eq!(
-        draft.report.skipped_rows[0].to_string(),
+        conv.report.skipped_rows[0].to_string(),
         "第 8 列：ISMS 編號 NET-HW-005 屬於已退役資產 NAS-02，須先恢復該資產"
     );
-    assert!(draft.report.not_in_workbook.is_empty(), "退役資產不列入");
+    assert!(conv.report.not_in_workbook.is_empty(), "退役資產不列入");
 }
 
 #[test]
@@ -262,18 +319,15 @@ fn asset_tag_equal_to_the_isms_id_is_reused() {
         "網路服務",
         "PAN-OS",
     )];
-    let draft = run(rows, vec![a]);
-    assert_eq!(draft.assets[0].record.asset_tag, "net-hw-001");
-    assert_eq!(
-        draft.assets[0].record.isms_id.as_deref(),
-        Some("NET-HW-001")
-    );
+    let conv = run(rows, vec![a]);
+    assert_eq!(conv.assets[0].record.asset_tag, "net-hw-001");
+    assert_eq!(conv.assets[0].record.isms_id.as_deref(), Some("NET-HW-001"));
 }
 
 #[test]
 fn assets_missing_and_rows_skipped() {
     let pve = existing("PVE-01", None, AssetStatus::Active, vec![]);
-    let draft = run(
+    let conv = run(
         vec![
             isms_row(5, ("NET-", "PE-001"), "PE01", "網路服務", "管理員"),
             isms_row(
@@ -287,15 +341,15 @@ fn assets_missing_and_rows_skipped() {
         ],
         vec![pve],
     );
-    let r = &draft.report;
+    let r = &conv.report;
     assert_eq!(r.skipped_by_major.get("PE"), Some(&1));
     assert_eq!(r.not_in_workbook, ["PVE-01"]);
     assert_eq!(r.merged[0].lines.len(), 2);
-    assert_eq!(draft.assets[0].items.len(), 1, "合併成一個元件");
-    assert_eq!(r.no_components, ["NET-HW-002"]);
+    assert_eq!(conv.assets[0].items.len(), 1, "合併成一個元件");
+    assert_eq!(conv.assets.len(), 1, "描述空白的新資產略過");
     assert_eq!(
-        draft.assets[1].record.name, "通訊設備",
-        "沒有描述時用子類別名稱"
+        r.skipped_rows[0].to_string(),
+        "第 7 列：ISMS 編號 NET-HW-002 沒有資產描述，無法建立元件；請在 ISMS 清冊補上資產描述"
     );
 }
 
@@ -307,7 +361,7 @@ fn asset_tag_used_by_another_asset() {
         AssetStatus::Active,
         vec![],
     );
-    let draft = run(
+    let conv = run(
         vec![
             isms_row(5, ("NET-", "HW-001"), "HW02", "網路服務", "PAN-OS"),
             isms_row(6, ("ABC-", "HW-009"), "HW02", "網路服務", "PAN-OS"),
@@ -315,16 +369,16 @@ fn asset_tag_used_by_another_asset() {
         vec![x],
     );
     assert_eq!(
-        draft.report.skipped_rows[0].to_string(),
+        conv.report.skipped_rows[0].to_string(),
         "第 5 列：ISMS 編號 NET-HW-001 與既有資產 NET-HW-001（ISMS 編號 ABC-HW-009）的 asset_tag 相同；請先以 cvewatch asset rename 更改該資產的編號"
     );
-    let tags: Vec<&str> = draft
+    let tags: Vec<&str> = conv
         .assets
         .iter()
         .map(|a| a.record.asset_tag.as_str())
         .collect();
     assert_eq!(tags, ["NET-HW-001"], "第 6 列沿用既有資產");
-    assert!(draft.assets[0].reused);
+    assert!(conv.assets[0].reused);
 }
 
 #[test]
@@ -336,19 +390,19 @@ fn two_rows_for_one_asset() {
         AssetStatus::Active,
         vec![],
     );
-    let draft = run(
+    let conv = run(
         vec![
             isms_row(5, ("NET-", "HW-001"), "HW02", "網路服務", "PAN-OS"),
             isms_row(6, ("NET-", "HW-002"), "HW02", "網路服務", "PAN-OS"),
         ],
         vec![a],
     );
-    assert_eq!(draft.assets.len(), 1);
+    assert_eq!(conv.assets.len(), 1);
     assert!(
-        draft.report.skipped_rows[0]
+        conv.report.skipped_rows[0]
             .to_string()
             .starts_with("第 6 列："),
         "{:?}",
-        draft.report.skipped_rows
+        conv.report.skipped_rows
     );
 }

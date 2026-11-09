@@ -1,8 +1,10 @@
 //! Dashboard：各等級未處理數、KEV 數、等待區與逾期數、來源矛盾數、各來源最後同步。
-//! 點選等級或 KEV 數字開啟套用對應篩選的命中畫面。
+//! 點選等級或 KEV 數字開啟套用對應篩選的命中畫面；點選版本待補數字開啟只顯示有版本待補元件的
+//! 資產畫面（18 design D8）。
 
 use cvewatch_core::matching::dashboard::SourceStatus;
 use cvewatch_core::matching::scoring::Priority;
+use cvewatch_frontend::display::pending_versions_text;
 use cvewatch_frontend::filter::{Filter, KevFilter};
 use cvewatch_frontend::services::DisplayTz;
 use eframe::egui;
@@ -15,6 +17,7 @@ use crate::text::{one_line, short_time};
 enum Jump {
     Priority(Priority),
     Kev,
+    PendingVersions,
 }
 
 impl GuiApp {
@@ -43,6 +46,16 @@ impl GuiApp {
                 d.pending, d.pending_stale, d.conflicts
             ));
         });
+        let pending = &d.pending_versions;
+        let text = pending_versions_text(pending);
+        let button = egui::Button::new(if pending.any() {
+            egui::RichText::new(text).color(ALERT)
+        } else {
+            egui::RichText::new(text)
+        });
+        if ui.add(button).clicked() {
+            jump = Some(Jump::PendingVersions);
+        }
         if d.dead_notifications > 0 {
             ui.colored_label(
                 ALERT,
@@ -75,6 +88,11 @@ impl GuiApp {
         self.ws.findings.filter = match jump {
             Jump::Priority(p) => base.with_priority_toggled(p),
             Jump::Kev => base.with_kev(KevFilter::Only),
+            Jump::PendingVersions => {
+                self.assets_pending_only = true;
+                self.assets_show_retired = false;
+                return self.go(Screen::Assets);
+            }
         };
         self.ws.findings.search.clear();
         self.ws.refresh_visible();

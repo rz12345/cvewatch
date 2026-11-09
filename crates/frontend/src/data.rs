@@ -40,6 +40,8 @@ pub struct Settings {
 pub struct AssetListFilter {
     /// 含已退役資產
     pub include_retired: bool,
+    /// 只列出有版本待補元件的資產（Dashboard 的版本待補數字；18 design D8）
+    pub pending_only: bool,
     /// 子類別或大類（None = 全部；選項見 [`crate::filter::class_filter_choices`]）
     pub class: Option<ClassFilter>,
 }
@@ -52,6 +54,15 @@ pub struct AssetEntry {
     pub unresolved: Vec<UnresolvedEntry>,
     /// 元件 id → 版本歷史（新到舊）
     pub history: HashMap<i64, Vec<HistoryEntry>>,
+}
+
+impl AssetEntry {
+    /// 有版本待補的清冊元件（18 design D1；未辨識產品另有「未辨識」標示，不列入）。
+    pub fn has_pending(&self) -> bool {
+        self.components
+            .iter()
+            .any(|c| c.is_inventory_product() && c.is_pending())
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +136,9 @@ impl Snapshot {
         }
         if let Some(class) = &filter.class {
             list.retain(|a| class.matches(&a.asset.record.category));
+        }
+        if filter.pending_only {
+            list.retain(|a| a.has_pending());
         }
         list
     }

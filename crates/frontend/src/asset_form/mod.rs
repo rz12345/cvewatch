@@ -17,7 +17,7 @@ use cvewatch_core::assets::columns::StandardField;
 use cvewatch_core::assets::validate::{
     validate_record, FieldError, FieldErrorKind, RecordContext, RecordInput, RATING_FIELDS,
 };
-use cvewatch_core::assets::{AssetClass, AssetClasses, Cia, SystemDirectory};
+use cvewatch_core::assets::{is_pending_version, AssetClass, AssetClasses, Cia, SystemDirectory};
 use cvewatch_core::catalog::Catalog;
 
 use crate::data::{AssetEntry, Snapshot};
@@ -50,6 +50,16 @@ pub struct ComponentDraft {
 }
 
 impl ComponentDraft {
+    /// 既有的版本待補元件、版本仍空白（未修改；儲存時不必填，18 design D8）。
+    pub fn is_untouched_pending(&self) -> bool {
+        self.id.is_some()
+            && self
+                .original_version
+                .as_deref()
+                .is_some_and(is_pending_version)
+            && is_pending_version(&self.version)
+    }
+
     pub fn new(product_key: &str) -> ComponentDraft {
         ComponentDraft {
             id: None,
@@ -327,7 +337,8 @@ impl AssetForm {
             if !c.is_kept_product() {
                 continue;
             }
-            if c.version.trim().is_empty() {
+            // 已知版本不能清成空白、新加入的元件須填版本；未修改的待補元件可以儲存
+            if c.version.trim().is_empty() && !c.is_untouched_pending() {
                 errors.components.push((i, VERSION_REQUIRED.into()));
             }
             if seen.contains(&c.product_key.as_str()) {

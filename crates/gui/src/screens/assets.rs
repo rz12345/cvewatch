@@ -9,7 +9,7 @@ use cvewatch_core::matching::query::FindingRow;
 use cvewatch_frontend::asset_form::{personal_data_label, rated_text};
 use cvewatch_frontend::data::AssetEntry;
 use cvewatch_frontend::display::{
-    class_label, component_name, exposure_label, product_name, shown_name,
+    class_label, component_line, exposure_label, product_name, shown_name, version_text,
 };
 use cvewatch_frontend::Report;
 use eframe::egui;
@@ -30,11 +30,6 @@ pub const RETIRED_NOTE: &str = "已退役：不參與比對，命中與處理紀
 
 /// 一般操作與危險操作之間的間隔。
 const DANGER_GAP: f32 = 24.0;
-
-/// 另存 ISMS 草稿對話框的標題。
-pub const ISMS_DRAFT_TITLE: &str = "儲存 ISMS 草稿";
-/// 取消產生 ISMS 草稿（任一對話框）。
-pub const ISMS_DRAFT_CANCELLED: &str = "已取消產生 ISMS 草稿";
 
 /// 詳情的操作。
 enum DetailAction {
@@ -149,7 +144,11 @@ impl GuiApp {
                     ui.add_space(6.0);
                     heading(ui, "未辨識產品");
                     for u in &a.unresolved {
-                        ui.label(format!("{} {}", one_line(&u.product_raw), u.version_raw));
+                        ui.label(format!(
+                            "{} {}",
+                            one_line(&u.product_raw),
+                            version_text(&u.version_raw)
+                        ));
                     }
                 }
             });
@@ -161,7 +160,7 @@ impl GuiApp {
         let catalog = &self.ws.settings.catalog;
         heading(ui, format!("元件（{}）", a.components.len()));
         for c in &a.components {
-            let text = one_line(&format!("{} {}", component_name(catalog, c), c.version_raw));
+            let text = one_line(&component_line(catalog, c));
             let resp = ui.label(text);
             if let ComponentKind::Product { product_key, .. } = &c.kind {
                 resp.on_hover_text(format!("產品 key：{product_key}"));
@@ -192,22 +191,6 @@ impl GuiApp {
         let r = match self.dialogs.save_xlsx("匯出資產清冊", &dir, &name) {
             None => Report::info("已取消匯出清冊"),
             Some(path) => self.ws.export_inventory(&path),
-        };
-        self.report(r);
-    }
-
-    /// 「由 ISMS 清冊產生草稿」：選擇 ISMS 清冊，再以另存新檔對話框選擇草稿位置（預設文件資料夾、
-    /// 檔名含當天日期）。任一對話框取消時不產生檔案；不修改資料庫，也不執行比對。
-    pub fn generate_isms_draft(&mut self) {
-        let r = match self.dialogs.open_isms_workbook() {
-            None => Report::info(ISMS_DRAFT_CANCELLED),
-            Some(source) => {
-                let (dir, name) = self.ws.isms_draft_default();
-                match self.dialogs.save_xlsx(ISMS_DRAFT_TITLE, &dir, &name) {
-                    None => Report::info(ISMS_DRAFT_CANCELLED),
-                    Some(target) => self.ws.write_isms_draft(&source, &target),
-                }
-            }
         };
         self.report(r);
     }

@@ -204,6 +204,7 @@ fn asset_list_includes_retired_only_when_asked() {
             .asset_list(&AssetListFilter {
                 include_retired,
                 class: None,
+                ..AssetListFilter::default()
             })
             .iter()
             .map(|a| a.asset.record.asset_tag.clone())
@@ -238,6 +239,7 @@ fn asset_list_filters_by_class_or_major_class() {
             .asset_list(&AssetListFilter {
                 include_retired: false,
                 class: ClassFilter::parse(class),
+                ..AssetListFilter::default()
             })
             .iter()
             .map(|a| a.asset.record.asset_tag.clone())
@@ -355,29 +357,4 @@ fn asset_export_and_template_reports() {
     let r = ws.write_template(&dir.join(&name));
     assert!(r.message.contains("已產生範本"), "{}", r.message);
     assert_eq!(ws.write_template(&dir.join(&name)).level, Level::Error);
-}
-
-#[test]
-fn asset_isms_draft_default_and_write() {
-    let (ws, rec) = open(assets_world());
-    let (dir, name) = ws.isms_draft_default();
-    assert_eq!(dir, rec.documents_dir());
-    assert_eq!(name, "cvewatch-isms-draft-20261107.xlsx", "含當天日期");
-    let source = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/fixtures/isms_workbook.xlsx");
-    let target = dir.join(&name);
-    let r = ws.write_isms_draft(&source, &target);
-    assert!(target.exists());
-    for part in [
-        "轉換 6 個資產（沿用既有 0）",
-        "略過 5 列",
-        "待補版本 7 個元件",
-        "--prune",
-    ] {
-        assert!(r.message.contains(part), "{part}：{}", r.message);
-    }
-    assert_eq!(r.level, Level::Warning, "第 15 列被略過");
-    let again = ws.write_isms_draft(&source, &target);
-    assert_eq!(again.level, Level::Error);
-    assert!(again.message.contains("目的檔已存在"), "{}", again.message);
 }

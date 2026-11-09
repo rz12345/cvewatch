@@ -12,6 +12,7 @@ use super::evidence::osv::OsvHit;
 use super::evidence::Source;
 use super::scoring::ScoreInputs;
 use crate::assets::model::Exposure;
+use crate::assets::pending::PENDING_COMPONENT_SQL;
 use crate::error::CoreError;
 use crate::ingest::cve5::CveState;
 use crate::ingest::cvss::{self, MetricRow, MetricSource};
@@ -189,17 +190,20 @@ fn component_from_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<Option<ActiveCo
     }))
 }
 
+/// 參與比對的元件：排除版本待補的目錄產品元件（18 design D2）。沒被載入的元件，其命中與
+/// 來源矛盾都不會被更新，因此待補期間保留原狀，填上版本後下一次比對沿用。
 fn active_components(
     conn: &Connection,
     asset_tag: Option<&str>,
 ) -> Result<Vec<ActiveComponent>, CoreError> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT c.id, c.asset_tag, c.exposure, c.asset_value, c.kind, p.key, c.purl,
                 c.version_raw, c.updated_at
          FROM active_component c LEFT JOIN catalog_product p ON p.id = c.product_id
-         WHERE ?1 IS NULL OR c.asset_tag = ?1 COLLATE NOCASE
-         ORDER BY c.asset_tag, c.id",
-    )?;
+         WHERE (?1 IS NULL OR c.asset_tag = ?1 COLLATE NOCASE)
+           AND NOT ({PENDING_COMPONENT_SQL})
+         ORDER BY c.asset_tag, c.id"
+    ))?;
     let rows = stmt.query_map(params![asset_tag], component_from_row)?;
     let mut out = Vec::new();
     for row in rows {

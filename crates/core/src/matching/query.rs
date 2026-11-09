@@ -8,6 +8,7 @@ use super::engine::Confidence;
 use super::evidence::{Detail, Source, Verdict};
 use super::scoring::{rank_cmp, Priority, RankKey, ScoreInputs};
 use super::triage::{Decider, Status};
+use crate::assets::pending::PENDING_COMPONENT_SQL;
 use crate::error::CoreError;
 use crate::ingest::cvss;
 
@@ -335,7 +336,7 @@ pub struct ConflictRow {
     pub at: String,
 }
 
-/// 來源矛盾：最終判定不受影響、但有來源判定受影響。
+/// 來源矛盾：最終判定不受影響、但有來源判定受影響（版本待補元件的舊紀錄不列出，與 Dashboard 一致）。
 pub fn conflicts(conn: &Connection) -> Result<Vec<ConflictRow>, CoreError> {
     conflicts_where(conn, None)
 }
@@ -345,16 +346,17 @@ fn conflicts_where(
     conn: &Connection,
     finding_id: Option<i64>,
 ) -> Result<Vec<ConflictRow>, CoreError> {
-    let mut stmt = conn.prepare(
+    let mut stmt = conn.prepare(&format!(
         "SELECT c.asset_tag, coalesce(p.key, c.purl), c.version_raw, m.cve_id, m.final_source,
                 m.final_verdict, m.other_source, m.other_verdict, m.at
          FROM match_conflict m
          JOIN active_component c ON c.id = m.component_id
          LEFT JOIN catalog_product p ON p.id = c.product_id
-         WHERE ?1 IS NULL OR (m.component_id, m.cve_id) =
-                (SELECT component_id, cve_id FROM finding WHERE id = ?1)
-         ORDER BY m.cve_id DESC, c.asset_tag, m.other_source",
-    )?;
+         WHERE (?1 IS NULL OR (m.component_id, m.cve_id) =
+                (SELECT component_id, cve_id FROM finding WHERE id = ?1))
+           AND NOT ({PENDING_COMPONENT_SQL})
+         ORDER BY m.cve_id DESC, c.asset_tag, m.other_source"
+    ))?;
     let rows = stmt.query_map(params![finding_id], |r| {
         Ok(ConflictRow {
             asset_tag: r.get(0)?,

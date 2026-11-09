@@ -11,7 +11,9 @@ use super::{cut, full_time, scrolling_table, short_time, table, Scroll, TableSpe
 use crate::app::App;
 use crate::width::sanitize;
 use cvewatch_core::matching::dashboard::{is_interrupted, SourceStatus};
-use cvewatch_frontend::display::{class_label, rating_summary};
+use cvewatch_frontend::display::{
+    class_label, pending_versions_text, rating_summary, version_text,
+};
 
 /// 資產畫面下方「未辨識產品」區塊最多顯示的列數。
 const UNRESOLVED_ROWS: u16 = 6;
@@ -36,6 +38,13 @@ pub fn dashboard(frame: &mut Frame<'_>, area: Rect, app: &App) {
             d.kev_open, d.pending, d.pending_stale, d.conflicts
         )),
     ];
+    // 版本待補的元件未納入比對（18 design D7）：有時以粗體提醒
+    let pending = pending_versions_text(&d.pending_versions);
+    lines.push(if d.pending_versions.any() {
+        bold(pending)
+    } else {
+        Line::raw(pending)
+    });
     if d.dead_notifications > 0 {
         lines.push(Line::styled(
             format!(
@@ -147,9 +156,15 @@ pub fn assets(frame: &mut Frame<'_>, area: Rect, app: &App) {
         let row = |i: usize| {
             let a = &app.data.assets[i];
             let r = &a.asset.record;
+            // 有版本待補元件的資產：名稱前加警示字元（寬度安全，見 glyphs.rs）
+            let name = if a.has_pending() {
+                format!("{} {}", app.glyphs.warn, r.name)
+            } else {
+                r.name.clone()
+            };
             let values = vec![
                 r.asset_tag.clone(),
-                r.name.clone(),
+                name,
                 r.category.as_str().to_string(),
                 r.exposure.as_str().to_string(),
                 r.cia.value().to_string(),
@@ -205,7 +220,12 @@ pub fn assets(frame: &mut Frame<'_>, area: Rect, app: &App) {
             .unresolved
             .iter()
             .map(|u| {
-                let text = format!("  「{}」 {}  {}", u.product_raw, u.version_raw, u.asset_tag);
+                let text = format!(
+                    "  「{}」 {}  {}",
+                    u.product_raw,
+                    version_text(&u.version_raw),
+                    u.asset_tag
+                );
                 Line::raw(cut(app, &text, usize::from(inner.width)))
             })
             .collect();
@@ -243,7 +263,8 @@ pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cur
     for u in &entry.unresolved {
         info.push(Line::raw(format!(
             "未辨識產品「{}」 {}",
-            u.product_raw, u.version_raw
+            u.product_raw,
+            version_text(&u.version_raw)
         )));
     }
     let info_height = u16::try_from(info.len()).unwrap_or(u16::MAX);
@@ -262,7 +283,7 @@ pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cur
         .map(|c| {
             let values = vec![
                 c.label().to_string(),
-                c.version_raw.clone(),
+                version_text(&c.version_raw).to_string(),
                 c.source.as_str().to_string(),
                 full_time(&c.updated_at, app.services.tz),
             ];

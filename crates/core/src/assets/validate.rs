@@ -279,7 +279,8 @@ fn parse_asset_row(
         }
     };
     let product_raw = r.required(StandardField::Product, errors);
-    let version_raw = r.required(StandardField::Version, errors);
+    // version 空白為版本待補（18 design D3）
+    let version_raw = r.get(StandardField::Version).to_string();
     let valid = valid?;
     if let Some(old) = &valid.legacy {
         notices.push(legacy_notice(r.at, &valid.record, old, classes));
@@ -349,7 +350,7 @@ fn attach_components(
         let before = errors.len();
         let tag = reader.required(StandardField::AssetTag, errors);
         let product_raw = reader.required(StandardField::Product, errors);
-        let version_raw = reader.required(StandardField::Version, errors);
+        let version_raw = reader.get(StandardField::Version).to_string();
         if errors.len() != before {
             continue;
         }
@@ -428,6 +429,18 @@ mod tests {
         );
         assert_eq!(inv.assets[0].record.category.as_str(), "HW03");
         assert_eq!(inv.assets[0].record.cia.value(), 4);
+    }
+
+    #[test]
+    fn missing_product_rejects_but_blank_version_is_pending() {
+        let errors = rejected(parse(&[
+            &["NAS-03", "nas03", "HW05", "DSM", "", "", ""],
+            &["FW-01", "fw01", "HW03", "", "11.1.6", "", ""],
+        ]));
+        assert_eq!(errors, vec!["第 3 列：缺少 product".to_string()]);
+
+        let inv = parse(&[&["NAS-03", "nas03", "HW05", "DSM", "", "", ""]]).unwrap();
+        assert_eq!(inv.assets[0].components[0].version_raw, "");
     }
 
     #[test]

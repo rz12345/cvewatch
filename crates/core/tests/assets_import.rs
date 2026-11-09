@@ -330,7 +330,7 @@ fn row_errors_abort_whole_batch_with_row_numbers() {
     .unwrap_err();
     let msg = err.to_string();
     assert!(matches!(err, CoreError::ImportRejected(_)));
-    assert!(msg.contains("第 12 列：缺少 version"), "{msg}");
+    assert!(msg.contains("第 12 列：缺少 product"), "{msg}");
     assert!(
         msg.contains("第 5 列：exposure「public」不是允許的值"),
         "{msg}"
@@ -419,7 +419,8 @@ fn invalid_category_aborts_with_row_number() {
 /// 04 code review 第十二輪 #5：只有影響比對的變更才需要重新比對。
 #[test]
 fn plan_reports_whether_matching_is_affected() {
-    use cvewatch_core::assets::plan::{AssetUpdate, ImportPlan};
+    use cvewatch_core::assets::columns::StandardField;
+    use cvewatch_core::assets::plan::{AssetUpdate, FieldChange, ImportPlan};
     let with = |update: AssetUpdate| ImportPlan {
         updated: vec![update],
         ..ImportPlan::default()
@@ -427,13 +428,22 @@ fn plan_reports_whether_matching_is_affected() {
     assert!(!ImportPlan::default().affects_matching());
     let owner_only = AssetUpdate {
         asset_tag: "FW-01".into(),
-        changed_fields: vec!["owner", "notes", "confidentiality", "isms_id"],
+        changed_fields: vec![
+            FieldChange::new(StandardField::Custodian, "王小明", "李小華"),
+            FieldChange::new(StandardField::Notes, "-", "備註"),
+            FieldChange::new(StandardField::Confidentiality, "2", "3"),
+            FieldChange::new(StandardField::IsmsId, "-", "SYS-HW-003"),
+        ],
         ..AssetUpdate::default()
     };
     assert!(!with(owner_only).affects_matching());
     let exposure = AssetUpdate {
         asset_tag: "FW-01".into(),
-        changed_fields: vec!["exposure"],
+        changed_fields: vec![FieldChange::new(
+            StandardField::Exposure,
+            "internal",
+            "internet",
+        )],
         exposure_changed: true,
         ..AssetUpdate::default()
     };
@@ -501,12 +511,12 @@ fn legacy_reimport_lists_rating_changes() {
         .iter()
         .find(|u| u.asset_tag == "SRV-01")
         .expect("SRV-01 的機密性由 3 回到範本值 2");
-    assert!(esx.changed_fields.contains(&"confidentiality"), "{esx:?}");
+    assert!(esx.field_names().contains(&"confidentiality"), "{esx:?}");
     assert!(
         !plan
             .updated
             .iter()
-            .any(|u| u.changed_fields.contains(&"isms_id")),
+            .any(|u| u.field_names().contains(&"isms_id")),
         "舊清冊沒有 isms_id 欄，不清除既有編號：{:?}",
         plan.updated
     );

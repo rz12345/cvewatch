@@ -1,11 +1,13 @@
 //! 每日摘要的資料：範圍為「上次成功寄出的摘要」到現在（首次為過去 24 小時）。
 //!
-//! 段落：同步狀態、新命中（依等級）、狀態自動變化、等待區進出與逾期、無法送出的通知。
+//! 段落：同步狀態、新命中（依等級）、狀態自動變化、等待區進出與逾期、無法送出的通知；
+//! 有版本待補的元件時另列一行提醒（不算新事項）。
 
 use chrono::{DateTime, Duration, Utc};
 use rusqlite::{params, Connection};
 
 use super::outbox::{self, OutboxItem};
+use crate::assets::pending::PendingCounts;
 use crate::db::meta;
 use crate::error::CoreError;
 use crate::matching::dashboard::{self, SourceStatus};
@@ -53,6 +55,8 @@ pub struct DigestData {
     pub dead: Vec<OutboxItem>,
     /// 目前無法送出的通知總數
     pub dead_total: usize,
+    /// 寄出時版本待補的元件數與資產數（不算新事項；18 design D7）
+    pub pending_versions: PendingCounts,
 }
 
 impl DigestData {
@@ -129,10 +133,12 @@ pub fn collect(
         })
         .collect();
     let (pending_entered, pending_exited) = pending_moves(conn, since, until)?;
+    let dash = dashboard::load(conn, stale_days, until)?;
     Ok(DigestData {
         since,
         until,
-        sources: dashboard::load(conn, stale_days, until)?.sources,
+        sources: dash.sources,
+        pending_versions: dash.pending_versions,
         new_findings,
         auto_changes: auto_changes(conn, since, until)?,
         pending_entered,

@@ -196,6 +196,9 @@ pub fn digest_mail(d: &DigestData, names: &HashMap<String, String>, zone: Zone) 
     if d.is_empty() {
         b.push_str("\n無新事項。\n");
     }
+    if let Some(line) = d.pending_versions.summary() {
+        let _ = writeln!(b, "\n{line}。請在畫面補上版本。");
+    }
     sync_section(&mut b, d, zone);
     findings_section(&mut b, d, names);
     changes_section(&mut b, d, zone);

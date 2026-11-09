@@ -3,11 +3,13 @@
 use std::collections::{BTreeMap, HashMap, HashSet};
 
 use super::columns::StandardField;
-use super::model::{AssetRecord, AssetStatus};
+use super::model::{is_pending_version, AssetRecord, AssetStatus};
+use super::plan_fields::changed_fields;
 use super::plan_systems::{assign_system, keep_existing, kept_columns_notice, plan_systems};
 use super::systems::SystemDirectory;
 use super::validate::{ImportNotice, IncomingAsset, Inventory, RowRef, ISMS_KEPT_NOTICE};
 
+pub use super::plan_fields::FieldChange;
 pub use super::plan_systems::SystemChange;
 use crate::catalog::{Catalog, Product};
 use crate::error::CoreError;
@@ -55,14 +57,34 @@ impl VersionWarning {
     }
 }
 
+/// 版本待補在預覽與訊息中的寫法（18 design D3）。
+pub const PENDING_LABEL: &str = "待補";
+
+/// 預覽中的版本：待補以 [`PENDING_LABEL`] 呈現。
+pub fn version_label(version_raw: &str) -> &str {
+    version_or(version_raw, PENDING_LABEL)
+}
+
+/// 版本待補時改為 `pending`（CLI 預覽用「待補」，畫面用「版本待補」）。
+pub fn version_or<'a>(version_raw: &'a str, pending: &'a str) -> &'a str {
+    if is_pending_version(version_raw) {
+        pending
+    } else {
+        version_raw
+    }
+}
+
 /// 以目錄產品的版本格式解析版本字串：回傳 `version_norm` 與無法解析時的警告。
-/// 清冊匯入與畫面編修共用，確保兩者正規化結果一致。
+/// 清冊匯入與畫面編修共用，確保兩者正規化結果一致。版本待補不解析、不產生警告。
 pub fn resolve_version(
     product: &Product,
     version_raw: &str,
     asset_tag: &str,
     row: Option<RowRef>,
 ) -> (Option<String>, Option<VersionWarning>) {
+    if is_pending_version(version_raw) {
+        return (None, None);
+    }
     match product.scheme().parse(version_raw) {
         Some(parsed) => (Some(parsed.normalized), None),
         None => (
@@ -81,20 +103,41 @@ pub fn resolve_version(
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VersionChange {
     pub product_key: String,
+    /// 空字串為版本待補
     pub from: String,
+    /// 空字串為版本待補
     pub to: String,
+}
+
+impl VersionChange {
+    /// 「11.1.6 → 待補」「待補 → 7.2.2-72806」。
+    pub fn describe(&self) -> String {
+        format!(
+            "{} → {}",
+            version_label(&self.from),
+            version_label(&self.to)
+        )
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct AssetUpdate {
     pub asset_tag: String,
-    pub changed_fields: Vec<&'static str>,
+    /// 變更的欄位與新舊值（18 design D5）
+    pub changed_fields: Vec<FieldChange>,
     /// 曝露度改變（影響風險等級，需要重新比對）
     pub exposure_changed: bool,
     pub version_changes: Vec<VersionChange>,
     pub components_added: Vec<String>,
     pub components_removed: Vec<String>,
     pub reactivated: bool,
+}
+
+impl AssetUpdate {
+    /// 變更的標準欄名（一般清冊匯入的預覽）。
+    pub fn field_names(&self) -> Vec<&'static str> {
+        self.changed_fields.iter().map(FieldChange::name).collect()
+    }
 }
 
 /// 要寫入的一筆資產（含已辨識元件與未辨識寫法）。
@@ -137,6 +180,15 @@ impl ImportPlan {
 
     pub fn version_change_count(&self) -> usize {
         self.updated.iter().map(|u| u.version_changes.len()).sum()
+    }
+
+    /// 匯入後檔案中版本待補的目錄產品元件數（未辨識產品不計；18 design D3）。
+    pub fn pending_components(&self) -> usize {
+        self.assets
+            .iter()
+            .flat_map(|a| &a.components)
+            .filter(|c| is_pending_version(&c.version_raw))
+            .count()
     }
 }
 
@@ -332,35 +384,6 @@ fn resolve_asset(
     }
 }
 
-fn changed_fields(old: &AssetRecord, new: &AssetRecord) -> Vec<&'static str> {
-    let (a, b) = (&old.cia, &new.cia);
-    let checks: [(&'static str, bool); 15] = [
-        ("name", old.name != new.name),
-        ("category", old.category != new.category),
-        ("location", old.location != new.location),
-        ("exposure", old.exposure != new.exposure),
-        ("confidentiality", a.confidentiality != b.confidentiality),
-        ("integrity", a.integrity != b.integrity),
-        ("availability", a.availability != b.availability),
-        ("isms_id", old.isms_id != new.isms_id),
-        ("system", old.system_code != new.system_code),
-        (
-            "responsible_unit",
-            old.responsible_unit != new.responsible_unit,
-        ),
-        ("custodian", old.custodian != new.custodian),
-        ("user_unit", old.user_unit != new.user_unit),
-        ("compliance", old.compliance != new.compliance),
-        ("personal_data", old.personal_data != new.personal_data),
-        ("notes", old.notes != new.notes),
-    ];
-    checks
-        .into_iter()
-        .filter(|(_, changed)| *changed)
-        .map(|(name, _)| name)
-        .collect()
-}
-
 fn diff_asset(existing: &CurrentAsset, planned: &PlannedAsset) -> Option<AssetUpdate> {
     let incoming: BTreeMap<&str, &str> = planned
         .components
@@ -429,5 +452,28 @@ mod tests {
         let (norm, warning) = resolve_version(esxi, "8.0 U3c", "SRV-01", Some(row));
         assert!(norm.is_some());
         assert!(warning.is_none());
+    }
+
+    #[test]
+    fn pending_version_is_not_parsed() {
+        let catalog = Catalog::seed().unwrap();
+        let esxi = catalog.get("vmware-esxi").unwrap();
+        assert_eq!(resolve_version(esxi, "  ", "SRV-01", None), (None, None));
+    }
+
+    #[test]
+    fn pending_side_of_a_version_change_reads_pending() {
+        let cleared = VersionChange {
+            product_key: "paloalto-panos".into(),
+            from: "11.1.6".into(),
+            to: String::new(),
+        };
+        assert_eq!(cleared.describe(), "11.1.6 → 待補");
+        let filled = VersionChange {
+            product_key: "synology-dsm".into(),
+            from: String::new(),
+            to: "7.2.2-72806".into(),
+        };
+        assert_eq!(filled.describe(), "待補 → 7.2.2-72806");
     }
 }

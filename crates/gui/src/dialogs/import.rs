@@ -1,5 +1,6 @@
 //! 清冊匯入（design D8）：選檔或拖放 → 以 companion 執行 `asset import … --dry-run` 顯示預覽 →
-//! 按「匯入」以相同參數去掉 `--dry-run` 再執行 → 顯示結果並重新載入。
+//! 按「匯入」以相同參數去掉 `--dry-run` 再執行 → 顯示結果並重新載入。「從 ISMS 清冊匯入」
+//! （18 design D8）走同一流程，改用 `asset import-isms`，沒有元件檔與退役選項。
 
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -9,8 +10,10 @@ use cvewatch_frontend::{Level, Report};
 use eframe::egui;
 
 use crate::app::{GuiApp, NO_COMPANION};
-use crate::companion::{Companion, ImportArgs, Output};
+use crate::companion::{Companion, ImportArgs, ImportKind, Output};
 use crate::files::{inventory_kind, InventoryKind};
+use crate::screens::ALERT;
+use cvewatch_core::assets::pending::PENDING_REMINDER;
 
 /// 子程序結果。
 pub type RunResult = Result<Output, String>;
@@ -40,6 +43,18 @@ impl ImportFlow {
 
 /// 匯入預覽的覆寫提醒（gui-console：GUI import overwrite reminder）。
 pub const OVERWRITE_REMINDER: &str = "注意：匯入會以檔案內容覆寫資產欄位與清冊元件（檔案中沒有的清冊元件會被移除）。     在視窗中修改過資產時，建議先「匯出清冊」再編輯該檔後匯入。";
+
+/// ISMS 匯入預覽的覆寫提醒。
+pub const ISMS_OVERWRITE_REMINDER: &str = "注意：只更新 ISMS 欄位（類別、資產說明、C/I/A 與管理欄位）並加入版本待補元件，不會移除元件，也不會將資產標為退役。";
+
+/// 預覽有版本待補元件時的警告（18 design Risks）。
+pub const PENDING_WARNING: &str = "有版本待補的元件：匯入後不參與比對，請在編輯對話框補上版本";
+
+/// 預覽輸出是否有版本待補的元件：CLI 以 core 的 [`PENDING_REMINDER`] 整行結尾（整行比對，
+/// 資產名稱或備註中出現相同字詞不會誤判）。
+fn has_pending(r: &RunResult) -> bool {
+    matches!(r, Ok(o) if o.success() && o.stdout.lines().any(|l| l.trim() == PENDING_REMINDER))
+}
 
 /// 不支援的檔案或一次多個檔案時的說明。
 pub const UNSUPPORTED: &str = "只支援 .xlsx 與 .csv 清冊";
@@ -110,7 +125,29 @@ impl GuiApp {
                 file.display()
             )));
         };
+        self.start_flow(ImportKind::Inventory, file, kind, companion);
+    }
+
+    /// 開始從 ISMS 清冊匯入（只接受 .xlsx；表頭由 `asset import-isms` 檢查）。
+    pub fn begin_isms_import(&mut self, file: PathBuf) {
+        let Some(companion) = self.companion.clone() else {
+            return self.report(Report::warning(NO_COMPANION));
+        };
+        if self.import.as_ref().is_some_and(ImportFlow::running) {
+            return self.report(Report::info("清冊匯入仍在執行"));
+        }
+        self.start_flow(ImportKind::Isms, file, InventoryKind::Xlsx, companion);
+    }
+
+    fn start_flow(
+        &mut self,
+        import: ImportKind,
+        file: PathBuf,
+        kind: InventoryKind,
+        companion: Arc<dyn Companion>,
+    ) {
         let args = ImportArgs {
+            kind: import,
             file,
             components: None,
             prune: false,
@@ -123,6 +160,14 @@ impl GuiApp {
         };
         self.spawn_import(&mut flow, companion, true);
         self.import = Some(flow);
+    }
+
+    /// 「從 ISMS 清冊匯入」按鈕：選擇 ISMS 清冊後預覽；取消時不做任何事。
+    pub fn pick_isms_workbook(&mut self) {
+        match self.dialogs.open_isms_workbook() {
+            Some(path) => self.begin_isms_import(path),
+            None => self.report(Report::info("已取消從 ISMS 清冊匯入")),
+        }
     }
 
     /// 「匯入清冊」按鈕。
@@ -191,31 +236,41 @@ impl GuiApp {
             return;
         }
         let outcome = ImportOutcome::of(&result);
+        let source = flow.args.kind;
         flow.stage = Stage::Done(result);
-        self.after_import(outcome);
+        self.after_import(outcome, source);
     }
 
     /// 匯入步驟結束：一律重新載入（失敗或逾時時資料庫仍可能已寫入，例如交易已提交、
     /// 自動比對仍在執行時被終止），並依結果提示；重新載入失敗時保留其訊息。
-    fn after_import(&mut self, outcome: ImportOutcome) {
+    fn after_import(&mut self, outcome: ImportOutcome, source: ImportKind) {
         let open = self.open_ids();
         let mut refreshed = self.ws.reload(&open);
         let reloaded = refreshed.report.level == Level::Info;
+        // 匯入種類決定訊息用語；ISMS 匯入成功時另提醒補上版本
+        let (imported, failed, hint) = match source {
+            ImportKind::Inventory => ("已匯入清冊", "清冊匯入失敗", ""),
+            ImportKind::Isms => (
+                "已從 ISMS 清冊匯入",
+                "ISMS 清冊匯入失敗",
+                "；版本待補的元件請在編輯對話框補上版本",
+            ),
+        };
         refreshed.report = match (outcome, reloaded) {
-            (ImportOutcome::Done, true) => Report::info("已匯入清冊並重新載入"),
-            (ImportOutcome::MatchFailed, true) => Report::warning(
-                "已匯入清冊並重新載入，但匯入後的自動比對失敗；請執行 `cvewatch match`（詳見匯入視窗）",
-            ),
-            (ImportOutcome::Failed, true) => Report::error(
-                "清冊匯入失敗，詳見匯入視窗；已重新載入以顯示資料庫目前的狀態",
-            ),
+            (ImportOutcome::Done, true) => Report::info(format!("{imported}並重新載入{hint}")),
+            (ImportOutcome::MatchFailed, true) => Report::warning(format!(
+                "{imported}並重新載入，但匯入後的自動比對失敗；請執行 `cvewatch match`（詳見匯入視窗）{hint}"
+            )),
+            (ImportOutcome::Failed, true) => Report::error(format!(
+                "{failed}，詳見匯入視窗；已重新載入以顯示資料庫目前的狀態"
+            )),
             (ImportOutcome::Failed, false) => Report {
-                message: format!("清冊匯入失敗，詳見匯入視窗；{}", refreshed.report.message),
+                message: format!("{failed}，詳見匯入視窗；{}", refreshed.report.message),
                 level: Level::Error,
                 ..refreshed.report.clone()
             },
             (_, false) => Report {
-                message: format!("已匯入清冊，但{}", refreshed.report.message),
+                message: format!("{imported}，但{}", refreshed.report.message),
                 ..refreshed.report.clone()
             },
         };
@@ -260,15 +315,18 @@ enum Action {
 }
 
 fn body(ui: &mut egui::Ui, flow: &mut ImportFlow) -> Option<Action> {
-    ui.heading("匯入資產清冊");
-    ui.colored_label(
-        egui::Color32::from_rgb(0xc0, 0x80, 0x00),
-        OVERWRITE_REMINDER,
-    );
+    let isms = flow.args.kind == ImportKind::Isms;
+    let (title, reminder) = if isms {
+        ("從 ISMS 清冊匯入", ISMS_OVERWRITE_REMINDER)
+    } else {
+        ("匯入資產清冊", OVERWRITE_REMINDER)
+    };
+    ui.heading(title);
+    ui.colored_label(egui::Color32::from_rgb(0xc0, 0x80, 0x00), reminder);
     ui.label(format!("檔案：{}", flow.args.file.display()));
     let mut action = None;
     let idle = !flow.running();
-    if flow.kind == InventoryKind::Csv {
+    if !isms && flow.kind == InventoryKind::Csv {
         ui.horizontal(|ui| {
             let comp = flow
                 .args
@@ -285,13 +343,16 @@ fn body(ui: &mut egui::Ui, flow: &mut ImportFlow) -> Option<Action> {
             }
         });
     }
-    let can_change = idle && matches!(flow.stage, Stage::Preview(_));
-    let prune = ui.add_enabled(
-        can_change,
-        egui::Checkbox::new(&mut flow.args.prune, "將清冊中消失的資產標為退役"),
-    );
-    if prune.changed() {
-        action = Some(Action::Repreview);
+    // ISMS 匯入不提供退役選項（18 spec GUI ISMS import）
+    if !isms {
+        let can_change = idle && matches!(flow.stage, Stage::Preview(_));
+        let prune = ui.add_enabled(
+            can_change,
+            egui::Checkbox::new(&mut flow.args.prune, "將清冊中消失的資產標為退役"),
+        );
+        if prune.changed() {
+            action = Some(Action::Repreview);
+        }
     }
     ui.separator();
     match &flow.stage {
@@ -307,6 +368,9 @@ fn body(ui: &mut egui::Ui, flow: &mut ImportFlow) -> Option<Action> {
             } else {
                 "無法預覽："
             });
+            if has_pending(r) {
+                ui.colored_label(ALERT, PENDING_WARNING);
+            }
             output(ui, r);
         }
         Stage::Done(r) => {

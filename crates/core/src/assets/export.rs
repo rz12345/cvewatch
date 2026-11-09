@@ -203,7 +203,7 @@ pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryR
     Ok(rows)
 }
 
-/// `assets`、`components`、`systems` 三個工作表（標準欄名表頭；清冊匯出與 ISMS 草稿共用）。
+/// `assets`、`components`、`systems` 三個工作表（標準欄名表頭）。
 pub(crate) fn inventory_sheets(rows: InventoryRows) -> Vec<SheetData<'static>> {
     vec![
         SheetData {

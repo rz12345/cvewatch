@@ -138,6 +138,8 @@ pub struct GuiApp {
     pub assets_selected: Option<String>,
     /// 資產清單含已退役資產
     pub assets_show_retired: bool,
+    /// 只顯示有版本待補元件的資產（Dashboard 的版本待補數字開啟；18 design D8）
+    pub assets_pending_only: bool,
     /// 資產編輯、退役與永久刪除確認
     pub asset_dialog: Option<AssetDialog>,
     /// 資產編修後的背景比對
@@ -175,6 +177,7 @@ impl GuiApp {
             settings,
             assets_selected: None,
             assets_show_retired: false,
+            assets_pending_only: false,
             asset_dialog: None,
             matching: Matching::default(),
             pending_selected: None,

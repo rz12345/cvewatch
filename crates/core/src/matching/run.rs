@@ -12,6 +12,7 @@ use super::load::{ActiveComponent, MatchData, Target};
 use super::pending::{self, PendingStats};
 use super::scoring::ScoringConfig;
 use super::version::Schemes;
+use crate::assets::pending::pending_product_keys;
 use crate::catalog::Catalog;
 use crate::config::Config;
 use crate::db::meta;
@@ -242,8 +243,23 @@ pub fn run_in(
         dismissed: &dismissed,
     };
     let applied = findings::apply(conn, &state, &decisions, &existing, &settings.scoring, now)?;
-    // 與略過的產品相關的等待區 CVE 無法斷定可以移出，維持原狀
-    let skipped_products: BTreeSet<String> = skipped.products.iter().cloned().collect();
+    // 與略過的產品相關的等待區 CVE 無法斷定可以移出，維持原狀。只屬於版本待補元件的產品
+    // 也算略過：待補期間不比對，但不能因此把等待區的 CVE 當成不再相關而移出（18 code review）
+    let loaded_products: BTreeSet<&str> = data
+        .components
+        .iter()
+        .filter_map(ActiveComponent::product_key)
+        .collect();
+    let skipped_products: BTreeSet<String> = skipped
+        .products
+        .iter()
+        .cloned()
+        .chain(
+            pending_product_keys(conn)?
+                .into_iter()
+                .filter(|k| !loaded_products.contains(k.as_str())),
+        )
+        .collect();
     let pending = pending::reevaluate(
         conn,
         &data,

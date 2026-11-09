@@ -5,8 +5,8 @@ use rusqlite::{params, Connection, OptionalExtension, Row};
 
 use super::classes::{Cia, ClassCode, MajorClass};
 use super::model::{
-    Asset, AssetRecord, AssetStatus, Component, ComponentKind, ComponentSource, Exposure,
-    HistoryEntry, UnresolvedEntry,
+    is_pending_version, Asset, AssetRecord, AssetStatus, Component, ComponentKind, ComponentSource,
+    Exposure, HistoryEntry, UnresolvedEntry,
 };
 use crate::error::CoreError;
 
@@ -512,11 +512,14 @@ impl<'c> ComponentRepo<'c> {
         if previous == version_raw {
             return Ok(UpsertOutcome::Unchanged);
         }
-        self.conn.execute(
-            "INSERT INTO component_history (component_id, version_raw, changed_at)
-             VALUES (?1, ?2, ?3)",
-            params![id, previous, ts(now)],
-        )?;
+        // 版本待補填上版本時沒有舊版本，不寫歷史（18 design D3）
+        if !is_pending_version(&previous) {
+            self.conn.execute(
+                "INSERT INTO component_history (component_id, version_raw, changed_at)
+                 VALUES (?1, ?2, ?3)",
+                params![id, previous, ts(now)],
+            )?;
+        }
         self.conn.execute(
             "UPDATE component SET version_raw = ?2, version_norm = ?3, updated_at = ?4 WHERE id = ?1",
             params![id, version_raw, version_norm, ts(now)],

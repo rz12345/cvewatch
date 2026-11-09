@@ -305,6 +305,44 @@ fn empty_digest_says_nothing_new_with_sync_status() {
     );
 }
 
+/// 18 任務 5.4：沒有新事項時仍列出版本待補的元件數（不影響「無新事項」）。
+#[test]
+fn pending_versions_in_the_digest() {
+    let w = world();
+    w.asset(
+        "NET-HW-003",
+        "internal",
+        &[("synology-dsm", ""), ("dell-idrac9", "")],
+    );
+    w.asset("NET-HW-004", "internal", &[("paloalto-panos", "")]);
+    let data = digest::collect(
+        &w.conn,
+        at("2026-11-06T00:00:00+00:00"),
+        at("2026-11-07T00:00:00+00:00"),
+        14,
+    )
+    .unwrap();
+    assert!(data.is_empty(), "版本待補不算新事項");
+    let mail = content::digest_mail(&data, &content::product_names(&w.conn).unwrap(), zone());
+    assert!(mail.subject.ends_with("無新事項"), "{}", mail.subject);
+    assert!(mail.body.contains("無新事項。"), "{}", mail.body);
+    assert!(
+        mail.body
+            .contains("版本待補 3 個元件（2 個資產），未納入比對"),
+        "{}",
+        mail.body
+    );
+    let empty = digest::collect(
+        &world().conn,
+        at("2026-11-06T00:00:00+00:00"),
+        at("2026-11-07T00:00:00+00:00"),
+        14,
+    )
+    .unwrap();
+    let mail = content::digest_mail(&empty, &Default::default(), zone());
+    assert!(!mail.body.contains("版本待補"), "{}", mail.body);
+}
+
 // ── 佇列與去重 ─────────────────────────────────────
 
 /// 記錄寄出內容的替身；`fail` 為真時模擬 SMTP 無法連線。

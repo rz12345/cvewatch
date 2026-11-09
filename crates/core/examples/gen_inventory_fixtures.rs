@@ -360,8 +360,8 @@ fn main() {
         }],
     );
 
-    // 第 12 列缺少 version、第 5 列曝露度不合法（HOST-04）
-    // 表頭為第 1 列，HOST-01..HOST-10 為第 2–11 列，缺 version 的列為第 12 列
+    // 第 12 列缺少 product、第 5 列曝露度不合法（HOST-04）；version 空白為版本待補，不是錯誤（18）
+    // 表頭為第 1 列，HOST-01..HOST-10 為第 2–11 列，缺 product 的列為第 12 列
     let mut bad: Vec<Vec<String>> = (1..=10)
         .map(|i| {
             let tag = format!("HOST-{i:02}");
@@ -378,7 +378,7 @@ fn main() {
         })
         .collect();
     bad[3][5] = "public".into();
-    let mut last = rows(&[&["HOST-11", "host11", "HW01", "Debian", ""]]).remove(0);
+    let mut last = rows(&[&["HOST-11", "host11", "HW01", "", "12.7"]]).remove(0);
     last.resize(ASSET_HEADERS.len(), String::new());
     bad.push(last);
     write(

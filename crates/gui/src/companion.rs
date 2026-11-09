@@ -142,9 +142,20 @@ impl Companion for ProcessCompanion {
     }
 }
 
-/// 清冊匯入的參數：`asset import <file> [--components C] [--prune] [--dry-run]`。
+/// 匯入的種類（18 design D8）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImportKind {
+    /// 一般清冊：`asset import`
+    Inventory,
+    /// ISMS 資訊資產清冊：`asset import-isms`（沒有元件檔與退役選項）
+    Isms,
+}
+
+/// 匯入的參數：`asset import <file> [--components C] [--prune] [--dry-run]`，或
+/// `asset import-isms <file> [--dry-run]`。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportArgs {
+    pub kind: ImportKind,
     pub file: PathBuf,
     pub components: Option<PathBuf>,
     pub prune: bool,
@@ -152,11 +163,21 @@ pub struct ImportArgs {
 
 impl ImportArgs {
     pub fn to_args(&self, dry_run: bool) -> Vec<OsString> {
+        let command = match self.kind {
+            ImportKind::Inventory => "import",
+            ImportKind::Isms => "import-isms",
+        };
         let mut args: Vec<OsString> = vec![
             "asset".into(),
-            "import".into(),
+            command.into(),
             self.file.clone().into_os_string(),
         ];
+        if self.kind == ImportKind::Isms {
+            if dry_run {
+                args.push("--dry-run".into());
+            }
+            return args;
+        }
         if let Some(c) = &self.components {
             args.extend(["--components".into(), c.clone().into_os_string()]);
         }
@@ -200,6 +221,7 @@ mod tests {
     #[test]
     fn import_command_uses_cli_target_config() {
         let a = ImportArgs {
+            kind: ImportKind::Inventory,
             file: PathBuf::from(r"C:\in\assets.csv"),
             components: Some(PathBuf::from(r"C:\in\components.csv")),
             prune: true,
@@ -237,6 +259,27 @@ mod tests {
             strings(&implicit.command(&plain.to_args(false))),
             ["asset", "import", r"C:\in\assets.csv"]
         );
+    }
+
+    #[test]
+    fn isms_import_has_no_components_or_prune() {
+        let a = ImportArgs {
+            kind: ImportKind::Isms,
+            file: PathBuf::from(r"C:\in\isms.xlsx"),
+            components: Some(PathBuf::from(r"C:\in\components.csv")),
+            prune: true,
+        };
+        let strings = |dry_run| -> Vec<String> {
+            a.to_args(dry_run)
+                .iter()
+                .map(|s| s.to_string_lossy().into_owned())
+                .collect()
+        };
+        assert_eq!(
+            strings(true),
+            ["asset", "import-isms", r"C:\in\isms.xlsx", "--dry-run"]
+        );
+        assert_eq!(strings(false), ["asset", "import-isms", r"C:\in\isms.xlsx"]);
     }
 
     #[test]

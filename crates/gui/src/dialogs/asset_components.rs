@@ -6,7 +6,7 @@
 
 use cvewatch_core::catalog::Catalog;
 use cvewatch_frontend::asset_form::{ComponentDraft, UnresolvedAction};
-use cvewatch_frontend::display::product_name;
+use cvewatch_frontend::display::{product_name, version_text, PENDING_NOTE, PENDING_VERSION};
 use eframe::egui;
 
 use super::asset_edit::AssetEdit;
@@ -81,17 +81,24 @@ fn component_row(
         }
         return false;
     }
+    let pending = d.is_untouched_pending();
     let field = ui
         .add(
             egui::TextEdit::singleline(&mut d.version)
                 // 以列索引區分：重複加入同一產品（驗證會擋下）時兩列仍是不同的欄位
                 .id_salt(("component-version", row))
+                // 版本待補的元件版本欄空白，以提示文字標示（18 design D8）
+                .hint_text(if pending { PENDING_VERSION } else { "" })
                 .desired_width(VERSION_WIDTH)
                 // Grid 的欄寬沿用前一幀：只設 desired_width 時第一次排版的窄欄會一直保留
                 .min_size(egui::vec2(VERSION_WIDTH, 0.0)),
         )
         .labelled_by(l.id);
-    if focus {
+    if pending {
+        field.on_hover_text(format!(
+            "{PENDING_VERSION}{PENDING_NOTE}：填上版本後開始比對"
+        ));
+    } else if focus {
         field.request_focus();
     }
     if ui.button(format!("移除 {name}")).clicked() {
@@ -114,7 +121,7 @@ pub(super) fn unresolved(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Cata
         let state = edit.unresolved_pickers.entry(u.id).or_default();
         ui.horizontal(|ui| {
             let raw = one_line(&u.product_raw);
-            let l = ui.label(format!("{raw} {}", one_line(&u.version_raw)));
+            let l = ui.label(format!("{raw} {}", one_line(version_text(&u.version_raw))));
             let current = match &u.action {
                 UnresolvedAction::Keep => "保留".to_string(),
                 UnresolvedAction::MapTo(key) => format!("改為 {}", product_name(catalog, key)),

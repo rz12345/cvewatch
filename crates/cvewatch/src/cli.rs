@@ -285,12 +285,13 @@ pub enum AssetAction {
         /// 輸出路徑（.xlsx，不可已存在）
         path: PathBuf,
     },
-    /// 由 ISMS 資訊資產清冊產生 cvewatch 清冊草稿（不寫入資料庫；補上版本後以 asset import 匯入）
-    IsmsDraft {
+    /// 從 ISMS 資訊資產清冊匯入資產：新增或更新 ISMS 欄位，描述中的產品成為版本待補元件（不退役資產）
+    ImportIsms {
         /// ISMS 資訊資產清冊（.xlsx）
         workbook: PathBuf,
-        /// 草稿輸出路徑（.xlsx，不可已存在）
-        output: PathBuf,
+        /// 只顯示預覽，不寫入資料庫
+        #[arg(long)]
+        dry_run: bool,
     },
     /// 匯出空白 Excel 範本（assets、components、systems 工作表與 classes 子類別說明）
     Template {

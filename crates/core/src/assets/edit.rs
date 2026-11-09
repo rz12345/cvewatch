@@ -10,7 +10,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, OptionalExtension, Transaction};
 
 use super::classes::AssetClasses;
-use super::model::{Asset, AssetRecord, AssetStatus, Component, ComponentKind};
+use super::model::{is_pending_version, Asset, AssetRecord, AssetStatus, Component, ComponentKind};
 use super::plan::{isms_in_use_message, resolve_version, VersionWarning};
 use super::repo::{AssetRepo, ComponentRepo};
 use super::systems::SystemDirectory;
@@ -383,9 +383,19 @@ fn set_version_of(
     version_raw: &str,
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
-    let version = version_text(version_raw)?;
     let component = editable_component(conn, asset, component_id)?;
     let key = product_key(&component).to_string();
+    // 18 design D8：待補元件送出空白視為未變更；已知版本不能清成待補
+    if is_pending_version(version_raw) {
+        if component.is_pending() {
+            return Ok(EditOutcome::default());
+        }
+        return Err(invalid(format!(
+            "{} 的 {key} 版本為必填，已有版本 {} 不能清成空白",
+            asset.record.asset_tag, component.version_raw
+        )));
+    }
+    let version = version_text(version_raw)?;
     let warning = put_product(conn, catalog, asset, &key, version, now)?;
     Ok(EditOutcome::with(warning))
 }
@@ -430,6 +440,7 @@ fn resolve_in(
     key: &str,
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
+    // 版本待補的未辨識產品沿用空白版本，成為版本待補元件（18 spec Mapping a pending unresolved product）
     let (_, version_raw) = unresolved_entry(conn, asset, unresolved_id)?;
     ensure_new_product(conn, asset, key)?;
     let warning = put_product(conn, catalog, asset, key, &version_raw, now)?;

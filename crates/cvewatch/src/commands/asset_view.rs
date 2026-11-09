@@ -4,7 +4,7 @@ use std::collections::BTreeMap;
 
 use cvewatch_core::assets::plan::ImportPlan;
 use cvewatch_core::assets::{
-    AssetFilter, AssetRecord, AssetRepo, ClassFilter, ComponentRepo, SystemDirectory,
+    AssetClasses, AssetFilter, AssetRecord, AssetRepo, ClassFilter, ComponentRepo, SystemDirectory,
 };
 use cvewatch_core::catalog::Product;
 use cvewatch_core::db::open_working_db;
@@ -20,9 +20,29 @@ pub fn print_plan_details(plan: &ImportPlan) {
     }
 }
 
+/// 「  版本待補 1 個元件」；沒有待補時為 None（18 design D3）。
+pub fn pending_line(plan: &ImportPlan) -> Option<String> {
+    let pending = plan.pending_components();
+    (pending > 0).then(|| format!("  版本待補 {pending} 個元件"))
+}
+
+/// 更新資產的欄位變更如何呈現（18 design D5）。
+#[derive(Clone, Copy)]
+pub enum FieldDetail<'a> {
+    /// 只列標準欄名（一般清冊匯入）
+    Names,
+    /// 逐欄列出新舊值（ISMS 匯入）
+    Values(&'a AssetClasses),
+}
+
 /// 匯入差異的明細（GUI 匯入預覽顯示同一份輸出）：資產說明變更、新增、更新、未辨識產品、
 /// 版本警告，之後是 notice（舊版 category 值、停用欄位；13 design D3），最後是清冊中消失的資產。
 pub fn plan_detail_lines(plan: &ImportPlan) -> Vec<String> {
+    plan_detail_lines_with(plan, FieldDetail::Names)
+}
+
+/// 同 [`plan_detail_lines`]，欄位變更依 `fields` 呈現。
+pub fn plan_detail_lines_with(plan: &ImportPlan, fields: FieldDetail<'_>) -> Vec<String> {
     let mut out = Vec::new();
     if !plan.systems.is_empty() {
         out.push("資產說明：".to_string());
@@ -37,13 +57,24 @@ pub fn plan_detail_lines(plan: &ImportPlan) -> Vec<String> {
     for u in &plan.updated {
         for v in &u.version_changes {
             out.push(format!(
-                "  {} 版本 {} → {}（{}）",
-                u.asset_tag, v.from, v.to, v.product_key
+                "  {} 版本 {}（{}）",
+                u.asset_tag,
+                v.describe(),
+                v.product_key
             ));
         }
         let mut notes = Vec::new();
         if !u.changed_fields.is_empty() {
-            notes.push(format!("欄位變更：{}", u.changed_fields.join("、")));
+            let changes = match fields {
+                FieldDetail::Names => u.field_names().join("、"),
+                FieldDetail::Values(classes) => u
+                    .changed_fields
+                    .iter()
+                    .map(|c| c.describe(classes))
+                    .collect::<Vec<_>>()
+                    .join("、"),
+            };
+            notes.push(format!("欄位變更：{changes}"));
         }
         if !u.components_added.is_empty() {
             notes.push(format!("新增元件：{}", u.components_added.join("、")));
@@ -420,5 +451,41 @@ mod tests {
         assert!(at("提醒：") < at("security 已轉為 HW03 資安設備"));
         assert!(at("第 2 列 FW-01：security 已轉為 HW03 資安設備") > 0);
         at("criticality 欄已停用");
+    }
+
+    /// 18 任務 5.2：清冊中 version 空白的元件匯入成功，摘要列出版本待補數。
+    #[test]
+    fn blank_version_is_imported_as_pending() {
+        use cvewatch_core::assets::template::{write_sheets, SheetData};
+        let headers = ["asset_tag", "name", "category", "product", "version"];
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("inv.xlsx");
+        write_sheets(
+            &path,
+            &[SheetData {
+                name: "assets",
+                headers: headers.iter().map(|h| h.to_string()).collect(),
+                rows: vec![["NAS-03", "nas03", "HW05", "Synology DSM", ""]
+                    .iter()
+                    .map(|c| c.to_string())
+                    .collect()],
+            }],
+        )
+        .unwrap();
+        let book = read_inventory(&path, None).unwrap();
+        let inventory =
+            parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let plan = import_inventory(
+            &mut conn,
+            &Catalog::seed().unwrap(),
+            &inventory,
+            ImportOptions::default(),
+            chrono::Utc::now(),
+        )
+        .unwrap();
+        assert_eq!(pending_line(&plan).as_deref(), Some("  版本待補 1 個元件"));
+        assert_eq!(pending_line(&ImportPlan::default()), None);
     }
 }

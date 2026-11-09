@@ -113,6 +113,8 @@ fn run_locked(
     });
     // 依目前資料判定緊急事件（含先前 match／匯入產生、尚未通知者），寄信與開案；失敗不影響同步結果
     super::notify::notify_after_sync(&notifier, conn);
+    // 略過比對時也提醒：版本待補的元件不論資料是否變動都未納入比對（18 design D7）
+    super::matching::print_pending(conn);
     Ok(match (report.exit_code(), matched) {
         (ExitCode::Success, code) => code,
         (code, _) => code,

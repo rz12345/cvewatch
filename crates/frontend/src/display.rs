@@ -4,7 +4,10 @@
 //! 只產生純文字；粗體、標題樣式與控制字元處理由各前端決定。
 
 use chrono::{DateTime, Utc};
-use cvewatch_core::assets::{AssetClasses, AssetRecord, Cia, ClassCode, Component, Exposure};
+use cvewatch_core::assets::plan::version_or;
+use cvewatch_core::assets::{
+    AssetClasses, AssetRecord, Cia, ClassCode, Component, Exposure, PendingCounts,
+};
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::matching::evidence::{Source, Verdict};
 use cvewatch_core::matching::findings::MANUAL;
@@ -53,6 +56,33 @@ pub fn product_name(catalog: &Catalog, key: &str) -> String {
 /// 元件名稱（不含版本）：目錄產品用顯示名稱，套件用不含版本的 purl（不在目錄中，原樣回傳）。
 pub fn component_name(catalog: &Catalog, component: &Component) -> String {
     product_name(catalog, component.key())
+}
+
+/// 版本待補的元件版本（18 design D8；資產清單標示、詳情與編輯對話框共用）。
+pub const PENDING_VERSION: &str = "版本待補";
+/// 版本待補元件在詳情中的提示。
+pub const PENDING_NOTE: &str = "（未納入比對）";
+
+/// 元件或未辨識產品的版本：待補時為 [`PENDING_VERSION`]。
+pub fn version_text(version_raw: &str) -> &str {
+    version_or(version_raw, PENDING_VERSION)
+}
+
+/// 詳情中的元件：「Synology DSM 版本待補（未納入比對）」「PAN-OS 11.1.6」。
+pub fn component_line(catalog: &Catalog, component: &Component) -> String {
+    let name = component_name(catalog, component);
+    if component.is_pending() {
+        format!("{name} {PENDING_VERSION}{PENDING_NOTE}")
+    } else {
+        format!("{name} {}", component.version_raw)
+    }
+}
+
+/// Dashboard 的版本待補數字：「版本待補 3 個元件（2 個資產），未納入比對」；沒有時為「版本待補 0」。
+pub fn pending_versions_text(counts: &PendingCounts) -> String {
+    counts
+        .summary()
+        .unwrap_or_else(|| format!("{PENDING_VERSION} 0"))
 }
 
 /// 要顯示的資產名稱；與資產編號相同時為 None（清單與詳情標題不重複顯示）。

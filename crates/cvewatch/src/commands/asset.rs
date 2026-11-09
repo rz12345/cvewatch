@@ -1,4 +1,4 @@
-//! `cvewatch asset import | import-packages | list | show | rename | export | isms-draft | template | catalog`
+//! `cvewatch asset import | import-isms | import-packages | list | show | rename | export | template | catalog`
 
 use std::path::Path;
 
@@ -45,8 +45,8 @@ pub fn run(app: &App, action: AssetAction) -> Result<ExitCode, CoreError> {
         AssetAction::Show { asset_tag } => asset_view::show(app, &asset_tag),
         AssetAction::Rename { asset_tag, new_tag } => rename(app, &asset_tag, &new_tag),
         AssetAction::Export { path } => export(app, &path),
-        AssetAction::IsmsDraft { workbook, output } => {
-            super::asset_isms::isms_draft(app, &workbook, &output)
+        AssetAction::ImportIsms { workbook, dry_run } => {
+            super::asset_isms::import_isms(app, &workbook, dry_run)
         }
         AssetAction::Template { path } => template(app, &path),
         AssetAction::Catalog { unresolved, action } => match (unresolved, action) {
@@ -74,13 +74,20 @@ fn import(
     if options.dry_run {
         return Ok(ExitCode::Success);
     }
-    // 影響比對的變更已在匯入交易中記錄為比對待補；另含先前未完成的比對與目錄／評分設定變更
-    Ok(
-        super::matching::rematch_if_needed(app, &mut conn, &catalog).unwrap_or_else(|| {
-            println!("清冊沒有影響比對的變更，略過比對。");
-            ExitCode::Success
-        }),
-    )
+    Ok(rematch_after_import(app, &mut conn, &catalog))
+}
+
+/// 影響比對的變更已在匯入交易中記錄為比對待補；另含先前未完成的比對與目錄／評分設定變更
+/// （`asset import` 與 `asset import-isms` 共用）。
+pub(super) fn rematch_after_import(
+    app: &App,
+    conn: &mut rusqlite::Connection,
+    catalog: &cvewatch_core::catalog::Catalog,
+) -> ExitCode {
+    super::matching::rematch_if_needed(app, conn, catalog).unwrap_or_else(|| {
+        println!("清冊沒有影響比對的變更，略過比對。");
+        ExitCode::Success
+    })
 }
 
 fn print_plan(plan: &ImportPlan, options: ImportOptions) {
@@ -109,7 +116,14 @@ fn print_plan(plan: &ImportPlan, options: ImportOptions) {
             prune_note
         }
     );
+    let pending = asset_view::pending_line(plan);
+    if let Some(line) = &pending {
+        println!("{line}");
+    }
     asset_view::print_plan_details(plan);
+    if pending.is_some() {
+        println!("{}", cvewatch_core::assets::pending::PENDING_REMINDER);
+    }
 }
 
 fn packages(

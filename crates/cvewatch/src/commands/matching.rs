@@ -1,5 +1,6 @@
 //! `cvewatch match`；`sync` 與 `asset import` / `import-packages` 結束後也會自動比對。
 
+use cvewatch_core::assets::pending_counts;
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::matching::run::{rematch_state, run_match, MatchReport, MatchSettings};
@@ -12,7 +13,22 @@ pub fn run(app: &App) -> Result<ExitCode, CoreError> {
     let catalog = app.load_catalog()?;
     let mut conn = open_working_db(&app.paths, &app.store)?;
     rematch(app, &mut conn, &catalog)?;
+    print_pending(&conn);
     Ok(ExitCode::Success)
+}
+
+/// 版本待補的提醒（18 design D7）；沒有待補時為 None。
+pub fn pending_summary(conn: &Connection) -> Result<Option<String>, CoreError> {
+    Ok(pending_counts(conn)?.summary())
+}
+
+/// `match`、`sync` 結束時印出版本待補的提醒；查詢失敗只記錄，不影響結束碼。
+pub fn print_pending(conn: &Connection) {
+    match pending_summary(conn) {
+        Ok(Some(line)) => println!("{line}"),
+        Ok(None) => {}
+        Err(e) => tracing::warn!(error = %e, "無法計算版本待補的元件數"),
+    }
 }
 
 /// 是否需要全量比對：有尚未比對的寫入，或產品目錄／評分設定自上次全量比對後已變更。
@@ -104,6 +120,54 @@ fn print_skipped(r: &MatchReport) {
         println!(
             "  {} 個套件未比對：OSV 來源已停用（[sources] osv_enabled = false），套件元件無從判定",
             r.awaiting_osv
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::params;
+
+    use super::*;
+
+    fn memory_db() -> Connection {
+        let mut conn = Connection::open_in_memory().unwrap();
+        conn.pragma_update(None, "foreign_keys", "ON").unwrap();
+        cvewatch_core::db::migrate::migrate(&mut conn).unwrap();
+        cvewatch_core::catalog::store::sync_catalog(&conn, &Catalog::seed().unwrap()).unwrap();
+        conn
+    }
+
+    fn asset(conn: &Connection, tag: &str, versions: &[&str]) {
+        conn.execute(
+            "INSERT INTO asset (asset_tag, name, category, exposure, first_seen, last_seen)
+             VALUES (?1, ?1, 'HW05', 'internal', 'T', 'T')",
+            params![tag],
+        )
+        .unwrap();
+        let keys = ["synology-dsm", "dell-idrac9"];
+        for (key, version) in keys.iter().zip(versions) {
+            conn.execute(
+                "INSERT INTO component (asset_id, kind, product_id, version_raw, source, updated_at)
+                 VALUES ((SELECT id FROM asset WHERE asset_tag = ?1), 'product',
+                         (SELECT id FROM catalog_product WHERE key = ?2), ?3, 'excel', 'T')",
+                params![tag, key, version],
+            )
+            .unwrap();
+        }
+    }
+
+    /// 18 任務 5.3：spec 的 Summary after sync；沒有待補時不印。
+    #[test]
+    fn summary_after_sync_lists_pending_versions() {
+        let conn = memory_db();
+        asset(&conn, "NAS-01", &["7.2"]);
+        assert_eq!(pending_summary(&conn).unwrap(), None);
+        asset(&conn, "NET-HW-003", &["", ""]);
+        asset(&conn, "NET-HW-004", &[""]);
+        assert_eq!(
+            pending_summary(&conn).unwrap().as_deref(),
+            Some("版本待補 3 個元件（2 個資產），未納入比對")
         );
     }
 }

@@ -36,6 +36,14 @@ string_enum!(
     }
 );
 
+/// 版本是否為「版本待補」：去除空白後為空（18 design D1）。
+///
+/// 待補元件以 `version_raw = ''`、`version_norm = NULL` 儲存；SQL 端以 `trim(version_raw) = ''`
+/// 判斷，兩者一致。
+pub fn is_pending_version(version_raw: &str) -> bool {
+    version_raw.trim().is_empty()
+}
+
 /// 由清冊決定的資產欄位。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssetRecord {
@@ -109,6 +117,11 @@ impl Component {
         self.source == ComponentSource::Excel && matches!(self.kind, ComponentKind::Product { .. })
     }
 
+    /// 版本待補（只有清冊的目錄產品元件會是待補；18 design D1）。
+    pub fn is_pending(&self) -> bool {
+        is_pending_version(&self.version_raw)
+    }
+
     /// 識別元件的字串：產品 key，或不含版本的套件 purl。
     pub fn key(&self) -> &str {
         match &self.kind {
@@ -142,6 +155,13 @@ pub struct UnresolvedEntry {
     pub version_raw: String,
 }
 
+impl UnresolvedEntry {
+    /// 版本待補（18 design D1）。
+    pub fn is_pending(&self) -> bool {
+        is_pending_version(&self.version_raw)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +171,34 @@ mod tests {
         assert_eq!(Exposure::parse(" DMZ "), Some(Exposure::Dmz));
         assert_eq!(Exposure::parse("public"), None);
         assert_eq!(Exposure::default(), Exposure::Internal);
+    }
+
+    #[test]
+    fn blank_versions_are_pending() {
+        assert!(is_pending_version(""));
+        assert!(is_pending_version("  "));
+        assert!(!is_pending_version("0"));
+        assert!(!is_pending_version("7.2"));
+        let entry = UnresolvedEntry {
+            id: 1,
+            asset_tag: "NET-HW-004".into(),
+            product_raw: "Zyxel ABCD".into(),
+            version_raw: String::new(),
+        };
+        assert!(entry.is_pending());
+        let component = Component {
+            id: 1,
+            asset_id: 1,
+            kind: ComponentKind::Product {
+                product_id: 1,
+                product_key: "synology-dsm".into(),
+            },
+            version_raw: "7.2".into(),
+            version_norm: None,
+            source: ComponentSource::Excel,
+            updated_at: String::new(),
+        };
+        assert!(!component.is_pending());
     }
 
     #[test]
