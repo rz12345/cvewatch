@@ -1,0 +1,144 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "cvewatch 系統架構",
+    "locale": "zh-TW",
+    "output": "docs/architecture/architecture.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/rz12345/cvewatch.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "5557e113e1b880466c5f57e49cfd58f01b990b03"
+    }
+  },
+  "components": [
+    {
+      "id": "user", "type": "external", "label": "使用者", "sublabel": "Windows 筆電",
+      "pos": [40, 230], "size": [130, 100]
+    },
+    {
+      "id": "gui", "type": "frontend", "label": "cvewatch-gui", "sublabel": "egui 視窗版",
+      "pos": [260, 40], "size": [150, 60],
+      "sources": [
+        { "path": "crates/gui/src/bin/cvewatch-gui.rs", "line": 27, "end_line": 52, "label": "GUI 進入點" },
+        { "path": "crates/gui/Cargo.toml", "line": 14, "end_line": 22 }
+      ]
+    },
+    {
+      "id": "tui", "type": "frontend", "label": "cvewatch-tui", "sublabel": "ratatui 文字介面",
+      "pos": [260, 180], "size": [150, 60],
+      "sources": [
+        { "path": "crates/tui/src/lib.rs", "line": 1, "end_line": 21 },
+        { "path": "crates/cvewatch/src/commands/tui.rs", "line": 10, "end_line": 19, "label": "cvewatch tui" }
+      ]
+    },
+    {
+      "id": "cli", "type": "backend", "label": "cvewatch CLI", "sublabel": "clap 子命令",
+      "pos": [260, 320], "size": [150, 60],
+      "sources": [
+        { "path": "crates/cvewatch/src/main.rs", "line": 52, "end_line": 71, "label": "子命令分派" },
+        { "path": "crates/cvewatch/src/commands/sync.rs", "line": 66, "end_line": 120, "label": "sync 流程" },
+        { "path": "crates/cvewatch/src/schedule.rs", "line": 95, "end_line": 125, "label": "schtasks 安裝" }
+      ]
+    },
+    {
+      "id": "frontend", "type": "frontend", "label": "cvewatch-frontend", "sublabel": "TUI/GUI 共用層",
+      "pos": [480, 180], "size": [150, 60],
+      "sources": [
+        { "path": "crates/frontend/src/lib.rs", "line": 1, "end_line": 22 },
+        { "path": "crates/frontend/src/services.rs", "line": 120, "end_line": 162, "label": "子程序 sync" }
+      ]
+    },
+    {
+      "id": "core", "type": "backend", "label": "cvewatch-core", "sublabel": "匯入·同步·比對·通知",
+      "pos": [720, 160], "size": [160, 260],
+      "sources": [
+        { "path": "crates/core/src/lib.rs", "line": 1, "end_line": 31 },
+        { "path": "crates/core/src/ingest/sync.rs", "line": 135, "end_line": 150, "label": "依來源同步" },
+        { "path": "crates/core/src/notify/dispatch.rs", "line": 85, "end_line": 135, "label": "通知分派" }
+      ]
+    },
+    {
+      "id": "excel", "type": "database", "label": "資產清冊檔", "sublabel": "Excel / CSV / SBOM",
+      "pos": [480, 380], "size": [150, 60],
+      "sources": [
+        { "path": "crates/core/src/assets/sheet.rs", "line": 35, "end_line": 70, "label": "讀取清冊" }
+      ]
+    },
+    {
+      "id": "sources", "type": "external", "label": "CVE 資料來源", "sublabel": "cvelistV5·NVD·KEV·EPSS·OSV",
+      "tag": "+ 原廠 CSAF",
+      "pos": [1000, 160], "size": [190, 64],
+      "sources": [
+        { "path": "crates/core/src/ingest/endpoints.rs", "line": 52, "end_line": 65, "label": "端點" },
+        { "path": "crates/core/src/config.rs", "line": 99, "end_line": 118, "label": "CSAF 來源" }
+      ]
+    },
+    {
+      "id": "db", "type": "database", "label": "SQLite 資料庫", "sublabel": "SQLCipher 加密·WAL",
+      "pos": [1000, 260], "size": [190, 60],
+      "sources": [
+        { "path": "crates/core/src/db/mod.rs", "line": 97, "end_line": 114, "label": "開啟加密 DB" }
+      ]
+    },
+    {
+      "id": "keyring", "type": "security", "label": "Credential Manager", "sublabel": "DB 金鑰·API key·密碼",
+      "pos": [1000, 360], "size": [190, 60],
+      "sources": [
+        { "path": "crates/core/src/secrets.rs", "line": 83, "end_line": 99, "label": "keyring" }
+      ]
+    },
+    {
+      "id": "smtp", "type": "external", "label": "SMTP 伺服器", "sublabel": "Email 通知·TLS",
+      "pos": [640, 520], "size": [150, 60],
+      "sources": [
+        { "path": "crates/core/src/notify/email.rs", "line": 52, "end_line": 80, "label": "SmtpMailer" }
+      ]
+    },
+    {
+      "id": "redmine", "type": "external", "label": "Redmine", "sublabel": "REST API·HTTPS",
+      "pos": [830, 520], "size": [150, 60],
+      "sources": [
+        { "path": "crates/core/src/notify/redmine.rs", "line": 106, "end_line": 112, "label": "只允許 HTTPS" },
+        { "path": "crates/core/src/notify/redmine.rs", "line": 259, "end_line": 265, "label": "開案" }
+      ]
+    },
+    {
+      "id": "scheduler", "type": "external", "label": "工作排程器", "sublabel": "Windows Task Scheduler",
+      "pos": [40, 460], "size": [150, 60]
+    },
+    {
+      "id": "cvewatchw", "type": "backend", "label": "cvewatchw.exe", "sublabel": "無主控台包裝",
+      "pos": [260, 460], "size": [150, 60],
+      "sources": [
+        { "path": "crates/cvewatch/src/bin/cvewatchw.rs", "line": 1, "end_line": 40 }
+      ]
+    }
+  ],
+  "connections": [
+    { "id": "user-gui", "from": "user", "to": "gui", "label": "操作視窗", "variant": "emphasis" },
+    { "id": "user-tui", "from": "user", "to": "tui", "label": "cvewatch tui", "variant": "emphasis" },
+    { "id": "user-cli", "from": "user", "to": "cli", "label": "命令列" },
+    { "id": "gui-frontend", "from": "gui", "to": "frontend" },
+    { "id": "tui-frontend", "from": "tui", "to": "frontend" },
+    { "id": "frontend-core", "from": "frontend", "to": "core", "label": "函式呼叫" },
+    { "id": "frontend-cli", "from": "frontend", "to": "cli", "label": "子程序 sync", "variant": "dashed", "fromSide": "bottom", "toSide": "top" },
+    { "id": "cli-core", "from": "cli", "to": "core", "label": "函式呼叫" },
+    { "id": "core-excel", "from": "core", "to": "excel", "label": "讀取清冊" },
+    { "id": "core-sources", "from": "core", "to": "sources", "label": "HTTPS 同步" },
+    { "id": "core-db", "from": "core", "to": "db", "label": "SQL" },
+    { "id": "core-keyring", "from": "core", "to": "keyring", "label": "讀取秘密", "variant": "security" },
+    { "id": "core-smtp", "from": "core", "to": "smtp", "label": "寄信" },
+    { "id": "core-redmine", "from": "core", "to": "redmine", "label": "開案" },
+    { "id": "cli-scheduler", "from": "cli", "to": "scheduler", "label": "schtasks 安裝", "fromSide": "bottom", "toSide": "top" },
+    { "id": "scheduler-wrapper", "from": "scheduler", "to": "cvewatchw", "label": "定時觸發", "variant": "dashed" },
+    { "id": "wrapper-cli", "from": "cvewatchw", "to": "cli", "label": "隱藏視窗啟動" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "介面", "items": ["GUI 與 TUI 共用 cvewatch-frontend，不直接相依 UI 以外的邏輯", "背景 sync、清冊匯入、重新安裝排程皆以子程序執行同資料夾的 cvewatch.exe"] },
+    { "dot": "emerald", "title": "核心流程", "items": ["sync：先送出佇列通知 → 各來源同步 → 有變動才重新比對 → 依緊急條件寄信／開案", "比對依 CPE、CNA affected 版本區間、CSAF 與 OSV 證據"] },
+    { "dot": "rose", "title": "秘密與加密", "items": ["DB 金鑰、NVD API key、SMTP／Redmine 憑證只存在 Credential Manager", "資料庫為 SQLCipher 加密；SMTP／Redmine 只允許 TLS"] }
+  ]
+}

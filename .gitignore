@@ -6,3 +6,10 @@
 /.dev
 /data
 /dist
+# Archify 驗證收據（每次 finalize 重產）
+/.archify
+/docs/architecture/*.finalize.json
+/docs/architecture/*.finalize-summary.json
+/docs/architecture/*.browser-check.json
+/docs/architecture/*.delivery.json
+/docs/architecture/*.visual-check.*

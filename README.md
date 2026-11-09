@@ -45,6 +45,15 @@ NVD 自 2026-04-15 起只優先 enrich KEV、聯邦使用軟體與 EO 14028 crit
 | 08 | `08-extract-frontend-model` | 抽出 TUI 與視窗版共用的前端層 `cvewatch-frontend` |
 | 09 | `09-add-gui-console` | Windows 視窗版 `cvewatch-gui.exe`（egui） |
 
+## 架構圖
+
+[docs/architecture/architecture.html](docs/architecture/architecture.html)：以 [Archify](https://github.com/tt-a1i/archify)（專案層級 skill，位於 `.claude/skills/archify`）產生的互動式系統架構圖，以瀏覽器開啟。來源是 `docs/architecture/architecture.json`，每個節點都附上釘在特定 commit 的原始碼連結。
+`/opsx-auto` 會在 change 涉及 crate 結構與相依或外部整合時自動更新這張圖。要手動重產時，在 repo 根目錄執行：
+
+```powershell
+node .claude/skills/archify/bin/archify.mjs finalize architecture docs/architecture/architecture.json docs/architecture/architecture.html --repo-root . --quality showcase --json
+```
+
 ## 在 VS Code + Claude Code 中使用
 
 前置：Node.js ≥ 20.19、Rust stable（MSVC toolchain）、OpenSpec CLI；SQLCipher 內建 OpenSSL 的編譯另需 Strawberry Perl 與 NASM（`winget install StrawberryPerl.StrawberryPerl NASM.NASM`）。
