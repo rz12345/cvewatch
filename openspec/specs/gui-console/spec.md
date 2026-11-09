@@ -200,10 +200,10 @@
 - **THEN** 文件資料夾中產生清冊檔，視窗顯示路徑、「已匯出 12 個資產」與「此檔未加密」提示
 
 ### Requirement: GUI asset editing
-資產畫面 SHALL 提供「新增資產」與所選 active 資產的「編輯」，以對話框編輯資產欄位（類別、曝露度、機密性、完整性、可用性以下拉選單選擇）與元件（產品以可搜尋的目錄產品清單選擇）；未辨識產品 SHALL 可改為目錄產品或刪除，每筆未辨識產品 SHALL 依「原文與版本、處置、刪除」的順序呈現。每個欄位 SHALL 只有一個標籤，必填欄位 SHALL 以「*」標示。驗證錯誤 SHALL 以介面用語（例如「必填」）顯示在對應欄位旁、MUST NOT 使用清冊的英文欄位名，且不關閉對話框；儲存失敗時 SHALL 保留對話框與輸入內容且資料庫 MUST NOT 變更；按「取消」時資料庫 MUST NOT 變更。對話框關閉時，該對話框造成的驗證錯誤 MUST NOT 留在狀態列。開啟「加入元件」時輸入焦點 SHALL 位於搜尋框，加入元件後 SHALL 移到該元件的版本欄；資產清單上按 Enter SHALL 開啟所選 active 資產的編輯。
+資產畫面 SHALL 提供「新增資產元件」與所選 active 資產的「編輯」，以對話框編輯資產欄位（類別、曝露度、機密性、完整性、可用性以下拉選單選擇）與元件（產品以可搜尋的目錄產品清單選擇）；未辨識產品 SHALL 可改為目錄產品或刪除，每筆未辨識產品 SHALL 依「原文與版本、處置、刪除」的順序呈現。每個欄位 SHALL 只有一個標籤，必填欄位 SHALL 以「*」標示。驗證錯誤 SHALL 以介面用語（例如「必填」）顯示在對應欄位旁、MUST NOT 使用清冊的英文欄位名，且不關閉對話框；儲存失敗時 SHALL 保留對話框與輸入內容且資料庫 MUST NOT 變更；按「取消」時資料庫 MUST NOT 變更。對話框關閉時，該對話框造成的驗證錯誤 MUST NOT 留在狀態列。開啟「加入元件」時輸入焦點 SHALL 位於搜尋框，加入元件後 SHALL 移到該元件的版本欄；資產清單上按 Enter 或在清單列上快速點兩下 SHALL 開啟所選 active 資產的編輯；已退役資產點兩下 SHALL 只選取、MUST NOT 開啟編輯。
 
 #### Scenario: Adding an asset from the window
-- **WHEN** 使用者按「新增資產」，填入 `FW-02`、`fw02`、類別「HW03 資安設備」，加入元件 PAN-OS `11.2.3` 後按「儲存」
+- **WHEN** 使用者按「新增資產元件」，填入 `FW-02`、`fw02`、類別「HW03 資安設備」，加入元件 PAN-OS `11.2.3` 後按「儲存」
 - **THEN** 對話框關閉，資產清單出現 `FW-02` 並選取它
 
 #### Scenario: Invalid field keeps the dialog open
@@ -217,6 +217,10 @@
 #### Scenario: Cancelled dialog leaves no error behind
 - **WHEN** 新增資產時留空按「儲存」看到錯誤，再按「取消」
 - **THEN** 對話框關閉，狀態列不再顯示欄位錯誤
+
+#### Scenario: Double-click opens the editor
+- **WHEN** 使用者在資產清單的 `FW-01` 列上快速點兩下
+- **THEN** `FW-01` 被選取並開啟其編輯對話框
 
 #### Scenario: Keyboard flow when adding a component
 - **WHEN** 使用者開啟「加入元件」並輸入 `pan`，選擇 PAN-OS
@@ -290,7 +294,7 @@ GUI 的資產編修、退役、恢復與永久刪除寫入後 SHALL 在背景執
 - **THEN** 預覽顯示覆寫提醒與 `FW-01` 的版本變更明細，按「匯入」前資料庫不變
 
 ### Requirement: GUI asset presentation
-資產畫面與資產對話框 SHALL 以使用者用語呈現資料：目錄產品 SHALL 以產品目錄的顯示名稱呈現（產品 key MUST NOT 作為主要文字，只可出現在提示中）；類別 SHALL 以「代碼 名稱」呈現，曝露度 SHALL 以「英文值（中文名稱）」呈現；資產詳情 SHALL 顯示 C/I/A、資產價值、ISMS 編號、資產說明（「代碼 名稱」）、權責單位、保管人、使用單位、法規遵循性、防護等級與是否含個人資料，未填的欄位 SHALL 顯示「-」，未評定的法規遵循性與防護等級 SHALL 顯示「未評定」；套件元件的版本 SHALL 只顯示一次。資產清單 SHALL 以編號、名稱、未處理命中數三個欄位呈現，未處理數大於 0 時 SHALL 醒目顯示，名稱與編號相同時 MUST NOT 重複顯示。資產沒有命中時 SHALL 顯示「沒有命中」而非空白。工具列 SHALL 將「新增資產」「資產說明…」、清冊檔案操作（匯入清冊、下載範本、匯出清冊）與「顯示已退役」分組；「退役…」與「永久刪除」SHALL 以警示樣式顯示並與一般操作分開。
+資產畫面與資產對話框 SHALL 以使用者用語呈現資料：目錄產品 SHALL 以產品目錄的顯示名稱呈現（產品 key MUST NOT 作為主要文字，只可出現在提示中）；類別 SHALL 以「代碼 名稱」呈現，曝露度 SHALL 以「英文值（中文名稱）」呈現；資產詳情 SHALL 顯示 C/I/A、資產價值、ISMS 編號、資產說明（「代碼 名稱」）、權責單位、保管人、使用單位、法規遵循性、防護等級與是否含個人資料，未填的欄位 SHALL 顯示「-」，未評定的法規遵循性與防護等級 SHALL 顯示「未評定」；套件元件的版本 SHALL 只顯示一次。資產清單 SHALL 以編號、名稱、未處理命中數三個欄位呈現，未處理數大於 0 時 SHALL 醒目顯示，名稱與編號相同時 MUST NOT 重複顯示。資產沒有命中時 SHALL 顯示「沒有命中」而非空白。工具列 SHALL 將「新增資產說明」「新增資產元件」（依此順序由左至右）、清冊檔案操作（匯入清冊、下載範本、匯出清冊）與「顯示已退役」分組；「退役…」與「永久刪除」SHALL 以警示樣式顯示並與一般操作分開。
 
 #### Scenario: Product shown by display name
 - **WHEN** 使用者選取元件為 `proxmox-ve 8.2.2` 的 `PVE-01`
@@ -365,10 +369,10 @@ GUI 的資產編修、退役、恢復與永久刪除寫入後 SHALL 在背景執
 - **THEN** 搜尋結果列出 AOS-CX，可直接選擇
 
 ### Requirement: GUI asset system management
-資產畫面的工具列 SHALL 提供「資產說明…」，開啟對話框列出所有資產說明（代碼、名稱、歸屬的資產數，含 retired），並 SHALL 可新增資產說明、修改名稱與刪除。代碼欄 SHALL 只在新增時可輸入。驗證錯誤 SHALL 顯示在對應欄位旁且不關閉對話框；仍有資產歸屬的資產說明，其「刪除」SHALL 停用並以提示說明歸屬的資產數。規則 SHALL 與 asset-inventory 的 Asset system 相同。
+資產畫面的工具列 SHALL 提供「新增資產說明」，開啟對話框列出所有資產說明（代碼、名稱、歸屬的資產數，含 retired），並 SHALL 可新增資產說明、修改名稱與刪除。代碼欄 SHALL 只在新增時可輸入。驗證錯誤 SHALL 顯示在對應欄位旁且不關閉對話框；仍有資產歸屬的資產說明，其「刪除」SHALL 停用並以提示說明歸屬的資產數。規則 SHALL 與 asset-inventory 的 Asset system 相同。
 
 #### Scenario: Adding a system from the window
-- **WHEN** 使用者開啟「資產說明…」，新增代碼 `net`、名稱「網路服務」後儲存
+- **WHEN** 使用者按「新增資產說明」，新增代碼 `net`、名稱「網路服務」後儲存
 - **THEN** 清單出現「NET 網路服務」，資產數為 0
 
 #### Scenario: Duplicate name in the dialog

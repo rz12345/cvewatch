@@ -535,6 +535,21 @@ pub fn pick_asset(h: &mut Harness<'_, GuiApp>, tag: &str) {
     h.run();
 }
 
+/// 在資產清單中該資產的編號儲存格上快速點兩下（同一影格送出兩次按下與放開）。
+pub fn double_click_asset(h: &mut Harness<'_, GuiApp>, tag: &str) {
+    let cell = list_cells(h, tag).first().expect("listed").rect().center();
+    h.event(egui::Event::PointerMoved(cell));
+    for pressed in [true, false, true, false] {
+        h.event(egui::Event::PointerButton {
+            pos: cell,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::default(),
+        });
+    }
+    h.run();
+}
+
 /// fake companion 收到的 `match` 子命令次數。
 pub fn match_calls(f: &Fakes) -> usize {
     f.companion

@@ -1,4 +1,4 @@
-//! 「新增資產」與「編輯」共用的對話框（design D11）：上半部資產欄位（類別、曝露度、機密性、
+//! 「新增資產元件」與「編輯」共用的對話框（design D11）：上半部資產欄位（類別、曝露度、機密性、
 //! 完整性、可用性為下拉選單，即時顯示資產價值，13 design D8；編輯時資產編號可修改＝更名，
 //! 與原編號不同時欄位下方提示影響，12 design D4），下半部元件與未辨識產品
 //! （[`super::asset_components`]）。
@@ -94,7 +94,7 @@ enum Action {
 }
 
 impl GuiApp {
-    /// 「新增資產」。
+    /// 「新增資產元件」。
     pub fn start_new_asset(&mut self) {
         self.asset_dialog = Some(AssetDialog::Edit(Box::new(AssetEdit::new(
             AssetForm::new(),

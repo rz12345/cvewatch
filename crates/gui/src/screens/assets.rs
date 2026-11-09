@@ -1,5 +1,6 @@
 //! 資產畫面：工具列與左側清單（[`super::asset_list`]）；選取後顯示元件（含版本歷史）、
-//! 該資產的命中與未辨識產品，以及編輯、退役、恢復、永久刪除。
+//! 該資產的命中與未辨識產品，以及編輯、退役、恢復、永久刪除。清單列快速點兩下即開啟編輯
+//! （只對 active 資產，與 Enter 相同）。
 //!
 //! 產品以目錄的顯示名稱呈現（產品 key 只在滑鼠提示中），類別與曝露度雙語（design 11 D1）。
 
@@ -43,9 +44,10 @@ impl GuiApp {
     pub(super) fn show_assets(&mut self, ui: &mut egui::Ui) {
         self.assets_toolbar(ui);
         ui.separator();
-        let picked = self.asset_list(ui);
-        if picked.is_some() {
-            self.assets_selected = picked;
+        let mut opened = false;
+        if let Some(pick) = self.asset_list(ui) {
+            opened = pick.open;
+            self.assets_selected = Some(pick.tag);
         }
         let action = match self.selected_asset() {
             Some(entry) => self.asset_detail(ui, entry),
@@ -54,6 +56,10 @@ impl GuiApp {
                 unresolved_all(ui, self);
                 None
             }
+        };
+        let action = match (action, opened) {
+            (None, true) => self.active_selected_tag().map(DetailAction::Edit),
+            (action, _) => action,
         };
         match action {
             Some(DetailAction::Edit(tag)) => self.start_edit_asset(&tag),
@@ -72,6 +78,13 @@ impl GuiApp {
             .filter(|a| self.assets_show_retired || a.asset.status == AssetStatus::Active)
     }
 
+    /// 目前選取且為 active 的資產編號（編輯與退役只對 active 資產）。
+    fn active_selected_tag(&self) -> Option<String> {
+        self.selected_asset()
+            .filter(|a| a.asset.status == AssetStatus::Active)
+            .map(|a| a.asset.record.asset_tag.clone())
+    }
+
     /// 資產清單的鍵盤操作（design 11 D6）：Enter 編輯、Delete 退役確認（只對使用中資產）。
     /// 由外框在沒有文字欄位取得焦點、沒有對話框時呼叫；有按鈕等元件取得鍵盤焦點時不作用，
     /// 讓 Enter 照常按下該元件。
@@ -83,11 +96,7 @@ impl GuiApp {
         if ctx.memory(|m| m.focused().is_some()) {
             return;
         }
-        let Some(tag) = self
-            .selected_asset()
-            .filter(|a| a.asset.status == AssetStatus::Active)
-            .map(|a| a.asset.record.asset_tag.clone())
-        else {
+        let Some(tag) = self.active_selected_tag() else {
             return;
         };
         if pressed(egui::Key::Enter, false) {
@@ -250,7 +259,11 @@ fn detail_buttons(ui: &mut egui::Ui, tag: &str, retired: bool) -> Option<DetailA
                 action = Some(DetailAction::Purge(tag.to_string()));
             }
         } else {
-            if ui.button("編輯").on_hover_text("Enter").clicked() {
+            if ui
+                .button("編輯")
+                .on_hover_text("Enter，或在清單中快速點兩下")
+                .clicked()
+            {
                 action = Some(DetailAction::Edit(tag.to_string()));
             }
             ui.add_space(DANGER_GAP);

@@ -3,6 +3,7 @@
 mod support;
 
 use cvewatch_gui::dialogs::AssetDialog;
+use cvewatch_gui::screens::asset_list::NEW_ASSET_BUTTON;
 use eframe::egui;
 use egui_kittest::kittest::Queryable;
 use support::*;
@@ -107,6 +108,36 @@ fn asset_list_enter_after_clicking_a_row() {
     assert!(shows(&h, "編輯 FW-CORE"), "點選清單列後 Enter 開啟編輯");
 }
 
+/// 在清單列上快速點兩下：選取該資產並開啟編輯。
+#[test]
+fn asset_list_double_click_opens_edit() {
+    let (mut h, _f) = gui(seeded_world());
+    ctrl(&mut h, egui::Key::Num3);
+    double_click_asset(&mut h, "FW-CORE");
+    assert_eq!(h.state().assets_selected.as_deref(), Some("FW-CORE"));
+    match &h.state().asset_dialog {
+        Some(AssetDialog::Edit(e)) => assert_eq!(e.form.asset_tag, "FW-CORE"),
+        _ => panic!("雙擊應開啟 FW-CORE 的編輯"),
+    }
+}
+
+/// 單擊只選取，不開啟編輯；已退役資產雙擊也只選取（退役資產不提供編輯）。
+#[test]
+fn asset_list_single_click_or_retired_does_not_open_edit() {
+    let (mut h, _f) = gui(seeded_world());
+    ctrl(&mut h, egui::Key::Num3);
+    pick_asset(&mut h, "FW-CORE");
+    assert!(h.state().asset_dialog.is_none(), "單擊不開啟編輯");
+    let w = seeded_world();
+    w.retire("PVE-01");
+    let (mut h, _f) = gui(w);
+    h.state_mut().assets_show_retired = true;
+    ctrl(&mut h, egui::Key::Num3);
+    double_click_asset(&mut h, "PVE-01");
+    assert_eq!(h.state().assets_selected.as_deref(), Some("PVE-01"));
+    assert!(h.state().asset_dialog.is_none(), "已退役資產不開啟編輯");
+}
+
 #[test]
 fn asset_list_enter_on_a_focused_button_presses_the_button() {
     let (mut h, f) = gui(seeded_world());
@@ -127,7 +158,7 @@ fn asset_list_enter_on_a_focused_button_presses_the_button() {
 fn asset_list_keys_are_ignored_while_typing_or_for_retired() {
     let (mut h, _f) = gui(seeded_world());
     select_asset(&mut h, "FW-EDGE");
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     replace_text(&mut h, "名稱 *", "x");
     h.key_press(egui::Key::Delete);
     h.run();

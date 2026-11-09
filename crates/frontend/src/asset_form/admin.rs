@@ -17,7 +17,7 @@ pub const UNASSIGNED_SYSTEM: &str = "未歸屬";
 /// ISMS 編號的系統代碼與資產說明不符。
 pub const ISMS_SYSTEM_MISMATCH: &str = "系統代碼與資產說明不符";
 /// ISMS 編號的系統代碼還沒有對應的資產說明。
-pub const ISMS_SYSTEM_UNKNOWN: &str = "系統代碼尚未建立資產說明，請先在「資產說明…」新增";
+pub const ISMS_SYSTEM_UNKNOWN: &str = "系統代碼尚未建立資產說明，請先按「新增資產說明」建立";
 
 /// 法規遵循性與防護等級的顯示文字：數值，或「未評定」（CLI、GUI 共用）。
 pub fn rated_text(value: Option<u8>) -> String {

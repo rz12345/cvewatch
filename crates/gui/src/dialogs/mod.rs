@@ -68,7 +68,7 @@ pub enum AssetDialog {
         tag: String,
     },
     Purge(purge::PurgeConfirm),
-    /// 「資產說明…」管理
+    /// 資產說明管理（工具列的「新增資產說明」）
     Systems(Box<asset_systems::SystemsDialog>),
 }
 

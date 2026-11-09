@@ -5,6 +5,7 @@ mod support;
 
 use cvewatch_gui::dialogs::asset_edit::AssetEdit;
 use cvewatch_gui::dialogs::AssetDialog;
+use cvewatch_gui::screens::asset_list::NEW_ASSET_BUTTON;
 use eframe::egui;
 use egui_kittest::kittest::Queryable;
 use support::*;
@@ -21,7 +22,7 @@ fn asset_count(h: &egui_kittest::Harness<'_, cvewatch_gui::GuiApp>) -> i64 {
 fn asset_edit_adding_an_asset_from_the_window() {
     let (mut h, f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     replace_text(&mut h, "資產編號 *", "FW-02");
     replace_text(&mut h, "名稱 *", "fw02");
     assert!(!shows(&h, "選擇類別"), "下拉選單只有左側一個標籤");
@@ -50,7 +51,7 @@ fn asset_edit_invalid_field_keeps_the_dialog_open() {
     let (mut h, _f) = gui(seeded_world());
     let before = asset_count(&h);
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     click(&mut h, "儲存");
     assert!(h.state().asset_dialog.is_some(), "對話框不關閉");
     assert!(shows(&h, "必填"));
@@ -150,11 +151,11 @@ fn asset_edit_package_rows_are_read_only() {
 fn asset_edit_escape_does_not_discard_unsaved_input() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     h.key_press(egui::Key::Escape);
     h.run();
     assert!(h.state().asset_dialog.is_none(), "沒有修改時 Esc 關閉");
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     replace_text(&mut h, "名稱 *", "fw02");
     h.key_press(egui::Key::Escape);
     h.run();
@@ -186,7 +187,7 @@ fn dialog<'a>(h: &'a egui_kittest::Harness<'_, cvewatch_gui::GuiApp>) -> &'a Ass
 fn asset_edit_cancelled_dialog_leaves_no_error_behind() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     click(&mut h, "儲存");
     assert!(shows(&h, "必填"));
     click_last(&mut h, "取消");
@@ -198,7 +199,7 @@ fn asset_edit_cancelled_dialog_leaves_no_error_behind() {
 fn asset_edit_cancel_clears_the_write_failure_from_the_status_bar() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     replace_text(&mut h, "資產編號 *", "FW-EDGE");
     replace_text(&mut h, "名稱 *", "重複");
     h.get_by_label("類別 *").click();
@@ -225,7 +226,7 @@ fn asset_edit_cancel_clears_the_write_failure_from_the_status_bar() {
 fn asset_edit_keyboard_flow_when_adding_a_component() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     h.get_by_label("加入元件").click();
     h.run();
     assert!(
@@ -248,7 +249,7 @@ fn asset_edit_keyboard_flow_when_adding_a_component() {
 fn asset_edit_duplicate_rows_have_separate_version_fields() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     for _ in 0..2 {
         add_component(&mut h, "pan", "PAN-OS（Palo Alto Networks）");
     }
@@ -273,7 +274,7 @@ fn asset_edit_duplicate_rows_have_separate_version_fields() {
 /// 新增資產並填入必填欄位與一個元件（類別由呼叫端選擇）。
 fn new_asset_with_component(h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiApp>, tag: &str) {
     ctrl(h, egui::Key::Num3);
-    click(h, "新增資產");
+    click(h, NEW_ASSET_BUTTON);
     replace_text(h, "資產編號 *", tag);
     replace_text(h, "名稱 *", tag);
     add_component(h, "pan", "PAN-OS（Palo Alto Networks）");
@@ -387,7 +388,7 @@ fn asset_edit_isms_id_with_the_wrong_major_class() {
 
 fn open_add_component(h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiApp>) {
     ctrl(h, egui::Key::Num3);
-    click(h, "新增資產");
+    click(h, NEW_ASSET_BUTTON);
     h.get_by_label("加入元件").click();
     h.run();
 }

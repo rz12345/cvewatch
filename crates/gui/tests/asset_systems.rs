@@ -1,4 +1,4 @@
-//! 16 任務 5.3～5.5：資產清單依資產說明分組、「資產說明…」對話框，以及資產對話框的
+//! 16 任務 5.3～5.5：資產清單依資產說明分組、資產說明對話框，以及資產對話框的
 //! ISMS 管理區塊與詳情欄位。
 
 mod support;
@@ -8,7 +8,9 @@ use cvewatch_frontend::asset_form::ISMS_SYSTEM_MISMATCH;
 use cvewatch_frontend::workspace::systems::delete_blocked;
 use cvewatch_gui::dialogs::asset_systems::{NEW_CODE_LABEL, NEW_NAME_LABEL};
 use cvewatch_gui::dialogs::AssetDialog;
-use cvewatch_gui::screens::asset_list::{group_id, group_open_text};
+use cvewatch_gui::screens::asset_list::{
+    group_id, group_open_text, NEW_ASSET_BUTTON, SYSTEMS_BUTTON,
+};
 use eframe::egui;
 use egui_kittest::kittest::Queryable;
 use rusqlite::params;
@@ -60,7 +62,7 @@ fn assets_are_listed_under_their_systems() {
 fn asset_list_takes_two_thirds_by_default() {
     let (mut h, _f) = gui(grouped_world());
     ctrl(&mut h, egui::Key::Num3);
-    let content_left = h.get_by_label("新增資產").rect().left();
+    let content_left = h.get_by_label(SYSTEMS_BUTTON).rect().left();
     let detail_left = h.get_by_label("請從左側選取資產。").rect().left();
     let right = h.ctx.content_rect().right();
     let ratio = (detail_left - content_left) / (right - content_left);
@@ -84,6 +86,22 @@ fn expanded_group_has_no_trailing_gap() {
     assert!(
         (0.0..40.0).contains(&gap),
         "NET 組最後一列與下一組標題相距 {gap}，展開的組不應佔滿剩餘高度"
+    );
+}
+
+/// 工具列：「新增資產說明」在「新增資產元件」左邊，兩者同一列。
+#[test]
+fn toolbar_puts_new_system_left_of_new_asset() {
+    let (mut h, _f) = gui(grouped_world());
+    ctrl(&mut h, egui::Key::Num3);
+    let system = h.get_by_label(SYSTEMS_BUTTON).rect();
+    let asset = h.get_by_label(NEW_ASSET_BUTTON).rect();
+    assert!(system.right() <= asset.left(), "新增資產說明在左");
+    assert!((system.center().y - asset.center().y).abs() < 4.0, "同一列");
+    assert!(h.query_by_label("新增資產").is_none(), "舊按鈕名稱不再出現");
+    assert!(
+        h.query_by_label("資產說明…").is_none(),
+        "舊按鈕名稱不再出現"
     );
 }
 
@@ -138,7 +156,7 @@ fn group_with_only_retired_assets_and_keyboard() {
 fn systems_dialog_adds_and_reports_duplicates() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "資產說明…");
+    click(&mut h, SYSTEMS_BUTTON);
     replace_text(&mut h, NEW_CODE_LABEL, "net");
     replace_text(&mut h, NEW_NAME_LABEL, "網路服務");
     click(&mut h, "新增");
@@ -171,7 +189,7 @@ fn system_in_use_cannot_be_deleted() {
     assign(&w, "PVE-01", "NET");
     let (mut h, _f) = gui(w);
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "資產說明…");
+    click(&mut h, SYSTEMS_BUTTON);
     assert!(is_disabled(&h, "刪除 NET"));
     assert!(shows(&h, "3"), "資產數欄");
     // 停用按鈕的滑鼠提示需要停留時間，kittest 無法穩定觸發；確認提示文字與資產數一致
@@ -205,7 +223,7 @@ fn isms_id_from_another_system_keeps_the_dialog_open() {
 fn protection_level_and_personal_data_in_the_dialog() {
     let (mut h, _f) = gui(seeded_world());
     ctrl(&mut h, egui::Key::Num3);
-    click(&mut h, "新增資產");
+    click(&mut h, NEW_ASSET_BUTTON);
     h.get_by_label("類別 *").click();
     h.run();
     click_option(&mut h, "HW04 週邊設備");

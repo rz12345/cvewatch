@@ -1,4 +1,4 @@
-//! 「資產說明…」對話框（16 spec GUI asset system management、design D8）：列出代碼、名稱與
+//! 「新增資產說明」開啟的資產說明對話框（16 spec GUI asset system management、design D8）：列出代碼、名稱與
 //! 歸屬的資產數（含已退役），可新增、改名與刪除。代碼只在新增時可輸入；仍有資產歸屬時
 //! 「刪除」停用並以提示說明資產數。欄位錯誤顯示在欄位下方，對話框不關閉。
 
@@ -45,7 +45,7 @@ enum Action {
 }
 
 impl GuiApp {
-    /// 開啟「資產說明…」。
+    /// 開啟資產說明對話框（工具列的「新增資產說明」）。
     pub fn start_systems_dialog(&mut self) {
         self.asset_dialog = Some(AssetDialog::Systems(Box::default()));
     }

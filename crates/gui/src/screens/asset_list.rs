@@ -1,8 +1,8 @@
 //! 資產畫面的工具列與左側資產清單（design 11 D4、D8）。
 //!
-//! 工具列分三組：新增資產、資產說明…｜清冊檔案（匯入、範本、匯出、從 ISMS 清冊匯入）｜顯示已退役。清單依資產說明
-//! 分組（16 design D8；可收合，標題列出資產數與未處理命中數），組內為三欄表格（編號、名稱、
-//! 未處理），整列可點選；名稱過長時截斷並以提示顯示全文。
+//! 工具列分三組：新增資產說明、新增資產元件｜清冊檔案（匯入、範本、匯出、從 ISMS 清冊匯入）｜顯示已退役。
+//! 清單依資產說明分組（16 design D8；可收合，標題列出資產數與未處理命中數），組內為三欄表格（編號、
+//! 名稱、未處理），整列可點選、快速點兩下開啟編輯；名稱過長時截斷並以提示顯示全文。
 
 use cvewatch_core::assets::AssetStatus;
 use cvewatch_frontend::data::{AssetEntry, AssetListFilter};
@@ -27,6 +27,12 @@ pub const PENDING_MARK: &str = "（版本待補）";
 /// 「只顯示版本待補」篩選。
 pub const PENDING_FILTER: &str = "只顯示版本待補";
 
+/// 「新增資產元件」按鈕（開啟新增資產的對話框）。
+pub const NEW_ASSET_BUTTON: &str = "新增資產元件";
+
+/// 「新增資產說明」按鈕（開啟資產說明對話框）。
+pub const SYSTEMS_BUTTON: &str = "新增資產說明";
+
 /// 「從 ISMS 清冊匯入」按鈕。
 pub const ISMS_IMPORT_BUTTON: &str = "從 ISMS 清冊匯入";
 
@@ -42,11 +48,11 @@ const LIST_WIDTH_RATIO: f32 = 2.0 / 3.0;
 impl GuiApp {
     pub(super) fn assets_toolbar(&mut self, ui: &mut egui::Ui) {
         ui.horizontal_wrapped(|ui| {
-            if ui.button("新增資產").clicked() {
-                self.start_new_asset();
-            }
-            if ui.button("資產說明…").clicked() {
+            if ui.button(SYSTEMS_BUTTON).clicked() {
                 self.start_systems_dialog();
+            }
+            if ui.button(NEW_ASSET_BUTTON).clicked() {
+                self.start_new_asset();
             }
             ui.separator();
             let enabled = self.companion.is_some();
@@ -80,8 +86,8 @@ impl GuiApp {
         });
     }
 
-    /// 左側清單；回傳被點選的資產編號。
-    pub(super) fn asset_list(&self, ui: &mut egui::Ui) -> Option<String> {
+    /// 左側清單；回傳被點選的資產。
+    pub(super) fn asset_list(&self, ui: &mut egui::Ui) -> Option<ListPick> {
         let filter = AssetListFilter {
             include_retired: self.assets_show_retired,
             pending_only: self.assets_pending_only,
@@ -96,7 +102,7 @@ impl GuiApp {
                 let groups = self.ws.data.asset_groups(&filter);
                 if groups.is_empty() {
                     ui.label(format!(
-                        "尚無資產。請按「新增資產」或「匯入清冊」，{DROP_HINT}。"
+                        "尚無資產。請按「{NEW_ASSET_BUTTON}」或「匯入清冊」，{DROP_HINT}。"
                     ));
                     return;
                 }
@@ -114,6 +120,12 @@ impl GuiApp {
     }
 }
 
+/// 清單中被點選的資產；`open` 表示快速點兩下（開啟編輯）。
+pub(super) struct ListPick {
+    pub tag: String,
+    pub open: bool,
+}
+
 /// 組的收合狀態 id（測試可用來收合）。
 pub fn group_id(key: &str) -> egui::Id {
     egui::Id::unique(("asset-group", key))
@@ -129,7 +141,7 @@ fn group_section(
     ui: &mut egui::Ui,
     group: &AssetGroup<'_>,
     selected: Option<&str>,
-) -> Option<String> {
+) -> Option<ListPick> {
     let mut picked = None;
     egui::collapsing_header::CollapsingState::load_with_default_open(
         ui.ctx(),
@@ -153,7 +165,7 @@ fn list_table(
     key: &str,
     list: &[&AssetEntry],
     selected: Option<&str>,
-) -> Option<String> {
+) -> Option<ListPick> {
     let mut picked = None;
     // 退役列用佈景主題的弱化文字色（深色主題下 `Color32::GRAY` 比一般文字更亮）
     let weak = ui.visuals().weak_text_color();
@@ -182,8 +194,12 @@ fn list_table(
                 let on = selected == Some(tag.as_str());
                 row.set_selected(on);
                 list_row(&mut row, a, weak, on);
-                if row.response().clicked() {
-                    picked = Some(tag.clone());
+                let resp = row.response();
+                if resp.clicked() || resp.double_clicked() {
+                    picked = Some(ListPick {
+                        tag: tag.clone(),
+                        open: resp.double_clicked(),
+                    });
                 }
             });
         });
