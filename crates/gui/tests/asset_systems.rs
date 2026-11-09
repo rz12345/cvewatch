@@ -55,6 +55,23 @@ fn assets_are_listed_under_their_systems() {
     assert!(pve.top() > unassigned.top(), "PVE-01 在未歸屬組內");
 }
 
+/// 展開的組只佔列數所需的高度：下一組的標題緊接在上一組最後一列之後，不留大片空白。
+#[test]
+fn expanded_group_has_no_trailing_gap() {
+    let (mut h, _f) = gui(grouped_world());
+    ctrl(&mut h, egui::Key::Num3);
+    let last_row = ["FW-EDGE", "FW-CORE"]
+        .iter()
+        .map(|t| list_cells(&h, t)[0].rect().bottom())
+        .fold(f32::MIN, f32::max);
+    let next_heading = h.get_by_label("未歸屬資產說明（1）").rect().top();
+    let gap = next_heading - last_row;
+    assert!(
+        (0.0..40.0).contains(&gap),
+        "NET 組最後一列與下一組標題相距 {gap}，展開的組不應佔滿剩餘高度"
+    );
+}
+
 /// Scenario: Collapsed group shows open findings
 #[test]
 fn collapsed_group_shows_open_findings() {

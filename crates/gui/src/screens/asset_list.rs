@@ -160,7 +160,8 @@ fn list_table(
         .striped(true)
         .sense(egui::Sense::click())
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-        .auto_shrink([false, false])
+        // 寬度填滿面板，高度只取列數所需：不然展開的組會佔滿剩餘高度，下方留下大片空白
+        .auto_shrink([false, true])
         .column(Column::auto().at_least(70.0))
         .column(Column::remainder().at_least(60.0).clip(true))
         .column(Column::exact(COUNT_WIDTH))
