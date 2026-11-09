@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 
 use cvewatch_core::assets::template::{write_sheets, SheetData};
 
-const ASSET_HEADERS: [&str; 10] = [
+const ASSET_HEADERS: [&str; 16] = [
     "asset_tag",
     "name",
     "category",
@@ -18,6 +18,24 @@ const ASSET_HEADERS: [&str; 10] = [
     "integrity",
     "availability",
     "isms_id",
+    "system",
+    "responsible_unit",
+    "custodian",
+    "user_unit",
+    "compliance",
+    "personal_data",
+];
+
+/// 16 之前的清冊：有 isms_id 與 owner 欄，沒有資產說明與 ISMS 管理欄位（相容測試用）。
+const OWNER_HEADERS: [&str; 8] = [
+    "asset_tag",
+    "name",
+    "category",
+    "product",
+    "version",
+    "exposure",
+    "isms_id",
+    "owner",
 ];
 
 /// 13 之前的清冊：英文 category 與重要性欄（相容測試用）。
@@ -52,9 +70,10 @@ fn write(name: &str, sheets: &[SheetData<'_>]) {
     println!("wrote {}", path.display());
 }
 
-/// 新格式：子類別代碼（或名稱）、C/I/A 多數留空（依子類別範本值）。
+/// 新格式：子類別代碼（或名稱）、C/I/A 多數留空（依子類別範本值）；FW-01 的資產說明由
+/// ISMS 編號帶出（`SYS`），ISMS 管理欄位只有 FW-01 與 SRV-01 有填（虛構的單位與人名）。
 fn base_assets() -> Vec<Vec<String>> {
-    rows(&[
+    let mut assets = rows(&[
         &[
             "FW-01",
             "fw01",
@@ -118,7 +137,23 @@ fn base_assets() -> Vec<Vec<String>> {
             "",
             "",
         ],
-    ])
+    ]);
+    let admin: [(&str, [&str; 6]); 2] = [
+        ("FW-01", ["", "網管組", "王小明", "網管組", "", "N"]),
+        ("SRV-01", ["SYS", "系統組", "", "", "3", ""]),
+    ];
+    for row in &mut assets {
+        let extra = admin
+            .iter()
+            .find(|(tag, _)| *tag == row[0])
+            .map_or([""; 6], |(_, v)| *v);
+        row.extend(extra.iter().map(|s| s.to_string()));
+    }
+    assets
+}
+
+fn base_systems() -> Vec<Vec<String>> {
+    rows(&[&["SYS", "核心系統"]])
 }
 
 /// 13 之前的清冊內容（`inventory_legacy.xlsx`）。
@@ -183,6 +218,7 @@ fn base_components() -> Vec<Vec<String>> {
 fn main() {
     std::fs::create_dir_all(fixtures_dir()).expect("fixtures dir");
     let components_headers = headers(&["asset_tag", "product", "version"]);
+    let systems_headers = headers(&["code", "name"]);
 
     write(
         "inventory_basic.xlsx",
@@ -196,6 +232,11 @@ fn main() {
                 name: "components",
                 headers: components_headers.clone(),
                 rows: base_components(),
+            },
+            SheetData {
+                name: "systems",
+                headers: systems_headers.clone(),
+                rows: base_systems(),
             },
         ],
     );
@@ -242,7 +283,43 @@ fn main() {
                 headers: components_headers.clone(),
                 rows: base_components(),
             },
+            SheetData {
+                name: "systems",
+                headers: systems_headers.clone(),
+                rows: base_systems(),
+            },
         ],
+    );
+
+    // 16 之前的清冊：owner 欄、沒有 system 與 ISMS 管理欄位
+    write(
+        "inventory_owner.xlsx",
+        &[SheetData {
+            name: "assets",
+            headers: headers(&OWNER_HEADERS),
+            rows: rows(&[
+                &[
+                    "FW-01",
+                    "fw01",
+                    "HW03",
+                    "PAN-OS",
+                    "11.1.4-h7",
+                    "internet",
+                    "SYS-HW-003",
+                    "王小明",
+                ],
+                &[
+                    "NAS-01",
+                    "nas01",
+                    "HW05",
+                    "Synology DSM",
+                    "7.2.1-69057",
+                    "internal",
+                    "",
+                    "李小華",
+                ],
+            ]),
+        }],
     );
 
     // 中文欄名（搭配 [import.columns]）

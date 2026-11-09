@@ -3,7 +3,7 @@
 資產以 Excel／CSV 清冊匯入，也可以在視窗版直接新增與修改；**資料庫是目前狀態，清冊是交換格式**。
 
 ```powershell
-cvewatch asset template assets.xlsx              # 空白範本（assets、components 工作表與範例列，classes 子類別說明）
+cvewatch asset template assets.xlsx              # 空白範本（assets、components、systems 工作表與範例列，classes 子類別說明）
 cvewatch asset import assets.xlsx --dry-run      # 預覽差異（新增、更新、版本變更、清冊中消失），不寫入
 cvewatch asset import assets.xlsx                # 匯入並自動比對
 cvewatch asset export inventory.xlsx             # 匯出目前使用中的資產（格式與匯入相同）
@@ -20,12 +20,33 @@ cvewatch asset rename NAS-01 NAS-11              # 更改資產編號（元件�
 | `product`、`version` | ✓ | 第一個元件（其餘元件寫在 `components` 工作表） |
 | `exposure` | | `internet`、`dmz`、`internal`、`mgmt`，空白為 `internal` |
 | `confidentiality`、`integrity`、`availability` | | 機密性、完整性、可用性（1–4）；空白帶入子類別的範本值。**資產價值 = MAX(C, I, A)**，用於同等級內的風險排序 |
-| `isms_id` | | ISMS 資產編號 `系統代碼(3 英數字)-大類(HW/SW)-流水號(3 數字)`，例如 `SYS-HW-001`；大類須與子類別一致，不分大小寫唯一（含已退役資產）；留空表示沒有 ISMS 編號，整欄不存在時保留既有資產的編號 |
-| `location`、`owner`、`notes` | | 位置、負責人、備註 |
+| `isms_id` | | ISMS 資產編號 `系統代碼(3 英數字)-大類(HW/SW)-流水號(3 數字)`，例如 `SYS-HW-001`；大類須與子類別一致，系統代碼須與資產說明一致，不分大小寫唯一（含已退役資產）；留空表示沒有 ISMS 編號 |
+| `system` | | 資產說明（ISMS 的系統／服務）：代碼（例如 `SYS`）或名稱，須已存在於資料庫或同一份清冊的 `systems` 工作表；留空時由 ISMS 編號的系統代碼帶出 |
+| `responsible_unit`、`custodian`、`user_unit` | | 權責單位、保管人、使用單位 |
+| `compliance` | | 法規遵循性（1–4），留空表示未評定。**資通系統防護等級 = MAX(C, I, A, 法規遵循性)**，未評定時不顯示數值 |
+| `personal_data` | | 是否含個人資料：`Y`、`N`、`是`、`否`；空白帶入子類別的預設值（內建皆為「否」）；匯出寫 `Y`／`N` |
+| `location`、`notes` | | 位置、備註 |
+
+- `isms_id`、`system`、`responsible_unit`、`custodian`、`user_unit`、`compliance`、`personal_data` **整欄不存在**時保留既有資產的值（報表給出一次提醒），新資產以未填或預設值建立
+- `owner`（舊的負責人）**已改名為 `custodian`（保管人）**：仍可匯入（內容視為保管人，報表給出一次提醒）；同一張工作表不可同時有 `owner` 與 `custodian`。`[import.columns]` 中對應到 `owner` 的自訂欄名同樣視為保管人
 
 - `criticality`（舊的重要性 1–3）**已停用**：匯入時忽略，報表給出一次提醒
 - 舊版 category 值仍可匯入並轉換（報表逐列提醒）：network → `HW02`、security → `HW03`、virtualization → `HW01`、server → `HW01`、storage → `HW05`、host → `HW01`（host 若是個人電腦請改為 `HW06`）
-- 畫面編修只能選已定義的子類別；修改類別不會改變已設定的 C/I/A
+- 畫面編修只能選已定義的子類別；修改類別不會改變已設定的 C/I/A 與是否含個人資料
+
+## 資產說明（`systems` 工作表）
+
+資產說明對應 ISMS 清冊的「資產說明」與系統代碼（例如 `SYS` 核心系統）：一個資產說明下有多個資產，資產的 ISMS 編號前三碼必須是它的代碼。
+
+| 欄位 | 必填 | 說明 |
+|---|---|---|
+| `code` | ✓ | 三碼英數字（不分大小寫、以大寫儲存），建立後不可修改 |
+| `name` | ✓ | 名稱，不可與其他資產說明重複 |
+
+- 匯入時，`systems` 工作表的每一列會新增資產說明，或修改同代碼資產說明的名稱（`--dry-run` 會列出）；資料庫中有、但工作表中沒有的資產說明會保留。沒有 `systems` 工作表時資產說明不變
+- 匯出的 `systems` 工作表列出所有資產說明（含目前沒有使用中資產者），`assets` 的 `system` 欄寫代碼
+- 視窗版資產畫面的「資產說明…」可新增、改名與刪除；仍有資產（含已退役）歸屬的資產說明不能刪除
+- 欄位格式錯誤（例如法規遵循性 5）在讀取清冊時就回報；資產說明須對照資料庫，因此「資產說明尚未定義」這類錯誤會在欄位錯誤都修正後才列出
 
 ## ISMS 子類別
 
@@ -50,6 +71,9 @@ cvewatch asset rename NAS-01 NAS-11              # 更改資產編號（元件�
 ```toml
 [asset_classes.HW05]
 confidentiality = 3          # 只覆寫有寫的欄位
+
+[asset_classes.HW06]
+personal_data = true         # 是否含個人資料的預設值（true／false）
 
 [asset_classes.HW12]
 name = "實驗儀器"
@@ -147,6 +171,12 @@ cna = [{ vendor = "Zyxel", product = "ABC-100 firmware" }]
 1. **替換執行檔之前**，先以目前（舊版）的 cvewatch 備份：`cvewatch db backup D:\backup\cvewatch-before-13.db`。新版第一次開啟資料庫時就會轉換（包含新版的 `db backup` 與排程執行的 `sync`），因此以新版執行的備份已是轉換後的內容；轉換後的資料庫無法以舊版開啟，回復請以舊版的 `cvewatch db restore` 還原上述備份並改回舊版執行檔
 2. 轉換規則：舊 category 依上方對照表轉為子類別代碼（含已退役資產）；C/I/A 帶入轉換後子類別的**內建**範本值（不套用設定檔的覆寫）；舊重要性附記在備註末尾（「舊重要性：3」）供對照。元件、版本歷史、命中與處理紀錄不變
 3. 升級後執行一次 `cvewatch asset export inventory-new.xlsx` 取得新格式清冊，在其中調整類別（例如 host → `HW06`）與 C/I/A，之後以新格式清冊維護。舊清冊仍可匯入，但沒有 C/I/A 欄時會以範本值覆寫畫面上調整過的值（`--dry-run` 的欄位變更會列出）；沒有 `isms_id` 欄時則保留資料庫中既有的 ISMS 編號（報表給出一次提醒）
+
+## 從舊版升級（ISMS 管理欄位與資產說明）
+
+1. 與上一節相同，**替換執行檔之前**先以舊版執行 `cvewatch db backup`
+2. 轉換規則：`owner`（負責人）轉為保管人；既有 ISMS 編號中出現的每個系統代碼建立一個資產說明（**名稱暫時等於代碼**，例如「SYS SYS」），有 ISMS 編號的資產（含已退役）歸屬對應的資產說明；權責單位、使用單位、法規遵循性為未填，是否含個人資料為「否」
+3. 升級後在視窗版「資產說明…」把資產說明改為正式名稱，再執行一次 `cvewatch asset export` 取得含 `systems` 工作表與新欄位的清冊
 
 ## 匯出與更名
 

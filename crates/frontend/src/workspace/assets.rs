@@ -11,8 +11,8 @@ use cvewatch_core::assets::edit::{self, EditOp, EditOutcome, NewComponent, Purge
 use cvewatch_core::assets::export::export_inventory;
 use cvewatch_core::assets::plan::VersionWarning;
 use cvewatch_core::assets::template::write_template;
-use cvewatch_core::assets::validate::validate_record;
-use cvewatch_core::assets::{AssetClasses, AssetRecord};
+use cvewatch_core::assets::validate::{validate_record, RecordContext};
+use cvewatch_core::assets::AssetRecord;
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::CoreError;
 
@@ -35,8 +35,8 @@ type Step<'a> = (String, EditOp<'a>);
 
 /// 資產欄位是否與資料庫不同（以與 core 相同的驗證結果比較，忽略前後空白）。
 /// 編號另由更名步驟處理，比較時換回原編號（12 design D3）。
-fn fields_changed(form: &AssetForm, entry: &AssetEntry, classes: &AssetClasses) -> bool {
-    match validate_record(&form.record_input(), classes) {
+fn fields_changed(form: &AssetForm, entry: &AssetEntry, ctx: &RecordContext<'_>) -> bool {
+    match validate_record(&form.record_input(), ctx) {
         Ok(record) => {
             let record = AssetRecord {
                 asset_tag: entry.asset.record.asset_tag.clone(),
@@ -118,17 +118,17 @@ fn edit_steps<'a>(
     form: &'a AssetForm,
     entry: &AssetEntry,
     catalog: &Catalog,
-    classes: &AssetClasses,
+    ctx: &RecordContext<'_>,
 ) -> Vec<Step<'a>> {
     let mut steps = Vec::new();
     if let Some(new_tag) = form.renamed_to() {
         let old = &entry.asset.record.asset_tag;
         steps.push((format!("更名 {old} → {new_tag}"), EditOp::Rename(new_tag)));
     }
-    if fields_changed(form, entry, classes) {
+    if fields_changed(form, entry, ctx) {
         steps.push((
             "修改資產欄位".to_string(),
-            EditOp::Fields(form.record_input()),
+            EditOp::Fields(Box::new(form.record_input())),
         ));
     }
     steps.extend(removal_steps(form, catalog));
@@ -187,7 +187,11 @@ impl<V: ListView> Workspace<V> {
     /// 寫入前的本地驗證：欄位與元件（[`AssetForm::validate`]），以及更名的新編號是否已被使用。
     pub fn validate_asset_form(&self, form: &AssetForm) -> Result<(), FormErrors> {
         let mut errors = form
-            .validate(&self.settings.catalog, &self.settings.classes)
+            .validate(
+                &self.settings.catalog,
+                &self.settings.classes,
+                &self.data.systems,
+            )
             .err()
             .unwrap_or_default();
         let tag_ok = errors.field(StandardField::AssetTag).is_none();
@@ -227,7 +231,11 @@ impl<V: ListView> Workspace<V> {
         };
         let catalog = &self.settings.catalog;
         let classes = &self.settings.classes;
-        let steps = edit_steps(form, entry, catalog, classes);
+        let ctx = RecordContext {
+            classes,
+            systems: &self.data.systems,
+        };
+        let steps = edit_steps(form, entry, catalog, &ctx);
         if steps.is_empty() {
             return Refreshed::unchanged(Report::info(format!("{original} 沒有變更")), open);
         }

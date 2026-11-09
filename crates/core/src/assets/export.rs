@@ -6,6 +6,8 @@
 //! - 版本寫 `version_raw`，重匯不產生版本變更
 //! - 不含 retired 資產與主機套件元件（套件以 `asset import-packages` 管理）
 //! - category 寫子類別代碼，C/I/A 寫實際值（13 design D4）
+//! - `system` 寫資產說明代碼、`personal_data` 寫 Y／N；`systems` 工作表列出所有資產說明
+//!   （含沒有使用中資產者，16 design D3）
 
 use std::path::Path;
 
@@ -14,6 +16,7 @@ use rusqlite::{params, Connection};
 use super::columns::{SheetKind, StandardField};
 use super::model::{Asset, AssetRecord};
 use super::repo::{AssetFilter, AssetRepo};
+use super::systems::SystemRepo;
 use super::template::{headers, write_sheets, SheetData};
 use crate::catalog::Catalog;
 use crate::error::CoreError;
@@ -26,12 +29,22 @@ pub struct ExportSummary {
     pub warnings: Vec<String>,
 }
 
-/// 兩個工作表的資料列（不含表頭）。
+/// 三個工作表的資料列（不含表頭）。
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct InventoryRows {
     pub assets: Vec<Vec<String>>,
     pub components: Vec<Vec<String>>,
+    pub systems: Vec<Vec<String>>,
     pub warnings: Vec<String>,
+}
+
+/// 是否含個人資料的匯出寫法（與 ISMS 清冊相同）。
+pub fn personal_data_text(v: bool) -> &'static str {
+    if v {
+        "Y"
+    } else {
+        "N"
+    }
 }
 
 /// 產品欄的寫法：目錄的顯示名稱（重匯時解析回同一產品）；否則寫 key（key 也是別名）。
@@ -99,11 +112,18 @@ fn asset_row(r: &AssetRecord, first: Option<&(String, String)>) -> Vec<String> {
             StandardField::Integrity => r.cia.integrity.to_string(),
             StandardField::Availability => r.cia.availability.to_string(),
             StandardField::IsmsId => text(&r.isms_id),
-            // 停用欄位不在 columns() 中
-            StandardField::Criticality => String::new(),
+            StandardField::System => text(&r.system_code),
+            StandardField::ResponsibleUnit => text(&r.responsible_unit),
+            StandardField::Custodian => text(&r.custodian),
+            StandardField::UserUnit => text(&r.user_unit),
+            StandardField::Compliance => r.compliance.map(|d| d.to_string()).unwrap_or_default(),
+            StandardField::PersonalData => personal_data_text(r.personal_data).to_string(),
             StandardField::Location => text(&r.location),
-            StandardField::Owner => text(&r.owner),
             StandardField::Notes => text(&r.notes),
+            // 停用欄位、舊欄名與 systems 工作表的欄位不在 columns() 中
+            StandardField::Criticality | StandardField::Owner | StandardField::Code => {
+                String::new()
+            }
         })
         .collect()
 }
@@ -127,6 +147,11 @@ pub fn inventory_rows(conn: &Connection, catalog: &Catalog) -> Result<InventoryR
                 .push(vec![r.asset_tag.clone(), product.clone(), version.clone()]);
         }
     }
+    rows.systems = SystemRepo::new(conn)
+        .list()?
+        .into_iter()
+        .map(|s| vec![s.code.as_str().to_string(), s.name])
+        .collect();
     Ok(rows)
 }
 
@@ -150,6 +175,11 @@ pub fn export_inventory(
                 name: SheetKind::Components.sheet_name(),
                 headers: headers(SheetKind::Components),
                 rows: rows.components,
+            },
+            SheetData {
+                name: SheetKind::Systems.sheet_name(),
+                headers: headers(SheetKind::Systems),
+                rows: rows.systems,
             },
         ],
     )?;

@@ -470,15 +470,20 @@ level = "info"
 [import.columns]
 # 現有清冊使用自訂欄名時，在此對應到標準欄位
 # （asset_tag、name、category、product、version、exposure、confidentiality、integrity、
-#   availability、isms_id、location、owner、notes）
+#   availability、isms_id、system、responsible_unit、custodian、user_unit、compliance、
+#   personal_data、location、notes；舊欄名 owner 視為 custodian）
 # "財產編號" = "asset_tag"
 # "設備名稱" = "name"
 
 # ISMS 子類別：內建 HW01–HW11、SW01–SW07（v2.1），可覆寫名稱、描述與 C/I/A 範本值，
 # 或新增子類別（代碼為 HW 或 SW 加兩位數字；新增時 name 必填，C/I/A 三項全寫或全不寫）。
-# 修改範本值不會改變既有資產的 C/I/A。
+# personal_data 為是否含個人資料的預設值（true／false；內建皆為 false）。
+# 修改範本值或預設值不會改變既有資產的 C/I/A 與是否含個人資料。
 # [asset_classes.HW05]
 # confidentiality = 3
+#
+# [asset_classes.HW06]
+# personal_data = true
 #
 # [asset_classes.HW12]
 # name = "實驗儀器"

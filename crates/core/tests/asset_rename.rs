@@ -9,7 +9,7 @@ use cvewatch_core::assets::columns::SheetKind;
 use cvewatch_core::assets::edit::{self, EditOp, NewComponent};
 use cvewatch_core::assets::import::{import_inventory, ImportOptions};
 use cvewatch_core::assets::validate::{
-    validate_record, IncomingAsset, IncomingComponent, Inventory, RecordInput, RowRef,
+    validate_import_record, IncomingAsset, IncomingComponent, Inventory, RecordInput, RowRef,
 };
 use cvewatch_core::assets::{AssetRepo, AssetStatus};
 use cvewatch_core::matching::run::match_is_stale;
@@ -201,7 +201,7 @@ fn rename_with_other_edits_saves_together() {
         &w.catalog,
         &w.classes,
         FW,
-        &[EditOp::Rename(NEW), EditOp::Fields(input)],
+        &[EditOp::Rename(NEW), EditOp::Fields(Box::new(input))],
         now(),
     )
     .unwrap();
@@ -227,7 +227,7 @@ fn failing_rename_with_other_edits_saves_nothing() {
         &w.catalog,
         &w.classes,
         FW,
-        &[EditOp::Rename("WEB-01"), EditOp::Fields(input)],
+        &[EditOp::Rename("WEB-01"), EditOp::Fields(Box::new(input))],
         now(),
     ));
     assert!(msg.contains("已被使用"), "{msg}");
@@ -261,7 +261,7 @@ fn old_inventory() -> Inventory {
         assets: vec![
             IncomingAsset {
                 row,
-                record: validate_record(
+                record: validate_import_record(
                     &RecordInput {
                         asset_tag: FW,
                         name: FW,
@@ -271,7 +271,9 @@ fn old_inventory() -> Inventory {
                     },
                     &cvewatch_core::assets::AssetClasses::builtin(),
                 )
-                .unwrap(),
+                .unwrap()
+                .record,
+                system_raw: String::new(),
                 components: vec![IncomingComponent {
                     row,
                     product_raw: "PAN-OS".into(),
@@ -280,7 +282,7 @@ fn old_inventory() -> Inventory {
             },
             IncomingAsset {
                 row: RowRef { number: 3, ..row },
-                record: validate_record(
+                record: validate_import_record(
                     &RecordInput {
                         asset_tag: "WEB-01",
                         name: "WEB-01",
@@ -290,12 +292,13 @@ fn old_inventory() -> Inventory {
                     },
                     &cvewatch_core::assets::AssetClasses::builtin(),
                 )
-                .unwrap(),
+                .unwrap()
+                .record,
+                system_raw: String::new(),
                 components: vec![],
             },
         ],
-        notices: Vec::new(),
-        keep_isms_ids: false,
+        ..Inventory::default()
     }
 }
 

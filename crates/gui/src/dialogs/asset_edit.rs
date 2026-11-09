@@ -7,6 +7,7 @@
 //! （design 11 D3）。C/I/A 的第一項「依類別（N）」= 空白（儲存時帶入子類別範本值）。
 //! 驗證錯誤以介面用語紅字顯示在欄位下方，失敗時保留對話框與輸入內容；本地驗證失敗不寫狀態列，
 //! 以「取消」或 Esc 關閉時清除對話框留在狀態列的寫入失敗訊息（design 11 D5）。
+//! ISMS 管理欄位（資產說明、單位、法規遵循性、個資、防護等級）在 [`super::asset_admin`]。
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -14,13 +15,14 @@ use std::sync::LazyLock;
 use cvewatch_core::assets::classes::{MAX_RATING, MIN_RATING};
 use cvewatch_core::assets::columns::StandardField;
 use cvewatch_core::assets::validate::{RATING_FIELDS, REQUIRED_FIELDS};
-use cvewatch_core::assets::{AssetClasses, Exposure};
+use cvewatch_core::assets::{AssetClasses, Exposure, SystemDirectory};
 use cvewatch_core::catalog::Catalog;
 use cvewatch_frontend::asset_form::{field_label, AssetForm, FormErrors, FormMode};
 use cvewatch_frontend::display::{class_label, exposure_label};
 use cvewatch_frontend::Level;
 use eframe::egui;
 
+use super::asset_admin::{admin_fields, system_choices};
 use super::asset_components::{add_component, components, unresolved};
 use super::product_picker::PickerState;
 use super::{escape_pressed, AssetDialog};
@@ -61,12 +63,15 @@ pub struct AssetEdit {
     pub focus_version: Option<usize>,
     /// 子類別選單（開啟時依設定檔建立一次，不在每一幀重新組字）
     class_options: Vec<Choice>,
+    /// 資產說明選單（開啟時依資料建立一次）
+    pub(super) system_options: Vec<Choice>,
 }
 
 impl AssetEdit {
-    pub fn new(form: AssetForm, classes: &AssetClasses) -> AssetEdit {
+    pub fn new(form: AssetForm, classes: &AssetClasses, systems: &SystemDirectory) -> AssetEdit {
         AssetEdit {
             class_options: class_choices(classes, &form.category),
+            system_options: system_choices(systems, &form.system),
             initial: form.clone(),
             form,
             errors: FormErrors::default(),
@@ -94,6 +99,7 @@ impl GuiApp {
         self.asset_dialog = Some(AssetDialog::Edit(Box::new(AssetEdit::new(
             AssetForm::new(),
             &self.ws.settings.classes,
+            &self.ws.data.systems,
         ))));
     }
 
@@ -102,7 +108,7 @@ impl GuiApp {
         match self.ws.data.asset(tag) {
             Some(entry) => {
                 let form = AssetForm::from_entry(entry);
-                let edit = AssetEdit::new(form, &self.ws.settings.classes);
+                let edit = AssetEdit::new(form, &self.ws.settings.classes, &self.ws.data.systems);
                 self.asset_dialog = Some(AssetDialog::Edit(Box::new(edit)));
             }
             None => self.report(cvewatch_frontend::Report::warning(format!(
@@ -114,11 +120,12 @@ impl GuiApp {
     pub(super) fn show_asset_edit(&mut self, ctx: &egui::Context, mut edit: Box<AssetEdit>) {
         let catalog = &self.ws.settings.catalog;
         let classes = &self.ws.settings.classes;
+        let systems = &self.ws.data.systems;
         // Esc 先用來關閉下拉選單；有未儲存的修改時不以 Esc 關閉（避免丟失輸入，請按「取消」）
         let popup_open = egui::Popup::is_any_open(ctx);
         let mut action = None;
         egui::Modal::new(egui::Id::unique("dialog-asset-edit")).show(ctx, |ui| {
-            action = body(ui, &mut edit, catalog, classes);
+            action = body(ui, &mut edit, catalog, classes, systems);
         });
         if action.is_none() && !popup_open && !edit.dirty() && escape_pressed(ctx) {
             action = Some(Action::Cancel);
@@ -172,6 +179,7 @@ fn body(
     edit: &mut AssetEdit,
     catalog: &Catalog,
     classes: &AssetClasses,
+    systems: &SystemDirectory,
 ) -> Option<Action> {
     let title = match &edit.form.mode {
         FormMode::New => "新增資產".to_string(),
@@ -181,7 +189,13 @@ fn body(
     egui::ScrollArea::vertical()
         .max_height(560.0)
         .show(ui, |ui| {
-            fields(ui, edit, classes);
+            // 一般欄位與 ISMS 管理欄位左右並排，元件區不必捲動才看得到
+            ui.horizontal_top(|ui| {
+                ui.vertical(|ui| fields(ui, edit, classes));
+                // 水平排列中的 separator 會撐滿捲動區的高度，改用間距
+                ui.add_space(16.0);
+                ui.vertical(|ui| admin_fields(ui, edit, classes, systems));
+            });
             ui.separator();
             components(ui, edit, catalog);
             unresolved(ui, edit, catalog);
@@ -226,7 +240,12 @@ fn label_text(field: StandardField) -> String {
     }
 }
 
-fn text_field(ui: &mut egui::Ui, value: &mut String, errors: &FormErrors, field: StandardField) {
+pub(super) fn text_field(
+    ui: &mut egui::Ui,
+    value: &mut String,
+    errors: &FormErrors,
+    field: StandardField,
+) {
     let l = ui.label(label_text(field));
     ui.add(egui::TextEdit::singleline(value).desired_width(FIELD_WIDTH))
         .labelled_by(l.id);
@@ -239,7 +258,7 @@ fn text_field(ui: &mut egui::Ui, value: &mut String, errors: &FormErrors, field:
 }
 
 /// 下拉選單：左側標籤以 `labelled_by` 關聯（選單右側不再重複標籤）。
-fn choice_field(
+pub(super) fn choice_field(
     ui: &mut egui::Ui,
     value: &mut String,
     options: &[Choice],
@@ -350,9 +369,9 @@ fn class_choices(classes: &AssetClasses, current: &str) -> Vec<Choice> {
 }
 
 /// 下拉選單的一個選項：儲存的值（英文）與顯示文字。
-struct Choice {
-    value: String,
-    text: String,
+pub(super) struct Choice {
+    pub(super) value: String,
+    pub(super) text: String,
 }
 
 /// 選項內容固定，只建立一次（不在每一幀重新組字）。
@@ -426,7 +445,6 @@ fn fields(ui: &mut egui::Ui, edit: &mut AssetEdit, classes: &AssetClasses) {
             ui.end_row();
             text_field(ui, &mut f.isms_id, &errors, F::IsmsId);
             text_field(ui, &mut f.location, &errors, F::Location);
-            text_field(ui, &mut f.owner, &errors, F::Owner);
             text_field(ui, &mut f.notes, &errors, F::Notes);
         });
 }

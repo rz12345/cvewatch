@@ -7,6 +7,7 @@ pub mod data;
 pub mod display;
 pub mod filter;
 pub mod findings;
+pub mod groups;
 pub mod links;
 pub mod product_search;
 pub mod report;

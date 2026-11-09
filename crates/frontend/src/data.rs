@@ -4,9 +4,10 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
+use cvewatch_core::assets::systems::SystemRepo;
 use cvewatch_core::assets::{
     Asset, AssetClasses, AssetFilter, AssetRepo, AssetStatus, ClassFilter, Component,
-    ComponentRepo, HistoryEntry, UnresolvedEntry,
+    ComponentRepo, HistoryEntry, SystemCode, SystemDirectory, UnresolvedEntry,
 };
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::ingest::runlog::{self, RunRow};
@@ -65,6 +66,10 @@ pub struct Snapshot {
     /// 已退役資產（資產畫面「顯示已退役」時列出；不參與比對、等待區套用與篩選）
     pub retired_assets: Vec<AssetEntry>,
     pub unresolved: Vec<UnresolvedEntry>,
+    /// 資產說明（16 design D8）
+    pub systems: SystemDirectory,
+    /// 每個資產說明歸屬的資產數（含已退役；資產說明對話框的刪除檢查）
+    pub system_usage: HashMap<SystemCode, u32>,
     pub pending: Vec<PendingRow>,
     pub sync_runs: Vec<RunRow>,
     /// 載入時的同步／比對標記；之後改變即表示有新資料
@@ -87,6 +92,8 @@ impl Snapshot {
             findings,
             search_keys,
             unresolved,
+            systems: SystemDirectory::load(conn)?,
+            system_usage: SystemRepo::new(conn).usage_counts()?.into_iter().collect(),
             pending: pending_ops::list(conn, false, stale_days, now)?,
             sync_runs: runlog::history(conn, SYNC_LOG_LIMIT)?,
             marker,

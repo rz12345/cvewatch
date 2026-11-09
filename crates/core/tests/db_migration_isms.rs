@@ -2,7 +2,9 @@
 //! firewall）——類別轉為子類別代碼、C/I/A 帶入內建範本值、notes 附記舊重要性，元件與命中不變。
 
 use cvewatch_core::assets::{AssetRepo, AssetStatus, Cia};
-use cvewatch_core::db::migrate::{current_version, migrate, migrate_with, MIGRATIONS};
+use cvewatch_core::db::migrate::{
+    current_version, latest_version, migrate, migrate_with, MIGRATIONS,
+};
 use rusqlite::{params, Connection};
 
 const T0: &str = "2026-11-01T00:00:00+00:00";
@@ -86,7 +88,7 @@ fn upgrading_a_database_with_a_firewall() {
     );
 
     migrate(&mut conn).unwrap();
-    assert_eq!(current_version(&conn).unwrap(), 7);
+    assert_eq!(current_version(&conn).unwrap(), latest_version());
 
     let repo = AssetRepo::new(&conn);
     let fw = repo.find_by_tag("FW-01").unwrap().unwrap();

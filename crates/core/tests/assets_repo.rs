@@ -27,10 +27,15 @@ fn record(tag: &str) -> AssetRecord {
         name: format!("{tag}-host"),
         category: ClassCode::parse("HW05").unwrap(),
         location: None,
-        owner: None,
         exposure: Exposure::Internal,
         cia: Cia::new(2, 3, 4),
         isms_id: None,
+        system_code: None,
+        responsible_unit: None,
+        custodian: None,
+        user_unit: None,
+        compliance: None,
+        personal_data: false,
         notes: None,
     }
 }

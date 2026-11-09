@@ -286,9 +286,10 @@ fn changing_class_keeps_ratings() {
 fn isms_id_used_by_a_retired_asset_is_reported_on_its_field() {
     use cvewatch_core::assets::columns::StandardField;
     let w = assets_world();
+    cvewatch_core::assets::systems::create_system(&w.conn, "SYS", "核心系統").unwrap();
     w.conn
         .execute(
-            "UPDATE asset SET isms_id = 'SYS-HW-005' WHERE asset_tag = 'NAS-02'",
+            "UPDATE asset SET isms_id = 'SYS-HW-005', system_code = 'SYS' WHERE asset_tag = 'NAS-02'",
             [],
         )
         .unwrap();

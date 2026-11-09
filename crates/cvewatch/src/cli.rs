@@ -232,7 +232,7 @@ fn class_filter(raw: &str) -> Result<String, String> {
 
 #[derive(Debug, Subcommand)]
 pub enum AssetAction {
-    /// 匯入 Excel（assets / components 工作表）或 CSV 清冊；以 asset_tag 新增或更新
+    /// 匯入 Excel（assets / components / systems 工作表）或 CSV 清冊；以 asset_tag 新增或更新
     Import {
         /// 清冊檔（.xlsx 或 .csv）
         file: PathBuf,
@@ -285,7 +285,7 @@ pub enum AssetAction {
         /// 輸出路徑（.xlsx，不可已存在）
         path: PathBuf,
     },
-    /// 匯出空白 Excel 範本（assets、components 工作表與 classes 子類別說明）
+    /// 匯出空白 Excel 範本（assets、components、systems 工作表與 classes 子類別說明）
     Template {
         /// 輸出路徑（.xlsx，不可已存在）
         path: PathBuf,

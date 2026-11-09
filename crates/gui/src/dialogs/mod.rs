@@ -1,11 +1,14 @@
 //! 對話框：忽略原因與理由（[`reason`]）、備註（[`note`]）、等待區套用目標（[`pending_target`]）、
 //! 未儲存變更確認（[`confirm_leave`]）、清冊匯入（[`import`]）、資產編輯（[`asset_edit`]、
-//! [`asset_components`]、產品選擇器 [`product_picker`]）、退役與永久刪除確認（[`purge`]）。
+//! [`asset_admin`]、[`asset_components`]、產品選擇器 [`product_picker`]）、資產說明管理
+//! （[`asset_systems`]）、退役與永久刪除確認（[`purge`]）。
 //!
 //! 對話框只回傳 [`Outcome`]；寫入由 `GuiApp` 經 `Workspace` 執行。
 
+pub mod asset_admin;
 pub mod asset_components;
 pub mod asset_edit;
+pub mod asset_systems;
 pub mod confirm_leave;
 pub mod import;
 pub mod note;
@@ -65,6 +68,8 @@ pub enum AssetDialog {
         tag: String,
     },
     Purge(purge::PurgeConfirm),
+    /// 「資產說明…」管理
+    Systems(Box<asset_systems::SystemsDialog>),
 }
 
 /// 對話框這一幀的結果。
@@ -139,6 +144,7 @@ impl GuiApp {
                 AssetDialog::Edit(edit) => self.show_asset_edit(ctx, edit),
                 AssetDialog::Retire { tag } => self.show_retire_confirm(ctx, tag),
                 AssetDialog::Purge(p) => self.show_purge_confirm(ctx, p),
+                AssetDialog::Systems(d) => self.show_systems_dialog(ctx, d),
             }
         }
         self.show_import(ctx);

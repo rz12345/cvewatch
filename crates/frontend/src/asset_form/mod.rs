@@ -2,14 +2,22 @@
 //!
 //! 送出前以與 core 相同的 [`validate_record`] 檢查欄位，並檢查重複產品與「至少一個元件」，
 //! 讓常見錯誤在任何寫入前就被擋下；錯誤以欄位（[`StandardField`]）或元件列索引定位。
-//! core 的編修操作仍會在交易內再檢查一次。
+//! core 的編修操作仍會在交易內再檢查一次。ISMS 管理欄位（資產說明、防護等級、個資）見
+//! [`admin`]。
+
+mod admin;
+
+pub use admin::{
+    personal_data_label, rated_text, ISMS_SYSTEM_MISMATCH, ISMS_SYSTEM_UNKNOWN, PERSONAL_DATA_NO,
+    PERSONAL_DATA_YES, UNASSIGNED_SYSTEM, UNRATED,
+};
 
 use cvewatch_core::assets::classes::{MAX_RATING, MIN_RATING};
 use cvewatch_core::assets::columns::StandardField;
 use cvewatch_core::assets::validate::{
-    validate_record, FieldError, FieldErrorKind, RecordInput, RATING_FIELDS,
+    validate_record, FieldError, FieldErrorKind, RecordContext, RecordInput, RATING_FIELDS,
 };
-use cvewatch_core::assets::{AssetClass, AssetClasses, Cia};
+use cvewatch_core::assets::{AssetClass, AssetClasses, Cia, SystemDirectory};
 use cvewatch_core::catalog::Catalog;
 
 use crate::data::{AssetEntry, Snapshot};
@@ -96,8 +104,16 @@ pub struct AssetForm {
     pub integrity: String,
     pub availability: String,
     pub isms_id: String,
+    /// 資產說明代碼：空字串 = 未歸屬（有 ISMS 編號時由其系統代碼帶出）
+    pub system: String,
+    pub responsible_unit: String,
+    pub custodian: String,
+    pub user_unit: String,
+    /// 法規遵循性：空字串 = 未評定
+    pub compliance: String,
+    /// 是否含個人資料：空字串 = 依類別，`Y` 或 `N`
+    pub personal_data: String,
     pub location: String,
-    pub owner: String,
     pub notes: String,
     pub components: Vec<ComponentDraft>,
     pub unresolved: Vec<UnresolvedDraft>,
@@ -125,8 +141,13 @@ impl AssetForm {
             integrity: String::new(),
             availability: String::new(),
             isms_id: String::new(),
+            system: String::new(),
+            responsible_unit: String::new(),
+            custodian: String::new(),
+            user_unit: String::new(),
+            compliance: String::new(),
+            personal_data: String::new(),
             location: String::new(),
-            owner: String::new(),
             notes: String::new(),
             components: Vec::new(),
             unresolved: Vec::new(),
@@ -150,8 +171,19 @@ impl AssetForm {
             integrity: r.cia.integrity.to_string(),
             availability: r.cia.availability.to_string(),
             isms_id: text(&r.isms_id),
+            system: text(&r.system_code),
+            responsible_unit: text(&r.responsible_unit),
+            custodian: text(&r.custodian),
+            user_unit: text(&r.user_unit),
+            compliance: r.compliance.map(|d| d.to_string()).unwrap_or_default(),
+            // 既有資產帶入已設定的值：改類別不會改變是否含個人資料
+            personal_data: if r.personal_data {
+                PERSONAL_DATA_YES
+            } else {
+                PERSONAL_DATA_NO
+            }
+            .into(),
             location: text(&r.location),
-            owner: text(&r.owner),
             notes: text(&r.notes),
             components: entry
                 .components
@@ -207,8 +239,13 @@ impl AssetForm {
             integrity: &self.integrity,
             availability: &self.availability,
             isms_id: &self.isms_id,
+            system: &self.system,
+            responsible_unit: &self.responsible_unit,
+            custodian: &self.custodian,
+            user_unit: &self.user_unit,
+            compliance: &self.compliance,
+            personal_data: &self.personal_data,
             location: &self.location,
-            owner: &self.owner,
             notes: &self.notes,
         }
     }
@@ -272,11 +309,17 @@ impl AssetForm {
         self.components.push(ComponentDraft::new(key));
     }
 
-    /// 本地驗證（不需資料庫）。錯誤以介面用語回報（design 11 D2）：不出現清冊的英文欄位名，
-    /// 產品以目錄的顯示名稱呈現。
-    pub fn validate(&self, catalog: &Catalog, classes: &AssetClasses) -> Result<(), FormErrors> {
+    /// 本地驗證（不需資料庫；資產說明取自畫面快照）。錯誤以介面用語回報（design 11 D2）：
+    /// 不出現清冊的英文欄位名，產品以目錄的顯示名稱呈現。
+    pub fn validate(
+        &self,
+        catalog: &Catalog,
+        classes: &AssetClasses,
+        systems: &SystemDirectory,
+    ) -> Result<(), FormErrors> {
         let mut errors = FormErrors::default();
-        if let Err(fields) = validate_record(&self.record_input(), classes) {
+        let ctx = RecordContext { classes, systems };
+        if let Err(fields) = validate_record(&self.record_input(), &ctx) {
             errors.fields = fields.iter().map(|e| (e.field, field_message(e))).collect();
         }
         let mut seen: Vec<&str> = Vec::new();
@@ -332,12 +375,18 @@ pub fn field_label(field: StandardField) -> &'static str {
         StandardField::Integrity => "完整性",
         StandardField::Availability => "可用性",
         StandardField::IsmsId => "ISMS 編號",
+        StandardField::System => "資產說明",
+        StandardField::ResponsibleUnit => "權責單位",
+        StandardField::Custodian | StandardField::Owner => "保管人",
+        StandardField::UserUnit => "使用單位",
+        StandardField::Compliance => "法規遵循性",
+        StandardField::PersonalData => "是否含個人資料",
         StandardField::Criticality => "重要性（已停用）",
         StandardField::Location => "位置",
-        StandardField::Owner => "負責人",
         StandardField::Notes => "備註",
         StandardField::Product => "產品",
         StandardField::Version => "版本",
+        StandardField::Code => "代碼",
     }
 }
 
@@ -351,6 +400,9 @@ fn field_message(e: &FieldError) -> String {
             format!("{}只能是 {MIN_RATING}–{MAX_RATING}", field_label(field))
         }
         (FieldErrorKind::ClassMismatch, _) => ISMS_CLASS_MISMATCH.into(),
+        (FieldErrorKind::SystemMismatch, _) => ISMS_SYSTEM_MISMATCH.into(),
+        (FieldErrorKind::UnknownSystem, StandardField::IsmsId) => ISMS_SYSTEM_UNKNOWN.into(),
+        (FieldErrorKind::UnknownSystem, _) => CHOOSE_FROM_LIST.into(),
     }
 }
 
@@ -487,8 +539,58 @@ mod tests {
         Catalog::seed().unwrap()
     }
 
+    fn systems() -> SystemDirectory {
+        let sys = |code: &str, name: &str| cvewatch_core::assets::AssetSystem {
+            code: cvewatch_core::assets::SystemCode::parse(code).unwrap(),
+            name: name.into(),
+        };
+        SystemDirectory::new(vec![sys("NET", "網路服務"), sys("SYS", "核心系統")])
+    }
+
     fn check(f: &AssetForm) -> Result<(), FormErrors> {
-        f.validate(&catalog(), &AssetClasses::builtin())
+        f.validate(&catalog(), &AssetClasses::builtin(), &systems())
+    }
+
+    #[test]
+    fn isms_id_from_another_system() {
+        let mut f = filled();
+        f.system = "NET".into();
+        f.isms_id = "SYS-HW-001".into();
+        let e = check(&f).unwrap_err();
+        assert_eq!(e.field(StandardField::IsmsId), Some(ISMS_SYSTEM_MISMATCH));
+        f.system.clear();
+        f.isms_id = "LAB-HW-001".into();
+        let e = check(&f).unwrap_err();
+        assert_eq!(e.field(StandardField::IsmsId), Some(ISMS_SYSTEM_UNKNOWN));
+        f.isms_id = "NET-HW-001".into();
+        assert_eq!(check(&f), Ok(()));
+        assert_eq!(field_label(StandardField::System), "資產說明");
+        assert_eq!(field_label(StandardField::Custodian), "保管人");
+    }
+
+    #[test]
+    fn admin_field_errors_use_interface_wording() {
+        let mut f = filled();
+        f.compliance = "5".into();
+        f.personal_data = "maybe".into();
+        let e = check(&f).unwrap_err();
+        assert_eq!(
+            e.field(StandardField::Compliance),
+            Some("法規遵循性只能是 1–4")
+        );
+        assert_eq!(e.field(StandardField::PersonalData), Some(CHOOSE_FROM_LIST));
+    }
+
+    #[test]
+    fn editing_keeps_the_stored_personal_data() {
+        let mut f = filled();
+        f.personal_data = PERSONAL_DATA_YES.into();
+        f.category = "HW05".into();
+        assert_eq!(
+            f.effective_personal_data(&AssetClasses::builtin()),
+            Some(true),
+            "改類別不改變已設定的值"
+        );
     }
 
     fn filled() -> AssetForm {

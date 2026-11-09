@@ -1,18 +1,24 @@
 //! 清冊驗證：逐列驗證資產欄位（[`super::record`]）、重複 asset_tag 與 ISMS 編號、元件工作表。
 //! 所有錯誤彙整後一次回報，匯入整批中止；舊版 category 值與停用欄位只產生 notice。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fmt;
 
 use super::classes::AssetClasses;
-use super::columns::{ColumnMap, SheetKind, StandardField};
+use super::columns::{ColumnMap, SheetKind, StandardField, KEEPABLE_FIELDS};
 use super::model::AssetRecord;
 use super::sheet::{Sheet, SheetRow, Workbook};
+use super::validate_systems::parse_systems;
 use crate::error::CoreError;
 
+pub use super::validate_systems::IncomingSystem;
+
 pub use super::record::{
-    validate_import_record, validate_record, FieldError, FieldErrorKind, RecordInput, ValidRecord,
-    RATING_FIELDS, REQUIRED_FIELDS,
+    validate_import_record, validate_record, FieldError, FieldErrorKind, RecordContext,
+    RecordInput, ValidRecord, RATING_FIELDS, REQUIRED_FIELDS,
+};
+pub use super::record_admin::{
+    compliance_value, isms_system_code, protection_level, resolve_system,
 };
 
 /// 錯誤訊息中的列位置。
@@ -27,6 +33,7 @@ impl fmt::Display for RowRef {
         match self.sheet {
             SheetKind::Assets => write!(f, "第 {} 列", self.number),
             SheetKind::Components => write!(f, "components 工作表第 {} 列", self.number),
+            SheetKind::Systems => write!(f, "systems 工作表第 {} 列", self.number),
         }
     }
 }
@@ -41,7 +48,10 @@ pub struct IncomingComponent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct IncomingAsset {
     pub row: RowRef,
+    /// `system_code` 一律為 None：資產說明在取得資料庫內容後由 `plan.rs` 解析（16 design D2）
     pub record: AssetRecord,
+    /// `system` 欄的原文（代碼或名稱；沒有該欄或空白時為空字串）
+    pub system_raw: String,
     /// 第一個為 assets 工作表的主要元件，其後為 components 工作表
     pub components: Vec<IncomingComponent>,
 }
@@ -73,12 +83,25 @@ pub const CRITICALITY_NOTICE: &str =
 /// 清冊沒有 `isms_id` 欄（例如 13 之前的舊清冊）時保留既有資產的 ISMS 編號（整批一次）。
 pub const ISMS_KEPT_NOTICE: &str = "清冊沒有 isms_id 欄，保留資料庫中既有資產的 ISMS 編號";
 
+/// 舊欄名 `owner`（16 spec Legacy owner column；整批一次）。
+pub const OWNER_NOTICE: &str = "owner 欄已改名為 custodian（保管人），已將其內容匯入為保管人";
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Inventory {
     pub assets: Vec<IncomingAsset>,
+    /// `systems` 工作表的資產說明（沒有該工作表時為空）
+    pub systems: Vec<IncomingSystem>,
     pub notices: Vec<ImportNotice>,
-    /// assets 工作表沒有 `isms_id` 欄：既有資產沿用資料庫中的 ISMS 編號（不視為清空）
-    pub keep_isms_ids: bool,
+    /// assets 工作表缺少的可保留欄位（[`KEEPABLE_FIELDS`]）：既有資產沿用資料庫中的值
+    /// （不視為清空；16 design D4）
+    pub kept_fields: BTreeSet<StandardField>,
+}
+
+impl Inventory {
+    /// 某欄是否因清冊沒有而保留既有值。
+    pub fn keeps(&self, field: StandardField) -> bool {
+        self.kept_fields.contains(&field)
+    }
 }
 
 struct RowReader<'a> {
@@ -121,6 +144,20 @@ pub fn parse_inventory(
             message: CRITICALITY_NOTICE.to_string(),
         })
         .collect();
+    if columns.uses_legacy_owner(&book.assets.headers) {
+        notices.push(ImportNotice {
+            row: None,
+            asset_tag: None,
+            message: OWNER_NOTICE.to_string(),
+        });
+    }
+    let systems = match &book.systems {
+        Some(sheet) => {
+            let cols = columns.locate(&sheet.headers, SheetKind::Systems)?;
+            parse_systems(sheet, &cols, &mut errors)
+        }
+        None => Vec::new(),
+    };
     let mut assets = parse_assets(
         &book.assets,
         &asset_cols,
@@ -136,10 +173,15 @@ pub fn parse_inventory(
     if !errors.is_empty() {
         return Err(CoreError::ImportRejected(errors));
     }
+    let kept_fields = KEEPABLE_FIELDS
+        .into_iter()
+        .filter(|f| !asset_cols.contains_key(f))
+        .collect();
     Ok(Inventory {
         assets,
+        systems,
         notices,
-        keep_isms_ids: !asset_cols.contains_key(&StandardField::IsmsId),
+        kept_fields,
     })
 }
 
@@ -204,8 +246,13 @@ fn row_input<'a>(r: &'a RowReader<'_>) -> RecordInput<'a> {
         integrity: r.get(StandardField::Integrity),
         availability: r.get(StandardField::Availability),
         isms_id: r.get(StandardField::IsmsId),
+        system: r.get(StandardField::System),
+        responsible_unit: r.get(StandardField::ResponsibleUnit),
+        custodian: r.get(StandardField::Custodian),
+        user_unit: r.get(StandardField::UserUnit),
+        compliance: r.get(StandardField::Compliance),
+        personal_data: r.get(StandardField::PersonalData),
         location: r.get(StandardField::Location),
-        owner: r.get(StandardField::Owner),
         notes: r.get(StandardField::Notes),
     }
 }
@@ -240,6 +287,7 @@ fn parse_asset_row(
     Some(IncomingAsset {
         row: r.at,
         record: valid.record,
+        system_raw: r.get(StandardField::System).to_string(),
         components: vec![IncomingComponent {
             row: r.at,
             product_raw,
@@ -341,6 +389,7 @@ mod tests {
         let book = Workbook {
             assets: sheet(&HEADERS, rows),
             components: None,
+            systems: None,
         };
         parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin())
     }

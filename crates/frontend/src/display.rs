@@ -361,10 +361,15 @@ mod tests {
             name: "PVE-01 ".into(),
             category: ClassCode::parse("HW01").unwrap(),
             location: None,
-            owner: None,
             exposure: Exposure::Internal,
             cia: Cia::new(2, 3, 4),
             isms_id: None,
+            system_code: None,
+            responsible_unit: None,
+            custodian: None,
+            user_unit: None,
+            compliance: None,
+            personal_data: false,
             notes: None,
         };
         assert_eq!(shown_name(&r), None);

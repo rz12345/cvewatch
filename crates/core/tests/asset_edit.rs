@@ -10,6 +10,7 @@ use common::matching::{at, panos, world, World, T0};
 use cvewatch_core::assets::columns::SheetKind;
 use cvewatch_core::assets::edit::{self, NewComponent};
 use cvewatch_core::assets::import::{import_inventory, ImportOptions};
+use cvewatch_core::assets::systems;
 use cvewatch_core::assets::validate::{
     IncomingAsset, IncomingComponent, Inventory, RecordInput, RowRef,
 };
@@ -153,10 +154,70 @@ fn adding_a_new_firewall_uses_import_defaults() {
     assert_eq!(asset.record.cia, Cia::new(2, 3, 4), "HW03 範本值");
     assert_eq!(asset.record.cia.value(), 4);
     assert_eq!(asset.record.category.as_str(), "HW03");
+    assert!(!asset.record.personal_data, "HW03 預設不含個人資料");
+    assert_eq!(asset.record.protection_level(), None, "防護等級未評定");
+    assert_eq!(asset.record.system_code, None);
     assert_eq!(
         versions(&w, "FW-02"),
         vec![("paloalto-panos".to_string(), "11.2.3".to_string())]
     );
+}
+
+#[test]
+fn moving_an_asset_to_another_system_needs_a_matching_isms_id() {
+    let mut w = world();
+    systems::create_system(&w.conn, "SYS", "核心系統").unwrap();
+    systems::create_system(&w.conn, "NET", "網路服務").unwrap();
+    w.asset("FW-01", "internal", &[("paloalto-panos", "11.1.4")]);
+    let input = |system, isms_id| RecordInput {
+        name: "fw01",
+        category: "HW03",
+        system,
+        isms_id,
+        custodian: "王小明",
+        ..RecordInput::default()
+    };
+    edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "FW-01",
+        &input("", "SYS-HW-003"),
+        now(),
+    )
+    .unwrap();
+    let r = record(&w, "FW-01");
+    assert_eq!(r.system_code.as_deref(), Some("SYS"), "由 ISMS 編號帶出");
+    assert_eq!(r.custodian.as_deref(), Some("王小明"));
+    let m = message(edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "FW-01",
+        &input("NET", "SYS-HW-003"),
+        now(),
+    ));
+    assert_eq!(
+        m, "ISMS 編號「SYS-HW-003」的系統代碼 SYS 與資產說明 NET 不符",
+        "{m}"
+    );
+    assert_eq!(
+        record(&w, "FW-01").system_code.as_deref(),
+        Some("SYS"),
+        "資產不變"
+    );
+    edit::update_asset(
+        &mut w.conn,
+        &w.classes,
+        "FW-01",
+        &input("網路服務", ""),
+        now(),
+    )
+    .unwrap();
+    assert_eq!(record(&w, "FW-01").system_code.as_deref(), Some("NET"));
+    let m = message(systems::delete_system(
+        &w.conn,
+        &cvewatch_core::assets::SystemCode::parse("NET").unwrap(),
+    ));
+    assert!(m.contains("仍有 1 個資產歸屬"), "{m}");
 }
 
 #[test]
@@ -253,7 +314,7 @@ fn raising_exposure_updates_the_asset() {
         name: "nas01",
         category: "HW05",
         exposure: "internet",
-        owner: "系統組",
+        custodian: "系統組",
         ..RecordInput::default()
     };
     edit::update_asset(&mut w.conn, &w.classes, "NAS-01", &input, now()).unwrap();
@@ -263,7 +324,7 @@ fn raising_exposure_updates_the_asset() {
         "修改欄位不使用 input.asset_tag（更名另由 rename_asset／EditOp::Rename）"
     );
     assert_eq!(r.exposure, Exposure::Internet);
-    assert_eq!(r.owner.as_deref(), Some("系統組"));
+    assert_eq!(r.custodian.as_deref(), Some("系統組"));
 }
 
 #[test]
@@ -312,6 +373,7 @@ fn changing_class_keeps_ratings() {
 #[test]
 fn isms_id_is_validated_on_edit() {
     let mut w = world();
+    systems::create_system(&w.conn, "SYS", "核心系統").unwrap();
     w.asset("FW-01", "internal", &[("paloalto-panos", "11.1.4")]);
     let input = |isms_id| RecordInput {
         name: "fw01",
@@ -591,7 +653,7 @@ fn apply_edits_is_all_or_nothing() {
         ..RecordInput::default()
     };
     let ops = [
-        edit::EditOp::Fields(fields),
+        edit::EditOp::Fields(Box::new(fields)),
         edit::EditOp::SetVersion {
             component_id: id,
             version_raw: "11.1.6".into(),
@@ -835,7 +897,7 @@ fn reusing_a_purged_tag_imports_as_new() {
     let inventory = Inventory {
         assets: vec![IncomingAsset {
             row,
-            record: cvewatch_core::assets::validate::validate_record(
+            record: cvewatch_core::assets::validate::validate_import_record(
                 &RecordInput {
                     asset_tag: "NAS-02",
                     name: "nas02",
@@ -844,15 +906,16 @@ fn reusing_a_purged_tag_imports_as_new() {
                 },
                 &cvewatch_core::assets::AssetClasses::builtin(),
             )
-            .unwrap(),
+            .unwrap()
+            .record,
+            system_raw: String::new(),
             components: vec![IncomingComponent {
                 row,
                 product_raw: "Synology DSM".into(),
                 version_raw: "7.2.2-72806".into(),
             }],
         }],
-        notices: Vec::new(),
-        keep_isms_ids: false,
+        ..Inventory::default()
     };
     let plan = import_inventory(
         &mut w.conn,

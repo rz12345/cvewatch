@@ -144,6 +144,8 @@ pub struct AssetClass {
     pub description: String,
     /// C/I/A 範本值；None 表示依個案評定（C/I/A 必填，例如 SW01）
     pub template: Option<Cia>,
+    /// 是否含個人資料的預設值（清冊或編修留空時帶入；16 design D6）
+    pub personal_data: bool,
 }
 
 impl AssetClass {
@@ -194,6 +196,8 @@ pub struct AssetClassConfig {
     pub confidentiality: Option<u8>,
     pub integrity: Option<u8>,
     pub availability: Option<u8>,
+    /// 是否含個人資料的預設值（未寫時沿用內建值；新增的子類別預設為否）
+    pub personal_data: Option<bool>,
 }
 
 /// [`AssetClasses::resolve`] 的結果。
@@ -230,6 +234,8 @@ impl AssetClasses {
                 name: name.to_string(),
                 description: description.to_string(),
                 template: *template,
+                // v2.1 選項工作表的 HW／SW 列皆為 N
+                personal_data: false,
             })
             .collect();
         AssetClasses { classes }
@@ -383,11 +389,16 @@ fn merge(
         .map(|d| d.trim().to_string())
         .or_else(|| base.map(|b| b.description.clone()))
         .unwrap_or_default();
+    let personal_data = cfg
+        .personal_data
+        .or_else(|| base.map(|b| b.personal_data))
+        .unwrap_or(false);
     Ok(AssetClass {
         code: code.clone(),
         name,
         description,
         template,
+        personal_data,
     })
 }
 
@@ -562,6 +573,40 @@ mod tests {
             "SW07",
             "依代碼排序"
         );
+    }
+
+    #[test]
+    fn personal_data_default_for_a_class() {
+        let classes = AssetClasses::from_config(&config(&[
+            (
+                "HW06",
+                AssetClassConfig {
+                    personal_data: Some(true),
+                    ..Default::default()
+                },
+            ),
+            (
+                "HW12",
+                AssetClassConfig {
+                    name: Some("實驗儀器".into()),
+                    ..Default::default()
+                },
+            ),
+        ]))
+        .unwrap();
+        assert!(classes.get(&code("HW06")).unwrap().personal_data);
+        assert!(
+            !classes.get(&code("HW05")).unwrap().personal_data,
+            "內建為否"
+        );
+        assert!(
+            !classes.get(&code("HW12")).unwrap().personal_data,
+            "新增子類別未指定時為否"
+        );
+        assert!(AssetClasses::builtin()
+            .all()
+            .iter()
+            .all(|c| !c.personal_data));
     }
 
     #[test]

@@ -8,6 +8,7 @@ use rusqlite::{params, Connection, OptionalExtension};
 use super::model::{AssetStatus, ComponentKind, ComponentSource};
 use super::plan::{plan_import, CurrentAsset, ImportPlan, PlannedAsset, Snapshot};
 use super::repo::{AssetFilter, AssetRepo, ComponentRepo};
+use super::systems::{AssetSystem, SystemDirectory, SystemRepo};
 use super::validate::Inventory;
 use crate::catalog::store::sync_catalog;
 use crate::catalog::Catalog;
@@ -30,11 +31,14 @@ pub fn import_inventory(
     let tx = conn.transaction()?;
     let product_ids = sync_catalog(&tx, catalog)?;
     let snapshot = load_snapshot(&tx)?;
-    let plan = plan_import(inventory, catalog, &snapshot)?;
+    let systems = SystemDirectory::load(&tx)?;
+    let plan = plan_import(inventory, catalog, &snapshot, &systems)?;
     if options.dry_run {
         tx.rollback()?;
         return Ok(plan);
     }
+    // 資產以外鍵參照資產說明，先寫資產說明
+    apply_systems(&tx, &plan)?;
     release_changed_isms_ids(&tx, &plan, &snapshot)?;
     for planned in &plan.assets {
         apply_asset(
@@ -63,10 +67,28 @@ pub fn import_inventory(
         unchanged = plan.unchanged,
         unresolved = plan.unresolved.len(),
         disappeared = plan.disappeared.len(),
+        systems = plan.systems.len(),
         pruned = options.prune,
         "清冊匯入完成"
     );
     Ok(plan)
+}
+
+/// 寫入資產說明的新增與改名。改名先換成暫時名稱再寫入最終名稱：兩個資產說明互換名稱時，
+/// 逐筆寫入不會暫時違反名稱的唯一索引（衝突已在 [`plan_import`] 檢查）。
+fn apply_systems(conn: &Connection, plan: &ImportPlan) -> Result<(), CoreError> {
+    let repo = SystemRepo::new(conn);
+    for change in plan.systems.iter().filter(|c| c.from.is_some()) {
+        repo.upsert(&AssetSystem {
+            code: change.code.clone(),
+            // 控制字元開頭，不會與使用者輸入的名稱相同
+            name: format!("\u{1}{}", change.code),
+        })?;
+    }
+    for change in &plan.systems {
+        repo.upsert(&change.system())?;
+    }
+    Ok(())
 }
 
 /// 先清除這次會變更的 ISMS 編號：兩個資產互換編號時，逐筆寫入不會暫時違反唯一索引

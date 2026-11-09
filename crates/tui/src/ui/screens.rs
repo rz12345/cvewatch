@@ -232,9 +232,12 @@ pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cur
             r.isms_id.as_deref().unwrap_or("-")
         )),
         Line::raw(format!(
-            "地點 {}  負責人 {}",
+            "資產說明 {}  地點 {}  保管人 {}",
+            r.system_code
+                .as_deref()
+                .map_or_else(|| "-".to_string(), |c| app.data.systems.label(c)),
             r.location.as_deref().unwrap_or("-"),
-            r.owner.as_deref().unwrap_or("-")
+            r.custodian.as_deref().unwrap_or("-")
         )),
     ];
     for u in &entry.unresolved {

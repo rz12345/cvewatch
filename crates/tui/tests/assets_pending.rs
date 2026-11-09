@@ -48,6 +48,28 @@ fn asset_detail_shows_components_findings_and_unresolved() {
     assert!(app.stack.is_empty());
 }
 
+/// 16 任務 4.2：資產詳情列出資產說明與保管人（取代「負責人」）。
+#[test]
+fn asset_detail_shows_system_and_custodian() {
+    let world = seeded_world();
+    cvewatch_core::assets::systems::create_system(&world.conn, "NET", "網路服務").unwrap();
+    world
+        .conn
+        .execute(
+            "UPDATE asset SET system_code = 'NET', custodian = '王小明' WHERE asset_tag = 'FW-EDGE'",
+            [],
+        )
+        .unwrap();
+    let (mut app, _) = app(world);
+    keys(&mut app, "3");
+    keys(&mut app, "j");
+    press(&mut app, KeyCode::Enter);
+    let out = render(&app);
+    assert!(out.contains("資產說明 NET 網路服務"), "{out}");
+    assert!(out.contains("保管人 王小明"), "{out}");
+    assert!(!out.contains("負責人"), "{out}");
+}
+
 #[test]
 fn pending_screen_snapshot() {
     let (mut app, _) = app(seeded_world());

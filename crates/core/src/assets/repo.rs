@@ -10,10 +10,11 @@ use super::model::{
 };
 use crate::error::CoreError;
 
-// criticality 欄自 0007 起停用（保留在資料表、不再讀寫）
-const ASSET_COLUMNS: &str = "id, asset_tag, name, category, location, owner, exposure, \
+// criticality 欄自 0007、owner 欄自 0008 起停用（保留在資料表、不再讀寫）
+const ASSET_COLUMNS: &str = "id, asset_tag, name, category, location, custodian, exposure, \
                              confidentiality, integrity, availability, isms_id, notes, status, \
-                             first_seen, last_seen, retired_at";
+                             first_seen, last_seen, retired_at, system_code, responsible_unit, \
+                             user_unit, compliance, personal_data";
 
 const COMPONENT_SELECT: &str = "SELECT c.id, c.asset_id, c.kind, c.product_id, p.key, c.purl, \
      c.purl_full, c.version_raw, c.version_norm, c.source, c.updated_at \
@@ -44,10 +45,15 @@ fn asset_from_row(row: &Row<'_>) -> rusqlite::Result<Asset> {
             name: row.get(2)?,
             category: parse_col(row, 3, ClassCode::parse)?,
             location: row.get(4)?,
-            owner: row.get(5)?,
+            custodian: row.get(5)?,
             exposure: parse_col(row, 6, Exposure::parse)?,
             cia: Cia::new(row.get(7)?, row.get(8)?, row.get(9)?),
             isms_id: row.get(10)?,
+            system_code: row.get(16)?,
+            responsible_unit: row.get(17)?,
+            user_unit: row.get(18)?,
+            compliance: row.get(19)?,
+            personal_data: row.get(20)?,
             notes: row.get(11)?,
         },
         status: parse_col(row, 12, AssetStatus::parse)?,
@@ -173,23 +179,30 @@ impl<'c> AssetRepo<'c> {
 
     pub fn insert(&self, record: &AssetRecord, now: DateTime<Utc>) -> Result<i64, CoreError> {
         self.conn.execute(
-            "INSERT INTO asset (asset_tag, name, category, location, owner, exposure,
+            "INSERT INTO asset (asset_tag, name, category, location, custodian, exposure,
                                 confidentiality, integrity, availability, isms_id, notes, status,
-                                first_seen, last_seen)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12, ?12)",
+                                first_seen, last_seen, system_code, responsible_unit, user_unit,
+                                compliance, personal_data)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12, ?12,
+                     ?13, ?14, ?15, ?16, ?17)",
             params![
                 record.asset_tag,
                 record.name,
                 record.category.as_str(),
                 record.location,
-                record.owner,
+                record.custodian,
                 record.exposure.as_str(),
                 record.cia.confidentiality,
                 record.cia.integrity,
                 record.cia.availability,
                 record.isms_id,
                 record.notes,
-                ts(now)
+                ts(now),
+                record.system_code,
+                record.responsible_unit,
+                record.user_unit,
+                record.compliance,
+                record.personal_data
             ],
         )?;
         Ok(self.conn.last_insert_rowid())
@@ -212,23 +225,30 @@ impl<'c> AssetRepo<'c> {
         now: DateTime<Utc>,
     ) -> Result<(), CoreError> {
         self.conn.execute(
-            "UPDATE asset SET name = ?2, category = ?3, location = ?4, owner = ?5, exposure = ?6,
-                    confidentiality = ?7, integrity = ?8, availability = ?9, isms_id = ?10,
-                    notes = ?11, status = 'active', retired_at = NULL, last_seen = ?12
+            "UPDATE asset SET name = ?2, category = ?3, location = ?4, custodian = ?5,
+                    exposure = ?6, confidentiality = ?7, integrity = ?8, availability = ?9,
+                    isms_id = ?10, notes = ?11, status = 'active', retired_at = NULL,
+                    last_seen = ?12, system_code = ?13, responsible_unit = ?14, user_unit = ?15,
+                    compliance = ?16, personal_data = ?17
              WHERE id = ?1",
             params![
                 id,
                 record.name,
                 record.category.as_str(),
                 record.location,
-                record.owner,
+                record.custodian,
                 record.exposure.as_str(),
                 record.cia.confidentiality,
                 record.cia.integrity,
                 record.cia.availability,
                 record.isms_id,
                 record.notes,
-                ts(now)
+                ts(now),
+                record.system_code,
+                record.responsible_unit,
+                record.user_unit,
+                record.compliance,
+                record.personal_data
             ],
         )?;
         Ok(())

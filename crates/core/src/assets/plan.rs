@@ -2,8 +2,13 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use super::columns::StandardField;
 use super::model::{AssetRecord, AssetStatus};
+use super::plan_systems::{assign_system, keep_existing, kept_columns_notice, plan_systems};
+use super::systems::SystemDirectory;
 use super::validate::{ImportNotice, IncomingAsset, Inventory, RowRef, ISMS_KEPT_NOTICE};
+
+pub use super::plan_systems::SystemChange;
 use crate::catalog::{Catalog, Product};
 use crate::error::CoreError;
 
@@ -109,14 +114,16 @@ pub struct ImportPlan {
     pub unresolved: Vec<UnresolvedItem>,
     pub disappeared: Vec<String>,
     pub warnings: Vec<VersionWarning>,
+    /// `systems` 工作表造成的資產說明新增與改名（16 design D5）
+    pub systems: Vec<SystemChange>,
     /// 不中止匯入的提醒（舊版 category 值、停用欄位；13 design D3），在版本警告之後列出
     pub notices: Vec<ImportNotice>,
 }
 
 impl ImportPlan {
     /// 是否有影響比對的變更：新增資產、版本或元件增減、重新啟用、曝露度（影響風險等級）。
-    /// 名稱、負責人、位置、備註、類別、C/I/A（資產價值只影響排序，查詢時讀取）與 ISMS 編號
-    /// 不需要重新比對。
+    /// 名稱、位置、備註、類別、C/I/A（資產價值只影響排序，查詢時讀取）、ISMS 編號、
+    /// 資產說明與 ISMS 管理欄位不需要重新比對。
     pub fn affects_matching(&self) -> bool {
         !self.added.is_empty()
             || self.updated.iter().any(|u| {
@@ -145,26 +152,42 @@ pub struct CurrentAsset {
 
 pub type Snapshot = HashMap<String, CurrentAsset>;
 
+/// `systems` 為資料庫中的資產說明；`systems` 工作表的內容合併後用於解析各資產的資產說明。
 pub fn plan_import(
     inventory: &Inventory,
     catalog: &Catalog,
     current: &Snapshot,
+    systems: &SystemDirectory,
 ) -> Result<ImportPlan, CoreError> {
     let mut errors = Vec::new();
+    let (system_changes, merged) = plan_systems(&inventory.systems, systems, &mut errors);
     let mut plan = ImportPlan {
         notices: inventory.notices.clone(),
+        systems: system_changes,
         ..ImportPlan::default()
     };
     let folded = folded_tags(current);
     let isms_owners = isms_owners(inventory, current);
     let mut kept_isms = false;
+    let mut any_existing = false;
     for incoming in &inventory.assets {
         let mut planned = resolve_asset(incoming, catalog, &mut plan, &mut errors);
-        if inventory.keep_isms_ids {
-            if let Some(existing) = current.get(&planned.record.asset_tag) {
-                kept_isms |= existing.record.isms_id.is_some();
-                planned.record.isms_id = existing.record.isms_id.clone();
-            }
+        let existing = current.get(&planned.record.asset_tag);
+        if let Some(existing) = existing {
+            any_existing = true;
+            kept_isms |=
+                inventory.keeps(StandardField::IsmsId) && existing.record.isms_id.is_some();
+            planned.record = keep_existing(&planned.record, &existing.record, inventory);
+        }
+        match assign_system(
+            incoming,
+            planned.record.clone(),
+            existing,
+            inventory,
+            &merged,
+        ) {
+            Ok(record) => planned.record = record,
+            Err(message) => errors.push(message),
         }
         let tag = &planned.record.asset_tag;
         if let Some(message) = isms_conflict(&planned.record, &isms_owners) {
@@ -196,6 +219,8 @@ pub fn plan_import(
             message: ISMS_KEPT_NOTICE.to_string(),
         });
     }
+    plan.notices
+        .extend(kept_columns_notice(inventory, any_existing));
     let incoming_tags: HashSet<&str> = plan
         .assets
         .iter()
@@ -309,16 +334,24 @@ fn resolve_asset(
 
 fn changed_fields(old: &AssetRecord, new: &AssetRecord) -> Vec<&'static str> {
     let (a, b) = (&old.cia, &new.cia);
-    let checks: [(&'static str, bool); 10] = [
+    let checks: [(&'static str, bool); 15] = [
         ("name", old.name != new.name),
         ("category", old.category != new.category),
         ("location", old.location != new.location),
-        ("owner", old.owner != new.owner),
         ("exposure", old.exposure != new.exposure),
         ("confidentiality", a.confidentiality != b.confidentiality),
         ("integrity", a.integrity != b.integrity),
         ("availability", a.availability != b.availability),
         ("isms_id", old.isms_id != new.isms_id),
+        ("system", old.system_code != new.system_code),
+        (
+            "responsible_unit",
+            old.responsible_unit != new.responsible_unit,
+        ),
+        ("custodian", old.custodian != new.custodian),
+        ("user_unit", old.user_unit != new.user_unit),
+        ("compliance", old.compliance != new.compliance),
+        ("personal_data", old.personal_data != new.personal_data),
         ("notes", old.notes != new.notes),
     ];
     checks

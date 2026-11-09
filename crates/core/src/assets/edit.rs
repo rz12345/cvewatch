@@ -13,7 +13,8 @@ use super::classes::AssetClasses;
 use super::model::{Asset, AssetRecord, AssetStatus, Component, ComponentKind};
 use super::plan::{isms_in_use_message, resolve_version, VersionWarning};
 use super::repo::{AssetRepo, ComponentRepo};
-use super::validate::{validate_record, FieldError, RecordInput};
+use super::systems::SystemDirectory;
+use super::validate::{validate_record, FieldError, RecordContext, RecordInput};
 use crate::catalog::store::sync_catalog;
 use crate::catalog::Catalog;
 use crate::error::CoreError;
@@ -45,8 +46,8 @@ pub struct NewComponent {
 pub enum EditOp<'a> {
     /// 更改資產編號（12 design D1）；放在其他步驟之前，之後的步驟以資產 id 操作
     Rename(&'a str),
-    /// 修改欄位（`asset_tag` 不使用，編號只能以 [`EditOp::Rename`] 修改）
-    Fields(RecordInput<'a>),
+    /// 修改欄位（`asset_tag` 不使用，編號只能以 [`EditOp::Rename`] 修改）；欄位多，以 Box 存放
+    Fields(Box<RecordInput<'a>>),
     AddComponent(NewComponent),
     SetVersion {
         component_id: i64,
@@ -210,6 +211,20 @@ fn ensure_new_product(conn: &Connection, asset: &Asset, key: &str) -> Result<(),
     Ok(())
 }
 
+/// 以資料庫中的資產說明驗證欄位（16 design D2）。
+fn validate_in(
+    conn: &Connection,
+    classes: &AssetClasses,
+    input: &RecordInput<'_>,
+) -> Result<AssetRecord, CoreError> {
+    let systems = SystemDirectory::load(conn)?;
+    let ctx = RecordContext {
+        classes,
+        systems: &systems,
+    };
+    validate_record(input, &ctx).map_err(join_field_errors)
+}
+
 fn join_field_errors(errors: Vec<FieldError>) -> CoreError {
     let messages: Vec<String> = errors.into_iter().map(|e| e.message).collect();
     invalid(messages.join("；"))
@@ -262,7 +277,7 @@ pub fn create_asset(
     components: &[NewComponent],
     now: DateTime<Utc>,
 ) -> Result<EditOutcome, CoreError> {
-    let record = validate_record(input, classes).map_err(join_field_errors)?;
+    let record = validate_in(conn, classes, input)?;
     if components.is_empty() {
         return Err(invalid("至少需要一個元件（產品與版本）"));
     }
@@ -302,7 +317,7 @@ fn update_fields(
         asset_tag: &asset.record.asset_tag,
         ..*input
     };
-    let record = validate_record(&input, classes).map_err(join_field_errors)?;
+    let record = validate_in(conn, classes, &input)?;
     ensure_isms_id_free(conn, &record, Some(asset.id))?;
     AssetRepo::new(conn).update_record(asset.id, &record, now)?;
     Ok(EditOutcome::default())

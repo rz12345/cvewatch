@@ -406,6 +406,7 @@ fn invalid_category_aborts_with_row_number() {
             }],
         },
         components: None,
+        systems: None,
     };
     let err = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap_err();
     let msg = err.to_string();
@@ -545,7 +546,7 @@ FW-01,fw01,HW03,PAN-OS,11.1.4-h7,
     .unwrap();
     let book = read_inventory(&path, None).unwrap();
     let inventory = parse_inventory(&book, &ColumnMap::default(), &classes()).unwrap();
-    assert!(!inventory.keep_isms_ids);
+    assert!(!inventory.keeps(cvewatch_core::assets::columns::StandardField::IsmsId));
     import_inventory(
         &mut conn,
         &catalog(),
@@ -652,6 +653,7 @@ fn duplicate_isms_id_with_a_retired_asset_is_rejected() {
 fn swapping_isms_ids_in_one_import() {
     let env = common::initialized();
     let mut conn = open_working_db(&env.paths, &env.store).unwrap();
+    cvewatch_core::assets::systems::create_system(&conn, "SYS", "核心系統").unwrap();
     let write = |name: &str, a: &str, b: &str| {
         let path = env.dir.path().join(name);
         std::fs::write(
@@ -703,7 +705,10 @@ fn template_has_class_sheet_following_configuration() {
     .unwrap();
     write_template(&path, &classes).unwrap();
     let mut book = open_workbook_auto(&path).unwrap();
-    assert_eq!(book.sheet_names(), vec!["assets", "components", "classes"]);
+    assert_eq!(
+        book.sheet_names(),
+        vec!["assets", "components", "systems", "classes"]
+    );
     let range = book.worksheet_range("classes").unwrap();
     let rows: Vec<Vec<String>> = range
         .rows()
@@ -715,5 +720,7 @@ fn template_has_class_sheet_following_configuration() {
     assert_eq!(&hw12[3..6], ["2", "3", "3"]);
     let sw01 = rows.iter().find(|r| r[0] == "SW01").unwrap();
     assert_eq!(&sw01[3..6], ["", "", ""], "無範本值時留空");
+    assert_eq!(rows[0][6], "personal_data");
+    assert_eq!(sw01[6], "N", "內建子類別預設不含個人資料");
     assert_eq!(rows.len(), 1 + 19);
 }

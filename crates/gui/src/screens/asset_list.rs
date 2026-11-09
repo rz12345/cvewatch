@@ -1,11 +1,13 @@
 //! 資產畫面的工具列與左側資產清單（design 11 D4、D8）。
 //!
-//! 工具列分三組：新增資產｜清冊檔案（匯入、範本、匯出）｜顯示已退役。清單為三欄表格
-//! （編號、名稱、未處理），整列可點選；名稱過長時截斷並以提示顯示全文。
+//! 工具列分三組：新增資產、資產說明…｜清冊檔案（匯入、範本、匯出）｜顯示已退役。清單依資產說明
+//! 分組（16 design D8；可收合，標題列出資產數與未處理命中數），組內為三欄表格（編號、名稱、
+//! 未處理），整列可點選；名稱過長時截斷並以提示顯示全文。
 
 use cvewatch_core::assets::AssetStatus;
 use cvewatch_frontend::data::{AssetEntry, AssetListFilter};
 use cvewatch_frontend::display::shown_name;
+use cvewatch_frontend::groups::AssetGroup;
 use eframe::egui;
 use egui_extras::{Column, TableBuilder};
 
@@ -31,6 +33,9 @@ impl GuiApp {
         ui.horizontal_wrapped(|ui| {
             if ui.button("新增資產").clicked() {
                 self.start_new_asset();
+            }
+            if ui.button("資產說明…").clicked() {
+                self.start_systems_dialog();
             }
             ui.separator();
             let enabled = self.companion.is_some();
@@ -64,25 +69,73 @@ impl GuiApp {
             .resizable(true)
             .default_size(320.0)
             .show(ui, |ui| {
-                let list = self.ws.data.asset_list(&filter);
-                if list.is_empty() {
+                let groups = self.ws.data.asset_groups(&filter);
+                if groups.is_empty() {
                     ui.label(format!(
                         "尚無資產。請按「新增資產」或「匯入清冊」，{DROP_HINT}。"
                     ));
                     return;
                 }
-                picked = list_table(ui, &list, self.assets_selected.as_deref());
+                egui::ScrollArea::vertical()
+                    .id_salt("asset-groups")
+                    .auto_shrink([false, false])
+                    .show(ui, |ui| {
+                        for group in &groups {
+                            let hit = group_section(ui, group, self.assets_selected.as_deref());
+                            picked = hit.or(picked.take());
+                        }
+                    });
             });
         picked
     }
 }
 
-fn list_table(ui: &mut egui::Ui, list: &[&AssetEntry], selected: Option<&str>) -> Option<String> {
+/// 組的收合狀態 id（測試可用來收合）。
+pub fn group_id(key: &str) -> egui::Id {
+    egui::Id::unique(("asset-group", key))
+}
+
+/// 組的未處理命中標示。
+pub fn group_open_text(open: usize) -> String {
+    format!("未處理 {open}")
+}
+
+/// 一組：可收合的標題（「NET 網路服務（2）」與醒目的未處理數）與組內表格。
+fn group_section(
+    ui: &mut egui::Ui,
+    group: &AssetGroup<'_>,
+    selected: Option<&str>,
+) -> Option<String> {
+    let mut picked = None;
+    egui::collapsing_header::CollapsingState::load_with_default_open(
+        ui.ctx(),
+        group_id(group.key()),
+        true,
+    )
+    .show_header(ui, |ui| {
+        ui.strong(group.heading());
+        if group.open_findings > 0 {
+            ui.colored_label(ALERT, group_open_text(group.open_findings));
+        }
+    })
+    .body(|ui| {
+        picked = list_table(ui, group.key(), &group.assets, selected);
+    });
+    picked
+}
+
+fn list_table(
+    ui: &mut egui::Ui,
+    key: &str,
+    list: &[&AssetEntry],
+    selected: Option<&str>,
+) -> Option<String> {
     let mut picked = None;
     // 退役列用佈景主題的弱化文字色（深色主題下 `Color32::GRAY` 比一般文字更亮）
     let weak = ui.visuals().weak_text_color();
     TableBuilder::new(ui)
-        .id_salt("asset-list-table")
+        .id_salt(("asset-list-table", key))
+        .vscroll(false)
         .striped(true)
         .sense(egui::Sense::click())
         .cell_layout(egui::Layout::left_to_right(egui::Align::Center))

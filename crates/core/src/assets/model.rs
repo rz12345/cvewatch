@@ -44,13 +44,31 @@ pub struct AssetRecord {
     /// ISMS 子類別代碼（可能是設定檔已不再定義的代碼，見 13 design D2）
     pub category: ClassCode,
     pub location: Option<String>,
-    pub owner: Option<String>,
     pub exposure: Exposure,
     /// 機密性、完整性、可用性；資產價值為 [`Cia::value`]
     pub cia: Cia,
     /// ISMS 資產編號（例如 `SYS-HW-001`；不分大小寫唯一）
     pub isms_id: Option<String>,
+    /// 資產說明代碼（ISMS 系統代碼，例如 `SYS`；16 design D1）
+    pub system_code: Option<String>,
+    /// 權責單位
+    pub responsible_unit: Option<String>,
+    /// 保管人（取代舊版 owner）
+    pub custodian: Option<String>,
+    /// 使用單位
+    pub user_unit: Option<String>,
+    /// 法規遵循性（1–4；None 為未評定）
+    pub compliance: Option<u8>,
+    /// 是否含個人資料（以解析後的值儲存，不保存「依類別」）
+    pub personal_data: bool,
     pub notes: Option<String>,
+}
+
+impl AssetRecord {
+    /// 資通系統防護等級：MAX(C, I, A, 法規遵循性)；法規遵循性未評定時為 None（16 design D6）。
+    pub fn protection_level(&self) -> Option<u8> {
+        super::record_admin::protection_level(self.cia.value(), self.compliance)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

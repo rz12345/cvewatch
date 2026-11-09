@@ -145,6 +145,8 @@ mod tests {
             assets: Vec::new(),
             retired_assets: Vec::new(),
             unresolved: Vec::new(),
+            systems: Default::default(),
+            system_usage: Default::default(),
             pending: Vec::new(),
             sync_runs: Vec::new(),
             marker: DataMarker::default(),

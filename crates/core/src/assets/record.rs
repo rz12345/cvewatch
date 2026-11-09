@@ -1,9 +1,11 @@
 //! 單筆資產欄位的驗證（清冊匯入與畫面編修共用，13 design D4、D5）：必填欄位、子類別、
-//! 曝露度、C/I/A（空白帶入子類別範本值）與 ISMS 編號。
+//! 曝露度、C/I/A（空白帶入子類別範本值）與 ISMS 編號；ISMS 管理欄位見 [`super::record_admin`]。
 
 use super::classes::{AssetClass, AssetClasses, Cia, ClassCode, MAX_RATING, MIN_RATING};
 use super::columns::StandardField;
 use super::model::{AssetRecord, Exposure};
+use super::record_admin::{parse_compliance, parse_personal_data, resolve_system};
+use super::systems::SystemDirectory;
 
 /// 單筆資產欄位的原始輸入（清冊儲存格或畫面輸入框）；前後空白在驗證時去除。
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -20,8 +22,16 @@ pub struct RecordInput<'a> {
     pub availability: &'a str,
     /// 空白表示沒有 ISMS 編號
     pub isms_id: &'a str,
+    /// 資產說明代碼或名稱；空白時由 ISMS 編號的系統代碼帶出
+    pub system: &'a str,
+    pub responsible_unit: &'a str,
+    pub custodian: &'a str,
+    pub user_unit: &'a str,
+    /// 空白表示未評定
+    pub compliance: &'a str,
+    /// Y／N／是／否；空白時帶入子類別預設值
+    pub personal_data: &'a str,
     pub location: &'a str,
-    pub owner: &'a str,
     pub notes: &'a str,
 }
 
@@ -37,10 +47,18 @@ impl RecordInput<'_> {
             StandardField::Integrity => self.integrity,
             StandardField::Availability => self.availability,
             StandardField::IsmsId => self.isms_id,
+            StandardField::System => self.system,
+            StandardField::ResponsibleUnit => self.responsible_unit,
+            StandardField::Custodian | StandardField::Owner => self.custodian,
+            StandardField::UserUnit => self.user_unit,
+            StandardField::Compliance => self.compliance,
+            StandardField::PersonalData => self.personal_data,
             StandardField::Location => self.location,
-            StandardField::Owner => self.owner,
             StandardField::Notes => self.notes,
-            StandardField::Product | StandardField::Version | StandardField::Criticality => "",
+            StandardField::Product
+            | StandardField::Version
+            | StandardField::Criticality
+            | StandardField::Code => "",
         }
     }
 }
@@ -70,6 +88,10 @@ pub enum FieldErrorKind {
     OutOfRange,
     /// ISMS 編號的大類與資產類別不符
     ClassMismatch,
+    /// ISMS 編號的系統代碼與資產說明不符
+    SystemMismatch,
+    /// 資產說明（或 ISMS 編號的系統代碼）尚未定義
+    UnknownSystem,
 }
 
 /// 單一欄位的驗證錯誤；`message` 不含列位置（匯入時加上「第 N 列：」）。
@@ -81,7 +103,7 @@ pub struct FieldError {
 }
 
 impl FieldError {
-    fn new(field: StandardField, kind: FieldErrorKind, message: String) -> FieldError {
+    pub(super) fn new(field: StandardField, kind: FieldErrorKind, message: String) -> FieldError {
         FieldError {
             field,
             kind,
@@ -102,16 +124,56 @@ fn optional_text(v: &str) -> Option<String> {
     (!v.is_empty()).then(|| v.to_string())
 }
 
-/// 驗證資產欄位（畫面編修）：類別只接受已定義子類別的代碼或名稱；錯誤依欄位順序回報。
+/// 驗證時參考的設定：子類別表與資產說明目錄（16 design D2）。
+#[derive(Debug, Clone, Copy)]
+pub struct RecordContext<'a> {
+    pub classes: &'a AssetClasses,
+    pub systems: &'a SystemDirectory,
+}
+
+/// 驗證資產欄位（畫面編修）：類別只接受已定義子類別的代碼或名稱，資產說明須已定義；
+/// 錯誤依欄位順序回報。
 pub fn validate_record(
     input: &RecordInput<'_>,
-    classes: &AssetClasses,
+    ctx: &RecordContext<'_>,
 ) -> Result<AssetRecord, Vec<FieldError>> {
-    validate_with(input, classes, false).map(|v| v.record)
+    let valid = validate_with(input, ctx.classes, false);
+    // 其他欄位有錯時仍檢查資產說明（一次列出全部錯誤）；ISMS 編號本身有錯時不再比對系統代碼
+    let isms_ok = match &valid {
+        Ok(_) => true,
+        Err(errors) => errors.iter().all(|e| e.field != StandardField::IsmsId),
+    };
+    let isms = Some(input.isms_id.trim()).filter(|v| isms_ok && !v.is_empty());
+    let system = resolve_system(input.system, isms, ctx.systems);
+    match (valid, system) {
+        (Ok(v), Ok(code)) => Ok(AssetRecord {
+            system_code: code.map(|c| c.as_str().to_string()),
+            ..v.record
+        }),
+        (Ok(_), Err(e)) => Err(vec![e]),
+        (Err(errors), Ok(_)) => Err(errors),
+        (Err(mut errors), Err(e)) => {
+            // 資產說明錯誤依欄位順序放在 ISMS 編號之後
+            let at = errors
+                .iter()
+                .position(|x| field_order(x.field) > field_order(e.field))
+                .unwrap_or(errors.len());
+            errors.insert(at, e);
+            Err(errors)
+        }
+    }
+}
+
+fn field_order(field: StandardField) -> usize {
+    StandardField::ALL
+        .iter()
+        .position(|f| *f == field)
+        .unwrap_or(usize::MAX)
 }
 
 /// 驗證清冊的一列：另接受舊版 category 值（network、security…），轉換結果見
-/// [`ValidRecord::legacy`]。
+/// [`ValidRecord::legacy`]。資產說明在取得資料庫內容後才解析（`plan.rs`），此處
+/// `system_code` 一律為 None。
 pub fn validate_import_record(
     input: &RecordInput<'_>,
     classes: &AssetClasses,
@@ -139,17 +201,24 @@ fn validate_with(
     let class = resolved.as_ref().and_then(|r| classes.get(&r.code));
     let cia = parse_ratings(input, class, &mut errors);
     let isms_id = parse_isms_id(input.isms_id.trim(), class.map(|c| &c.code), &mut errors);
-    match (errors.is_empty(), resolved, cia) {
-        (true, Some(resolved), Some(cia)) => Ok(ValidRecord {
+    let compliance = parse_compliance(input.compliance.trim(), &mut errors);
+    let personal_data = parse_personal_data(input.personal_data.trim(), class, &mut errors);
+    match (errors.is_empty(), resolved, cia, personal_data) {
+        (true, Some(resolved), Some(cia), Some(personal_data)) => Ok(ValidRecord {
             record: AssetRecord {
                 asset_tag: input.asset_tag.trim().to_string(),
                 name: input.name.trim().to_string(),
                 category: resolved.code,
                 location: optional_text(input.location),
-                owner: optional_text(input.owner),
                 exposure: exposure.unwrap_or_default(),
                 cia,
                 isms_id,
+                system_code: None,
+                responsible_unit: optional_text(input.responsible_unit),
+                custodian: optional_text(input.custodian),
+                user_unit: optional_text(input.user_unit),
+                compliance,
+                personal_data,
                 notes: optional_text(input.notes),
             },
             legacy: resolved.legacy,
@@ -319,8 +388,100 @@ mod tests {
         }
     }
 
+    fn systems() -> SystemDirectory {
+        let sys = |code: &str, name: &str| crate::assets::AssetSystem {
+            code: crate::assets::SystemCode::parse(code).unwrap(),
+            name: name.into(),
+        };
+        SystemDirectory::new(vec![sys("NET", "網路服務"), sys("SYS", "核心系統")])
+    }
+
     fn check(i: RecordInput<'_>) -> Result<AssetRecord, Vec<FieldError>> {
-        validate_record(&i, &classes())
+        let classes = classes();
+        let systems = systems();
+        validate_record(
+            &i,
+            &RecordContext {
+                classes: &classes,
+                systems: &systems,
+            },
+        )
+    }
+
+    #[test]
+    fn administrative_fields_are_recorded() {
+        let r = check(RecordInput {
+            responsible_unit: " 網路組 ",
+            custodian: "王小明",
+            user_unit: "",
+            compliance: "4",
+            personal_data: "是",
+            system: "網路服務",
+            isms_id: "NET-HW-002",
+            ..input()
+        })
+        .unwrap();
+        assert_eq!(r.responsible_unit.as_deref(), Some("網路組"));
+        assert_eq!(r.custodian.as_deref(), Some("王小明"));
+        assert_eq!(r.user_unit, None);
+        assert_eq!(r.compliance, Some(4));
+        assert!(r.personal_data);
+        assert_eq!(r.system_code.as_deref(), Some("NET"));
+        assert_eq!(r.protection_level(), Some(4));
+        let plain = check(input()).unwrap();
+        assert_eq!(plain.system_code, None);
+        assert!(!plain.personal_data, "HW03 預設不含個人資料");
+        assert_eq!(plain.protection_level(), None, "未評定");
+    }
+
+    #[test]
+    fn system_mismatch_is_reported_with_other_errors() {
+        let errors = check(RecordInput {
+            name: "",
+            system: "NET",
+            isms_id: "SYS-HW-001",
+            ..input()
+        })
+        .expect_err("應驗證失敗");
+        let fields: Vec<_> = errors.iter().map(|e| (e.field, e.kind)).collect();
+        assert_eq!(
+            fields,
+            vec![
+                (StandardField::Name, FieldErrorKind::Missing),
+                (StandardField::IsmsId, FieldErrorKind::SystemMismatch),
+            ]
+        );
+        let malformed = check(RecordInput {
+            system: "NET",
+            isms_id: "SYSHW001",
+            ..input()
+        })
+        .expect_err("應驗證失敗");
+        assert_eq!(
+            malformed.len(),
+            1,
+            "格式錯誤時不再比對系統代碼：{malformed:?}"
+        );
+    }
+
+    #[test]
+    fn system_error_follows_isms_field_order() {
+        let errors = check(RecordInput {
+            name: "",
+            system: "LAB",
+            compliance: "9",
+            ..input()
+        })
+        .expect_err("應驗證失敗");
+        let order: Vec<_> = errors.iter().map(|e| e.field).collect();
+        assert_eq!(
+            order,
+            vec![
+                StandardField::Name,
+                StandardField::System,
+                StandardField::Compliance
+            ]
+        );
     }
 
     fn fields(r: Result<AssetRecord, Vec<FieldError>>) -> Vec<(StandardField, String)> {
@@ -557,12 +718,12 @@ mod tests {
         let record = check(RecordInput {
             asset_tag: " FW-02 ",
             location: "  ",
-            owner: " 網管組 ",
+            custodian: " 網管組 ",
             ..input()
         })
         .expect("valid");
         assert_eq!(record.asset_tag, "FW-02");
         assert_eq!(record.location, None);
-        assert_eq!(record.owner.as_deref(), Some("網管組"));
+        assert_eq!(record.custodian.as_deref(), Some("網管組"));
     }
 }

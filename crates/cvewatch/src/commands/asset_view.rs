@@ -3,10 +3,14 @@
 use std::collections::BTreeMap;
 
 use cvewatch_core::assets::plan::ImportPlan;
-use cvewatch_core::assets::{AssetFilter, AssetRepo, ClassFilter, ComponentRepo};
+use cvewatch_core::assets::{
+    AssetFilter, AssetRecord, AssetRepo, ClassFilter, ComponentRepo, SystemDirectory,
+};
 use cvewatch_core::catalog::Product;
 use cvewatch_core::db::open_working_db;
 use cvewatch_core::{CoreError, ExitCode};
+
+use cvewatch_frontend::asset_form::{personal_data_label, rated_text};
 
 use crate::app::App;
 
@@ -16,10 +20,14 @@ pub fn print_plan_details(plan: &ImportPlan) {
     }
 }
 
-/// 匯入差異的明細（GUI 匯入預覽顯示同一份輸出）：新增、更新、未辨識產品、版本警告，
-/// 之後是 notice（舊版 category 值、停用欄位；13 design D3），最後是清冊中消失的資產。
+/// 匯入差異的明細（GUI 匯入預覽顯示同一份輸出）：資產說明變更、新增、更新、未辨識產品、
+/// 版本警告，之後是 notice（舊版 category 值、停用欄位；13 design D3），最後是清冊中消失的資產。
 pub fn plan_detail_lines(plan: &ImportPlan) -> Vec<String> {
     let mut out = Vec::new();
+    if !plan.systems.is_empty() {
+        out.push("資產說明：".to_string());
+    }
+    out.extend(plan.systems.iter().map(|c| format!("  {}", c.describe())));
     if !plan.added.is_empty() {
         out.push(format!("新增：{}", plan.added.join("、")));
     }
@@ -154,11 +162,10 @@ pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
     if let Some(id) = &r.isms_id {
         println!("  ISMS 編號 {id}");
     }
-    for (label, value) in [
-        ("地點", &r.location),
-        ("負責人", &r.owner),
-        ("備註", &r.notes),
-    ] {
+    for line in admin_lines(r, &SystemDirectory::load(&conn)?) {
+        println!("  {line}");
+    }
+    for (label, value) in [("地點", &r.location), ("備註", &r.notes)] {
         if let Some(v) = value {
             println!("  {label}：{v}");
         }
@@ -187,6 +194,31 @@ pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
         println!("  未辨識：「{}」{}", u.product_raw, u.version_raw);
     }
     Ok(ExitCode::Success)
+}
+
+/// `asset show` 的 ISMS 管理欄位（16 任務 4.1）：資產說明、單位與保管人只在有值時列出，
+/// 法規遵循性、防護等級與是否含個人資料一律列出。
+pub fn admin_lines(r: &AssetRecord, systems: &SystemDirectory) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(code) = &r.system_code {
+        out.push(format!("資產說明：{}", systems.label(code)));
+    }
+    for (label, value) in [
+        ("權責單位", &r.responsible_unit),
+        ("保管人", &r.custodian),
+        ("使用單位", &r.user_unit),
+    ] {
+        if let Some(v) = value {
+            out.push(format!("{label}：{v}"));
+        }
+    }
+    out.push(format!(
+        "法規遵循性 {}、防護等級 {}、是否含個人資料 {}",
+        rated_text(r.compliance),
+        rated_text(r.protection_level()),
+        personal_data_label(r.personal_data)
+    ));
+    out
 }
 
 pub fn catalog_list(app: &App) -> Result<ExitCode, CoreError> {
@@ -312,6 +344,48 @@ mod tests {
     use cvewatch_core::db::migrate::migrate;
 
     use super::*;
+
+    /// 16 任務 4.1：以 inventory_basic 匯入後，`asset show FW-01` 的管理欄位與預覽的資產說明變更。
+    #[test]
+    fn show_lists_admin_fields_and_preview_lists_system_changes() {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/fixtures/inventory_basic.xlsx");
+        let book = read_inventory(&path, None).unwrap();
+        let inventory =
+            parse_inventory(&book, &ColumnMap::default(), &AssetClasses::builtin()).unwrap();
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        migrate(&mut conn).unwrap();
+        let plan = import_inventory(
+            &mut conn,
+            &Catalog::seed().unwrap(),
+            &inventory,
+            ImportOptions::default(),
+            chrono::Utc::now(),
+        )
+        .unwrap();
+        let lines = plan_detail_lines(&plan);
+        assert_eq!(lines[..2], ["資產說明：", "  新增資產說明 SYS 核心系統"]);
+        let systems = SystemDirectory::load(&conn).unwrap();
+        let fw = AssetRepo::new(&conn).find_by_tag("FW-01").unwrap().unwrap();
+        assert_eq!(
+            admin_lines(&fw.record, &systems),
+            vec![
+                "資產說明：SYS 核心系統",
+                "權責單位：網管組",
+                "保管人：王小明",
+                "使用單位：網管組",
+                "法規遵循性 未評定、防護等級 未評定、是否含個人資料 否",
+            ]
+        );
+        let srv = AssetRepo::new(&conn)
+            .find_by_tag("SRV-01")
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            admin_lines(&srv.record, &systems).last().unwrap(),
+            "法規遵循性 3、防護等級 4、是否含個人資料 否"
+        );
+    }
 
     /// 13 任務 5.4：舊清冊的預覽在版本警告之後列出舊值轉換與 criticality 停用的提醒。
     #[test]

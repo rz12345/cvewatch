@@ -1,4 +1,4 @@
-//! 讀取清冊：.xlsx（`assets` / `components` 工作表）或 .csv（兩個檔）。
+//! 讀取清冊：.xlsx（`assets` / `components` / `systems` 工作表）或 .csv（兩個檔）。
 //!
 //! 只轉成字串表格；欄位意義與驗證在 [`super::validate`]。
 
@@ -27,6 +27,8 @@ pub struct Sheet {
 pub struct Workbook {
     pub assets: Sheet,
     pub components: Option<Sheet>,
+    /// 資產說明（16 design D3；選填，CSV 清冊沒有）
+    pub systems: Option<Sheet>,
 }
 
 const UTF8_BOM: &str = "\u{feff}";
@@ -51,6 +53,7 @@ pub fn read_inventory(path: &Path, components_csv: Option<&Path>) -> Result<Work
             components: components_csv
                 .map(|p| read_csv(p, SheetKind::Components))
                 .transpose()?,
+            systems: None,
         }),
         _ => Err(CoreError::Invalid(format!(
             "不支援的清冊格式：{}（支援 .xlsx、.csv）",
@@ -90,7 +93,15 @@ fn read_workbook(path: &Path) -> Result<Workbook, CoreError> {
         Some(name) => Some(load(&name, SheetKind::Components)?),
         None => None,
     };
-    Ok(Workbook { assets, components })
+    let systems = match find(SheetKind::Systems) {
+        Some(name) => Some(load(&name, SheetKind::Systems)?),
+        None => None,
+    };
+    Ok(Workbook {
+        assets,
+        components,
+        systems,
+    })
 }
 
 /// 儲存格轉字串。整數值的浮點數（例如 criticality `2`）不帶小數點。

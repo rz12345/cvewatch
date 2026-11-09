@@ -3,9 +3,10 @@
 //!
 //! 產品以目錄的顯示名稱呈現（產品 key 只在滑鼠提示中），類別與曝露度雙語（design 11 D1）。
 
-use cvewatch_core::assets::{AssetStatus, ComponentKind};
+use cvewatch_core::assets::{AssetRecord, AssetStatus, ComponentKind, SystemDirectory};
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::matching::query::FindingRow;
+use cvewatch_frontend::asset_form::{personal_data_label, rated_text};
 use cvewatch_frontend::data::AssetEntry;
 use cvewatch_frontend::display::{
     class_label, component_name, exposure_label, product_name, shown_name,
@@ -124,6 +125,9 @@ impl GuiApp {
                     "ISMS 編號 {}",
                     r.isms_id.as_deref().map_or("—".to_string(), one_line)
                 ));
+                for line in admin_lines(r, &self.ws.data.systems) {
+                    ui.label(line);
+                }
                 ui.label(format!(
                     "未處理命中 {} 筆｜全部命中 {} 筆",
                     a.open_findings,
@@ -272,4 +276,29 @@ fn unresolved_all(ui: &mut egui::Ui, app: &GuiApp) {
             u.version_raw
         ));
     }
+}
+
+/// 詳情的 ISMS 管理欄位（16 spec GUI asset presentation）：未填為「-」，未評定為「未評定」。
+pub fn admin_lines(r: &AssetRecord, systems: &SystemDirectory) -> [String; 3] {
+    let text = |v: &Option<String>| v.as_deref().map_or("-".to_string(), one_line);
+    [
+        format!(
+            "資產說明 {}",
+            r.system_code
+                .as_deref()
+                .map_or("-".to_string(), |c| systems.label(c))
+        ),
+        format!(
+            "權責單位 {}｜保管人 {}｜使用單位 {}",
+            text(&r.responsible_unit),
+            text(&r.custodian),
+            text(&r.user_unit)
+        ),
+        format!(
+            "法規遵循性 {}｜防護等級 {}｜是否含個人資料 {}",
+            rated_text(r.compliance),
+            rated_text(r.protection_level()),
+            personal_data_label(r.personal_data)
+        ),
+    ]
 }
