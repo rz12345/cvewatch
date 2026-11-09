@@ -369,7 +369,7 @@ GUI 的資產編修、退役、恢復與永久刪除寫入後 SHALL 在背景執
 - **THEN** 搜尋結果列出 AOS-CX，可直接選擇
 
 ### Requirement: GUI asset system management
-資產畫面的工具列 SHALL 提供「新增資產說明」，開啟對話框列出所有資產說明（代碼、名稱、歸屬的資產數，含 retired），並 SHALL 可新增資產說明、修改名稱與刪除。代碼欄 SHALL 只在新增時可輸入。驗證錯誤 SHALL 顯示在對應欄位旁且不關閉對話框；仍有資產歸屬的資產說明，其「刪除」SHALL 停用並以提示說明歸屬的資產數。規則 SHALL 與 asset-inventory 的 Asset system 相同。
+資產畫面的工具列 SHALL 提供「新增資產說明」，開啟對話框列出所有資產說明（代碼、名稱、歸屬的資產數，含 retired），並 SHALL 可新增資產說明、編輯與刪除。每個資產說明的「編輯」SHALL 可在同一列修改代碼與名稱後一次儲存。驗證錯誤 SHALL 顯示在對應欄位旁且不關閉對話框；仍有資產歸屬的資產說明，其「刪除」SHALL 停用並以提示說明歸屬的資產數。規則 SHALL 與 asset-inventory 的 Asset system 與 Changing a system code 相同。
 
 #### Scenario: Adding a system from the window
 - **WHEN** 使用者按「新增資產說明」，新增代碼 `net`、名稱「網路服務」後儲存
@@ -382,6 +382,37 @@ GUI 的資產編修、退役、恢復與永久刪除寫入後 SHALL 在背景執
 #### Scenario: System still in use
 - **WHEN** 資產說明 `NET` 有 3 個資產歸屬
 - **THEN** `NET` 的「刪除」停用，滑鼠提示說明仍有 3 個資產歸屬
+
+#### Scenario: Editing a code without assets
+- **WHEN** 沒有資產歸屬的 `LAB`，使用者按「編輯」把代碼改為 `tst` 後儲存
+- **THEN** 不顯示確認，清單出現 `TST`、不再有 `LAB`
+
+#### Scenario: Code already used in the dialog
+- **WHEN** 使用者編輯 `NET`，把代碼改為已存在的 `SYS` 後儲存
+- **THEN** 對話框不關閉，代碼欄位旁說明 `SYS` 已被使用，資料庫不變
+
+### Requirement: GUI system code change confirmation
+編輯資產說明時代碼改變、且有資產（含 retired）歸屬，按儲存後 SHALL 先顯示確認，列出受影響的資產數、每筆 ISMS 編號與資產編號的變更，並提醒舊清冊、已匯出的 VEX 與尚未更新的 ISMS 清冊不會對應、建議重新匯出清冊。按「確定修改」才寫入；按「返回」或 Esc SHALL 回到編輯列並保留輸入，資料庫 MUST NOT 變更。新資產編號衝突時 SHALL 不顯示確認，改在代碼欄位旁列出衝突的編號。按「確定修改」時若受影響的資產與確認畫面不同（例如另一個視窗在確認期間修改了資產），系統 MUST NOT 寫入，SHALL 以新的變更重新顯示確認並說明原因。寫入後，選取中的資產若被改了編號，資產清單 SHALL 選取其新編號。
+
+#### Scenario: Confirming a code change
+- **WHEN** `NET` 有 3 個資產歸屬，使用者把代碼改為 `NWS` 後按儲存
+- **THEN** 顯示確認，列出 3 個受影響的資產與 `NET-HW-001 → NWS-HW-001` 等變更；按「確定修改」後清單出現 `NWS`，資產詳情顯示新的 ISMS 編號
+
+#### Scenario: Going back from the confirmation
+- **WHEN** 確認畫面出現後，使用者按「返回」
+- **THEN** 回到 `NET` 的編輯列，代碼欄仍是 `NWS`，資料庫不變
+
+#### Scenario: Selected asset follows its new tag
+- **WHEN** 資產清單選取 `NET-HW-001`，使用者確認把 `NET` 改為 `NWS`
+- **THEN** 資產清單選取 `NWS-HW-001`，詳情顯示該資產
+
+#### Scenario: Conflicting asset tag in the dialog
+- **WHEN** 使用者把 `NET` 改為 `NWS`，而 `NWS-HW-001` 已被其他資產使用
+- **THEN** 不顯示確認，代碼欄位旁列出衝突的編號 `NWS-HW-001`，資料庫不變
+
+#### Scenario: Assets changed while confirming
+- **WHEN** 確認畫面列出 3 個受影響的資產後，另一個程序把第 4 個資產歸屬 `NET`，使用者按「確定修改」
+- **THEN** 資料庫不變，確認畫面改列 4 個受影響的資產，並說明受影響的資產有變動、請重新確認
 
 ### Requirement: GUI asset list grouped by system
 資產清單 SHALL 依資產說明分組：每組以「代碼 名稱」與該組資產數為標題，組內維持編號、名稱、未處理三欄；組依代碼排序，未歸屬任何資產說明的資產 SHALL 列在最後一組「未歸屬資產說明」。各組 SHALL 可收合，收合的組標題 SHALL 顯示組內未處理命中的總數。沒有可顯示資產的組 MUST NOT 出現在清單中。選取、Enter 編輯與 Delete 退役 SHALL 與分組前相同。
