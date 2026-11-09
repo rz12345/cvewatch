@@ -10,7 +10,7 @@
       "url": "https://github.com/rz12345/cvewatch.git",
       "provider": "github",
       "link_mode": "web",
-      "revision": "5557e113e1b880466c5f57e49cfd58f01b990b03"
+      "revision": "7da795174e428458b1c142ba97353aa85f35dba0"
     }
   },
   "components": [
@@ -48,23 +48,23 @@
       "pos": [480, 180], "size": [150, 60],
       "sources": [
         { "path": "crates/frontend/src/lib.rs", "line": 1, "end_line": 22 },
-        { "path": "crates/frontend/src/services.rs", "line": 120, "end_line": 162, "label": "子程序 sync" }
+        { "path": "crates/frontend/src/services.rs", "line": 134, "end_line": 176, "label": "子程序 sync" }
       ]
     },
     {
       "id": "core", "type": "backend", "label": "cvewatch-core", "sublabel": "匯入·同步·比對·通知",
       "pos": [720, 160], "size": [160, 260],
       "sources": [
-        { "path": "crates/core/src/lib.rs", "line": 1, "end_line": 31 },
-        { "path": "crates/core/src/ingest/sync.rs", "line": 135, "end_line": 150, "label": "依來源同步" },
-        { "path": "crates/core/src/notify/dispatch.rs", "line": 85, "end_line": 135, "label": "通知分派" }
+        { "path": "crates/core/src/lib.rs", "line": 1, "end_line": 33 },
+        { "path": "crates/core/src/ingest/sync.rs", "line": 141, "end_line": 156, "label": "依來源同步" },
+        { "path": "crates/core/src/notify/dispatch.rs", "line": 94, "end_line": 144, "label": "通知分派" }
       ]
     },
     {
       "id": "excel", "type": "database", "label": "資產清冊檔", "sublabel": "Excel / CSV / SBOM",
       "pos": [480, 380], "size": [150, 60],
       "sources": [
-        { "path": "crates/core/src/assets/sheet.rs", "line": 35, "end_line": 70, "label": "讀取清冊" }
+        { "path": "crates/core/src/assets/sheet.rs", "line": 42, "end_line": 79, "label": "讀取清冊" }
       ]
     },
     {
@@ -72,8 +72,16 @@
       "tag": "+ 原廠 CSAF",
       "pos": [1000, 160], "size": [190, 64],
       "sources": [
-        { "path": "crates/core/src/ingest/endpoints.rs", "line": 52, "end_line": 65, "label": "端點" },
-        { "path": "crates/core/src/config.rs", "line": 99, "end_line": 118, "label": "CSAF 來源" }
+        { "path": "crates/core/src/ingest/endpoints.rs", "line": 23, "end_line": 37, "label": "端點" },
+        { "path": "crates/core/src/config.rs", "line": 98, "end_line": 123, "label": "CSAF 來源" }
+      ]
+    },
+    {
+      "id": "endoflife", "type": "external", "label": "endoflife.date", "sublabel": "軟體版本分支 EoL",
+      "pos": [1000, 40], "size": [190, 60],
+      "sources": [
+        { "path": "crates/core/src/ingest/endpoints.rs", "line": 62, "end_line": 65, "label": "產品端點" },
+        { "path": "crates/core/src/ingest/eol.rs", "line": 165, "end_line": 193, "label": "eol 來源同步" }
       ]
     },
     {
@@ -128,6 +136,7 @@
     { "id": "cli-core", "from": "cli", "to": "core", "label": "函式呼叫" },
     { "id": "core-excel", "from": "core", "to": "excel", "label": "讀取清冊" },
     { "id": "core-sources", "from": "core", "to": "sources", "label": "HTTPS 同步" },
+    { "id": "core-endoflife", "from": "core", "to": "endoflife", "label": "HTTPS（EoL）" },
     { "id": "core-db", "from": "core", "to": "db", "label": "SQL" },
     { "id": "core-keyring", "from": "core", "to": "keyring", "label": "讀取秘密", "variant": "security" },
     { "id": "core-smtp", "from": "core", "to": "smtp", "label": "寄信" },
@@ -138,7 +147,7 @@
   ],
   "cards": [
     { "dot": "cyan", "title": "介面", "items": ["GUI 與 TUI 共用 cvewatch-frontend，不直接相依 UI 以外的邏輯", "背景 sync、清冊匯入、重新安裝排程皆以子程序執行同資料夾的 cvewatch.exe"] },
-    { "dot": "emerald", "title": "核心流程", "items": ["sync：先送出佇列通知 → 各來源同步 → 有變動才重新比對 → 依緊急條件寄信／開案", "比對依 CPE、CNA affected 版本區間、CSAF 與 OSV 證據"] },
+    { "dot": "emerald", "title": "核心流程", "items": ["sync：先送出佇列通知 → 各來源同步 → 有變動才重新比對 → 依緊急條件寄信／開案", "比對依 CPE、CNA affected 版本區間、CSAF 與 OSV 證據", "最後的 eol 來源取 endoflife.date 版本分支 EoL，只供生命週期提醒，不觸發重新比對"] },
     { "dot": "rose", "title": "秘密與加密", "items": ["DB 金鑰、NVD API key、SMTP／Redmine 憑證只存在 Credential Manager", "資料庫為 SQLCipher 加密；SMTP／Redmine 只允許 TLS"] }
   ]
 }
