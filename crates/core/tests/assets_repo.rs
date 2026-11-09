@@ -95,6 +95,37 @@ fn product_upsert_is_idempotent_and_records_history() {
     assert_eq!(history[0].changed_at, t1.to_rfc3339());
 }
 
+/// 21 code review：`asset show` 以一次查詢取得單一資產的版本歷史，不含其他資產。
+#[test]
+fn history_for_asset_matches_per_component_history() {
+    let env = common::initialized();
+    let conn = open_working_db(&env.paths, &env.store).unwrap();
+    let dsm = product(&conn, "synology-dsm");
+    let assets = AssetRepo::new(&conn);
+    let components = ComponentRepo::new(&conn);
+    let nas1 = assets.insert(&record("NAS-01"), Utc::now()).unwrap();
+    let nas2 = assets.insert(&record("NAS-02"), Utc::now()).unwrap();
+    let t0 = Utc::now();
+    for (asset, versions) in [(nas1, ["7.1", "7.2", "7.3"]), (nas2, ["6.0", "6.1", "6.1"])] {
+        for (i, v) in versions.iter().enumerate() {
+            let at = t0 + Duration::days(i64::try_from(i).unwrap());
+            components.upsert_product(asset, dsm, v, None, at).unwrap();
+        }
+    }
+    let nas1_component = components.for_asset(nas1).unwrap()[0].id;
+    let by_asset = components.history_for_asset(nas1).unwrap();
+    assert_eq!(by_asset.len(), 1, "只含 NAS-01 的元件");
+    let versions: Vec<_> = by_asset[&nas1_component]
+        .iter()
+        .map(|h| h.version_raw.as_str())
+        .collect();
+    assert_eq!(versions, ["7.2", "7.1"], "新到舊");
+    assert_eq!(
+        by_asset[&nas1_component],
+        components.history(nas1_component).unwrap()
+    );
+}
+
 #[test]
 fn package_upsert_keys_on_versionless_purl() {
     let env = common::initialized();

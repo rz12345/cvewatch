@@ -11,6 +11,8 @@ use super::{cut, full_time, scrolling_table, short_time, table, Scroll, TableSpe
 use crate::app::App;
 use crate::width::sanitize;
 use cvewatch_core::matching::dashboard::{is_interrupted, SourceStatus};
+use cvewatch_frontend::component_groups::group_components;
+use cvewatch_frontend::data::AssetEntry;
 use cvewatch_frontend::display::{
     class_label, identity_rows, pending_versions_text, rating_summary, version_text,
 };
@@ -19,6 +21,8 @@ use cvewatch_frontend::display::{
 const UNRESOLVED_ROWS: u16 = 6;
 /// 資產詳情的元件區塊最多顯示的列數。
 const COMPONENT_ROWS: u16 = 8;
+/// 元件表格「角色」欄寬：最長的組名「資料庫管理系統」為 7 個全形字。
+const ROLE_WIDTH: u16 = 14;
 
 fn bold(text: String) -> Line<'static> {
     Line::styled(text, Style::new().add_modifier(Modifier::BOLD))
@@ -287,20 +291,9 @@ pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cur
     ])
     .areas(area);
     frame.render_widget(Paragraph::new(info), info_area);
-    let comp_rows = entry
-        .components
-        .iter()
-        .map(|c| {
-            let values = vec![
-                c.label().to_string(),
-                version_text(&c.version_raw).to_string(),
-                c.source.as_str().to_string(),
-                full_time(&c.updated_at, app.services.tz),
-            ];
-            (values, Style::new())
-        })
-        .collect();
+    let comp_rows = component_rows(app, entry);
     let comp_cols = [
+        Width::Fixed(ROLE_WIDTH),
         Width::Flex(1),
         Width::Fixed(20),
         Width::Fixed(8),
@@ -314,13 +307,32 @@ pub fn asset_detail(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cur
     frame.render_widget(comp_block, comp_area);
     let t = table(
         app,
-        &["元件", "版本", "來源", "更新時間"],
+        &["角色", "元件", "版本", "來源", "更新時間"],
         &comp_cols,
         comp_inner.width,
         comp_rows,
     );
     frame.render_widget(t, comp_inner);
     asset_findings(frame, find_area, app, tag, cursor);
+}
+
+/// 元件表格的列：依角色分組排列，第一欄為組名（21 design D6）。
+fn component_rows(app: &App, entry: &AssetEntry) -> Vec<(Vec<String>, Style)> {
+    group_components(&app.settings.catalog, &entry.components)
+        .into_iter()
+        .flat_map(|(group, components)| {
+            components.into_iter().map(move |c| {
+                let values = vec![
+                    group.label().to_string(),
+                    c.label().to_string(),
+                    version_text(&c.version_raw).to_string(),
+                    c.source.as_str().to_string(),
+                    full_time(&c.updated_at, app.services.tz),
+                ];
+                (values, Style::new())
+            })
+        })
+        .collect()
 }
 
 fn asset_findings(frame: &mut Frame<'_>, area: Rect, app: &App, tag: &str, cursor: usize) {

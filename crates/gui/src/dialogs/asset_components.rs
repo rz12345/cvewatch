@@ -3,9 +3,14 @@
 //! 產品以目錄的顯示名稱呈現（版本欄標籤例如「PAN-OS 版本」）。未辨識產品列依「原文與版本 →
 //! 處置選單 → 刪除」排列。加入元件的焦點流程（design 11 D6）：選單開啟時搜尋框取得焦點，
 //! 選擇產品後焦點移到該元件的版本欄。兩處都使用共用的產品選擇器（[`super::product_picker`]）。
+//!
+//! 元件表格依目錄角色分組（21 design D5）：每組先有一列粗體組名，接著該組各列；主機套件在最後的
+//! 「套件」組。新加入的元件仍加在草稿最後，只在顯示時排入其組；版本欄的 id、欄位錯誤、焦點與
+//! 移除都沿用草稿的原索引，所以分組不影響加入元件後的焦點與錯誤對應。
 
 use cvewatch_core::catalog::Catalog;
 use cvewatch_frontend::asset_form::{ComponentDraft, UnresolvedAction};
+use cvewatch_frontend::component_groups::group_drafts;
 use cvewatch_frontend::display::{product_name, version_text, PENDING_NOTE, PENDING_VERSION};
 use eframe::egui;
 
@@ -33,20 +38,30 @@ pub(super) fn components(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Cata
     let errors = edit.errors.clone();
     let focus = edit.focus_version.take();
     let mut dropped = None;
+    let groups = group_drafts(catalog, &edit.form.components);
     egui::Grid::new("asset-components")
         .num_columns(3)
-        .striped(true)
+        // 組名列會打亂條紋的交替，改以組名區隔（21 design D5）
+        .striped(false)
         .show(ui, |ui| {
-            for (i, d) in edit.form.components.iter_mut().enumerate() {
-                let name = one_line(&d.name(catalog));
-                if component_row(ui, d, i, &name, focus == Some(i)) {
-                    dropped = Some(i);
-                }
+            for (group, indices) in groups {
+                // 組名列只是標籤，不加入 Tab 焦點順序（21 design D5）
+                ui.label(egui::RichText::new(group.label()).strong());
+                ui.label("");
+                ui.label("");
                 ui.end_row();
-                for msg in errors.component(i) {
-                    ui.label("");
-                    ui.colored_label(ALERT, msg);
+                for i in indices {
+                    let d = &mut edit.form.components[i];
+                    let name = one_line(&d.name(catalog));
+                    if component_row(ui, d, i, &name, focus == Some(i)) {
+                        dropped = Some(i);
+                    }
                     ui.end_row();
+                    for msg in errors.component(i) {
+                        ui.label("");
+                        ui.colored_label(ALERT, msg);
+                        ui.end_row();
+                    }
                 }
             }
         });

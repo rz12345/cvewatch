@@ -4,6 +4,7 @@
 
 pub mod file;
 pub mod normalize;
+pub mod role;
 pub mod scheme;
 pub mod store;
 mod suggest;
@@ -13,6 +14,7 @@ use std::path::Path;
 
 use file::{CatalogFile, CpeDef, EsxiBuildDef, NameDef, ProductDef};
 pub use normalize::{normalize, normalize_vendor};
+pub use role::ComponentRole;
 use scheme::{scheme_by_name, VersionScheme};
 
 use crate::error::CoreError;
@@ -42,6 +44,8 @@ pub struct Product {
     pub display_name: String,
     pub vendor_display: String,
     pub version_scheme: String,
+    /// 元件角色（只影響顯示，不納入指紋）
+    pub role: ComponentRole,
     pub advisory_source: Option<String>,
     /// 原始寫法（含 key 與 display_name）
     pub aliases: Vec<String>,
@@ -97,6 +101,7 @@ impl Catalog {
             let parsed: CatalogFile =
                 toml::from_str(&source.text).map_err(|e| catalog_error(&source.name, e))?;
             for def in parsed.product {
+                validate_role(&def, &source.name)?;
                 merge_into(&mut merged, def, &source.name);
             }
             for def in parsed.esxi_build {
@@ -215,6 +220,28 @@ fn read_user_dir(dir: &Path) -> Result<Vec<CatalogSource>, CoreError> {
         .collect()
 }
 
+/// 在合併前逐來源驗證 `role`，讓錯誤指向實際寫錯的檔案（合併後的條目只保留第一個來源名稱）。
+fn validate_role(def: &ProductDef, origin: &str) -> Result<(), CoreError> {
+    product_role(def, origin).map(|_| ())
+}
+
+/// 條目的角色：未寫為「其他」，值不在清單時為錯誤（不靜默改為其他）。
+fn product_role(def: &ProductDef, origin: &str) -> Result<ComponentRole, CoreError> {
+    let Some(value) = def.role.as_deref() else {
+        return Ok(ComponentRole::default());
+    };
+    ComponentRole::parse(value).ok_or_else(|| {
+        catalog_error(
+            origin,
+            format!(
+                "產品 `{}` 的 role `{value}` 不存在；可用：{}",
+                def.key.trim(),
+                ComponentRole::allowed()
+            ),
+        )
+    })
+}
+
 /// 同 key：有寫的欄位覆寫，`aliases` 合併；新 key：新增。
 fn merge_into(merged: &mut Vec<(ProductDef, String)>, def: ProductDef, origin: &str) {
     let Some((existing, _)) = merged.iter_mut().find(|(d, _)| d.key == def.key) else {
@@ -226,6 +253,7 @@ fn merge_into(merged: &mut Vec<(ProductDef, String)>, def: ProductDef, origin: &
         display_name: def.display_name.or(existing.display_name.take()),
         vendor_display: def.vendor_display.or(existing.vendor_display.take()),
         version_scheme: def.version_scheme.or(existing.version_scheme.take()),
+        role: def.role.or(existing.role.take()),
         advisory_source: def.advisory_source.or(existing.advisory_source.take()),
         aliases: existing.aliases.drain(..).chain(def.aliases).collect(),
         cpe: def.cpe.or(existing.cpe.take()),
@@ -248,6 +276,7 @@ fn required(
 }
 
 fn build_product(def: ProductDef, origin: &str) -> Result<Product, CoreError> {
+    let role = product_role(&def, origin)?;
     let key = def.key.trim().to_string();
     let valid_key = !key.is_empty()
         && key
@@ -285,6 +314,7 @@ fn build_product(def: ProductDef, origin: &str) -> Result<Product, CoreError> {
             .filter(|k| !k.is_empty())
             .collect(),
         advisory_source: def.advisory_source,
+        role,
         aliases,
         key,
         display_name,

@@ -213,3 +213,56 @@ fn apply_targets_skip_assets_without_products() {
     };
     assert_eq!(options, &["FW-CORE", "FW-EDGE", "PVE-01"]);
 }
+
+/// 21 任務 5.2：Role column in the asset detail（依組順序排列，寬字元不使欄位錯位）。
+#[test]
+fn asset_detail_lists_components_by_role() {
+    use cvewatch_tui::width::display_width;
+    let w = seeded_world();
+    w.asset(
+        "SRV-01",
+        "internal",
+        &[("ubuntu", "22.04"), ("dell-idrac9", "7.00.00.00")],
+    );
+    w.package(
+        "SRV-01",
+        "pkg:deb/ubuntu/libc6",
+        "2.35-0ubuntu3",
+        "2026-11-01T00:00:00+00:00",
+    );
+    let (mut app, _) = app(w);
+    keys(&mut app, "3");
+    keys(&mut app, "jjj"); // FW-CORE、FW-EDGE、PVE-01、SRV-01
+    press(&mut app, KeyCode::Enter);
+    let Some(View::AssetDetail { asset_tag, .. }) = app.view() else {
+        panic!("應進入資產詳情");
+    };
+    assert_eq!(asset_tag, "SRV-01");
+    let out = render(&app);
+    let lines: Vec<&str> = out.lines().collect();
+    let header = lines
+        .iter()
+        .position(|l| l.contains("角色") && l.contains("更新時間"))
+        .unwrap_or_else(|| panic!("缺少角色欄：{out}"));
+    let rows = [
+        ("BMC", "dell-idrac9"),
+        ("作業系統", "ubuntu"),
+        ("套件", "pkg:deb/ubuntu/libc6"),
+    ];
+    let component_col = |line: &str, needle: &str| {
+        let at = line
+            .find(needle)
+            .unwrap_or_else(|| panic!("缺少 {needle}：{line}"));
+        display_width(&line[..at])
+    };
+    let expected_col = component_col(lines[header], "元件");
+    for (i, (role, component)) in rows.iter().enumerate() {
+        let line = lines[header + 1 + i];
+        let cells: Vec<&str> = line
+            .trim_start_matches(['"', '│'])
+            .split_whitespace()
+            .collect();
+        assert_eq!(cells.first(), Some(role), "第 {} 列：{line}", i + 1);
+        assert_eq!(component_col(line, component), expected_col, "{line}");
+    }
+}

@@ -116,8 +116,8 @@ availability = 3
 清冊的 `product` 欄以產品目錄辨識：比對前一律忽略大小寫、空白與 `-_./`，只要符合任一產品的顯示名稱或別名即可（例如「HPE Aruba Networking AOS-CX」「Ckeditor4」「moment.js」）。認不得的寫法列為未辨識產品，匯入報表與視窗版會列出相似的產品建議。
 
 ```powershell
-cvewatch asset catalog                 # 列出全部產品（key、顯示名稱、廠商、版本格式、別名與識別資料筆數）
-cvewatch asset catalog show hpe-aoscx  # 單一產品的別名、CPE、CNA 寫法與描述關鍵字
+cvewatch asset catalog                 # 列出全部產品（key、顯示名稱、廠商、版本格式、角色、別名與識別資料筆數）
+cvewatch asset catalog show hpe-aoscx  # 單一產品的角色、別名、CPE、CNA 寫法與描述關鍵字
 ```
 
 內建產品（顯示名稱，依 `asset catalog` 的分類）：
@@ -152,6 +152,26 @@ cvewatch asset catalog show hpe-aoscx  # 單一產品的別名、CPE、CNA 寫�
 
 Sophos 的 `21.0 MR1`、Check Point 的「Jumbo Hotfix Take」寫法無法比較，請填數字版本（例如 `21.0.1`、`R81.20`）。
 
+### 元件角色
+
+每個目錄產品有一個元件角色，`cvewatch asset show`、視窗版的資產詳情與編輯對話框、TUI 的資產詳情都依角色把元件分組（主機套件另成最後一組「套件」，沒有元件的組不顯示）。角色只影響顯示：不影響比對、匯入與匯出，修改角色也不會重新比對。各產品的角色以 `cvewatch asset catalog list` 的 role 欄查看，`asset catalog show <key>` 顯示「角色：中文名稱（值）」。
+
+| 順序 | 值 | 名稱 | 內建產品 |
+|---|---|---|---|
+| 1 | `firmware` | 韌體 | PAN-OS、AOS-CX、AOS-Switch、ArubaOS、Cisco IOS、Cisco IOS XE、Cisco NX-OS、Cisco ASA、Cisco Secure Firewall Threat Defense、Junos OS、Arista EOS、RouterOS、FortiOS、SonicOS、Sophos Firewall、Fireware OS、Check Point Gaia、Ivanti Connect Secure、F5 BIG-IP、NetScaler ADC、RUCKUS Unleashed、RUCKUS SmartZone、DiskStation Manager、QTS、QuTS hero、ADM、ONTAP、SANOS |
+| 2 | `bios` | BIOS | PowerEdge BIOS |
+| 3 | `bmc` | BMC | iDRAC9 |
+| 4 | `os` | 作業系統 | ESXi、Proxmox VE、TrueNAS、Debian、Ubuntu、Red Hat Enterprise Linux、Windows Server |
+| 5 | `dbms` | 資料庫管理系統 | MariaDB、MySQL、PostgreSQL、Microsoft SQL Server、MongoDB Server、Redis |
+| 6 | `web` | 網站服務系統 | nginx、Apache HTTP Server、Apache Tomcat |
+| 7 | `tool` | 應用工具軟體 | UniFi Network、vCenter Server、OpenSSH、Samba、BIND 9、FreeRADIUS |
+| 8 | `security` | 資通安全系統 | FortiClient、PIXIS IP 管理 |
+| 9 | `suite` | 一般套裝軟體 | Veeam Backup & Replication、NAKIVO Backup & Replication、Acronis Cyber Protect、Commvault、NetBackup、Backup Exec |
+| 10 | `app` | 應用程式元件 | Ruby、Ruby on Rails、PHP、Python、Node.js、Java SE、Django、Laravel、WordPress、Drupal、CKEditor 4、TinyMCE、Bootstrap、jQuery、jQuery UI、Lodash、Moment.js、OpenSSL |
+| 11 | `other` | 其他 | （未宣告角色的產品，以及已從目錄移除的產品） |
+
+作業系統到一般套裝軟體的名稱與 ISMS 子類別 SW02–SW07 相同，但角色是目錄的屬性，不隨設定檔 `[asset_classes]` 改名。角色可在 `catalog.d` 覆寫（見下節）：新產品寫 `role` 宣告角色，未寫時為「其他」；既有產品寫 `role` 即覆寫，未寫時沿用內建角色；多個檔案都寫時以檔名排序最後者為準；寫 `role = "other"` 可改回「其他」。值必須是上表的英文值（小寫、完全相符），寫錯時目錄載入失敗，錯誤訊息會指出檔案、產品 key 與可用值。修改後下次執行命令或開啟視窗即依新角色分組，不需重新匯入清冊。
+
 ### 在 `catalog.d` 加型號別名與逐型號產品
 
 在資料目錄的 `catalog.d\` 建立任意 `*.toml`（例如 `site.toml`），依檔名順序載入；既有 key 只寫要增加的欄位，`aliases` 會與內建別名合併。以下為虛構型號示範：
@@ -171,9 +191,25 @@ version_scheme = "zyxel"
 aliases = ["Zyxel ABC-100"]
 cpe = [{ part = "o", vendor = "zyxel", product = "abc-100_firmware" }]
 cna = [{ vendor = "Zyxel", product = "ABC-100 firmware" }]
+role = "firmware"
+
+# 覆寫內建產品的元件角色（其他欄位沿用內建）
+[[product]]
+key = "freeradius"
+role = "security"
+
+# 本機產品宣告角色（虛構產品）
+[[product]]
+key = "example-bmc"
+display_name = "Example BMC"
+vendor_display = "Example"
+version_scheme = "dotted"
+role = "bmc"
 ```
 
 - 修改後執行 `cvewatch sync --rescan`（以新的識別資料重新篩選 CVE），再重新匯入清冊，或在視窗版以「改為…」對應未辨識產品
+- 只修改 `role` 時不需要 `sync --rescan` 或重新匯入，角色只影響分組顯示
+- 回復到不支援 `role` 的舊版前，請先刪除 `catalog.d` 中所有 `role = …` 行：舊版不認得此欄位，會拒絕載入目錄
 - `catalog.d` 是本機設定，不在備份的資料庫裡：**換電腦或重建資料目錄前請一併備份 `catalog.d`**
 - 升級後若 `catalog.d` 的別名與新版內建別名衝突（同一個寫法屬於兩個產品），目錄會載入失敗，錯誤訊息會指出該別名與兩個產品 key；刪除 `catalog.d` 中重複的別名即可。本版新增的內建產品與別名以 `cvewatch asset catalog` 查看
 

@@ -2,6 +2,7 @@
 //! 外部效果抽象、設定表單與啟動 [`Context`]。不相依任何 UI 框架（按鍵、輸入框、繪製）。
 
 pub mod asset_form;
+pub mod component_groups;
 pub mod context;
 pub mod data;
 pub mod display;

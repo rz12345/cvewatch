@@ -442,11 +442,34 @@ impl<'c> ComponentRepo<'c> {
     pub fn history_by_component(
         &self,
     ) -> Result<std::collections::HashMap<i64, Vec<HistoryEntry>>, CoreError> {
-        let mut stmt = self.conn.prepare(
+        self.grouped_history(
             "SELECT component_id, version_raw, changed_at FROM component_history
              ORDER BY component_id, changed_at DESC, id DESC",
-        )?;
-        let rows = stmt.query_map([], |r| {
+            [],
+        )
+    }
+
+    /// 單一資產各元件的版本歷史（依元件分組，新到舊；`asset show` 用的一次查詢）。
+    pub fn history_for_asset(
+        &self,
+        asset_id: i64,
+    ) -> Result<std::collections::HashMap<i64, Vec<HistoryEntry>>, CoreError> {
+        self.grouped_history(
+            "SELECT h.component_id, h.version_raw, h.changed_at FROM component_history h
+             JOIN component c ON c.id = h.component_id
+             WHERE c.asset_id = ?1
+             ORDER BY h.component_id, h.changed_at DESC, h.id DESC",
+            params![asset_id],
+        )
+    }
+
+    fn grouped_history(
+        &self,
+        sql: &str,
+        args: impl rusqlite::Params,
+    ) -> Result<std::collections::HashMap<i64, Vec<HistoryEntry>>, CoreError> {
+        let mut stmt = self.conn.prepare(sql)?;
+        let rows = stmt.query_map(args, |r| {
             Ok((
                 r.get::<_, i64>(0)?,
                 HistoryEntry {

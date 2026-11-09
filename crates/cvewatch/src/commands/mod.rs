@@ -2,6 +2,7 @@ pub mod asset;
 mod asset_isms;
 mod asset_system;
 mod asset_view;
+mod component_view;
 pub mod config;
 pub mod cve;
 mod cve_view;

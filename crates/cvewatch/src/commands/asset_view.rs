@@ -13,6 +13,7 @@ use cvewatch_core::{CoreError, ExitCode};
 
 use cvewatch_frontend::asset_form::{personal_data_label, rated_text};
 
+use super::component_view::component_lines;
 use crate::app::App;
 
 pub fn print_plan_details(plan: &ImportPlan) {
@@ -182,6 +183,8 @@ pub fn list(
 }
 
 pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
+    // 目錄在輸出任何內容前載入：catalog.d 有錯時直接失敗，不留下半份輸出
+    let catalog = app.load_catalog()?;
     let conn = open_working_db(&app.paths, &app.store)?;
     let asset = AssetRepo::new(&conn)
         .find_by_tag(tag)?
@@ -217,21 +220,17 @@ pub fn show(app: &App, tag: &str) -> Result<ExitCode, CoreError> {
     if let Some(at) = &asset.retired_at {
         println!("  退役於 {at}");
     }
-    let components = ComponentRepo::new(&conn);
-    println!("元件：");
-    for c in components.for_asset(asset.id)? {
-        println!("  {}  {}（{}）", c.label(), c.version_raw, c.source);
-        for h in components.history(c.id)? {
-            println!("      先前 {}，於 {} 變更", h.version_raw, h.changed_at);
-        }
-    }
+    let repo = ComponentRepo::new(&conn);
+    let components = repo.for_asset(asset.id)?;
+    let history = repo.history_for_asset(asset.id)?;
     let unresolved: Vec<_> = AssetRepo::new(&conn)
         .unresolved()?
         .into_iter()
         .filter(|u| u.asset_tag == r.asset_tag)
         .collect();
-    for u in unresolved {
-        println!("  未辨識：「{}」{}", u.product_raw, u.version_raw);
+    println!("元件：");
+    for line in component_lines(&catalog, &components, &history, &unresolved) {
+        println!("{line}");
     }
     Ok(ExitCode::Success)
 }
@@ -282,16 +281,17 @@ pub fn identity_lines(r: &AssetRecord, ips: &[AssetIp]) -> Vec<String> {
 pub fn catalog_list(app: &App) -> Result<ExitCode, CoreError> {
     let catalog = app.load_catalog()?;
     println!(
-        "{:<18} {:<26} {:<20} {:<7} {:>4} {:>4} {:>4} {:>5}",
-        "key", "display_name", "vendor", "scheme", "別名", "CPE", "CNA", "CSAF"
+        "{:<18} {:<26} {:<20} {:<7} {:<9} {:>4} {:>4} {:>4} {:>5}",
+        "key", "display_name", "vendor", "scheme", "role", "別名", "CPE", "CNA", "CSAF"
     );
     for p in catalog.products() {
         println!(
-            "{:<18} {:<26} {:<20} {:<7} {:>4} {:>4} {:>4} {:>5}",
+            "{:<18} {:<26} {:<20} {:<7} {:<9} {:>4} {:>4} {:>4} {:>5}",
             p.key,
             p.display_name,
             p.vendor_display,
             p.version_scheme,
+            p.role.as_str(),
             p.aliases.len(),
             p.cpe.len(),
             p.cna.len(),
@@ -320,6 +320,7 @@ pub fn catalog_show(app: &App, key: &str) -> Result<ExitCode, CoreError> {
 fn print_product(p: &Product) {
     println!("{}（{} / {}）", p.key, p.display_name, p.vendor_display);
     println!("  版本格式：{}", p.version_scheme);
+    println!("  角色：{}（{}）", p.role.label(), p.role.as_str());
     if let Some(src) = &p.advisory_source {
         println!("  原廠公告來源：{src}");
     }

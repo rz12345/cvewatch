@@ -46,7 +46,7 @@
 - 套件組（「套件」）不是目錄角色，由 frontend 在最後加上（D5）
 - 中文名稱是固定常數，**不**隨設定檔 `[asset_classes]` 改名：角色是目錄的屬性，與使用者自訂的子類別表無關；本 change 也不做角色與子類別的關聯（proposal Out of scope）
 - 硬體相關角色（韌體、BIOS、BMC）排在前面，接著依 SW02–SW07 的順序，最後是應用程式元件與其他：由底層到上層閱讀
-- API：`ComponentRole::ALL`（顯示順序）、`as_str()`、`label()`、`parse(&str) -> Option<ComponentRole>`（完全比對小寫值，與 `scheme_by_name` 相同，不 trim、不分大小寫轉換）、`names() -> Vec<&'static str>`（錯誤訊息用）、`Default = Other`
+- API：`ComponentRole::ALL`（顯示順序）、`as_str()`、`label()`、`parse(&str) -> Option<ComponentRole>`（完全比對小寫值，與 `scheme_by_name` 相同，不 trim、不分大小寫轉換）、`allowed() -> String`（錯誤訊息用，以「、」串接；code review 後由 `names()` 改名）、`Display`、`Default = Other`
 - 替代方案：讓 `bios`／`bmc` 併入 `firmware`。使用者已確認要分開，伺服器常同時有兩者，分開顯示較清楚
 
 ### D2 目錄欄位、合併與驗證
@@ -154,6 +154,27 @@ pub fn group_drafts(catalog: &Catalog, drafts: &[ComponentDraft])
 
 不需資料庫 migration。升級後第一次載入目錄即帶有角色；目錄指紋不變，不會觸發全量重新比對。回復舊版時，若 `catalog.d` 已寫 `role`，需先刪除該行（舊版不認得此欄位，會拒絕載入）。
 
+## Apply 時的決定（/opsx-auto，依建議處理）
+
+- **20 封存後的插入位置核對**：GUI 詳情的 `components_list` 仍在識別欄位之後、獨立成區塊；TUI 詳情的元件表格仍在資訊列（含 20 新增的識別兩行）之下。D5、D6 的插入位置不需調整
+- **core 測試檔**：`crates/core/tests/catalog.rs` 已 479 行，角色相關測試（任務 1.3、2.3 與 6.3 的範例驗證）改放新檔 `crates/core/tests/catalog_roles.rs`，避免單檔過長；完成條件改以 `cargo test -p cvewatch-core --test catalog_roles` 驗證，`--test catalog` 仍全部通過
+- **CLI 的 `component_lines`**：放在新模組 `crates/cvewatch/src/commands/component_view.rs`（`asset_view.rs` 已近 600 行），簽章多一個 `unresolved` 參數，讓「未辨識產品在所有組之後」也能以純函式測試
+- **CLI 目錄測試**：新增 `crates/cvewatch/tests/asset_catalog_roles.rs`（`assert_cmd`、暫存資料目錄的 `catalog.d`，不開資料庫）；`asset catalog`（不帶子命令）也驗證角色欄
+- **使用說明**：`assets.md` 新增「元件角色」一節，除了值與名稱，另以表格列出每個角色的內建產品（spec Seed catalog roles 要求與使用說明的產品清單一致）；範例 TOML 由 `catalog_roles.rs` 直接讀取使用說明的同一段驗證
+- **`group_components` 判斷套件**：依 D4 以 `ComponentKind::Package` 判斷；草稿依 `package` 旗標（`!is_inventory_product()`）。目前只有 SBOM／dpkg／rpm 會產生套件元件，兩者一致
+- **GUI 詳情的縮排 id**：`ui.indent` 以 `("component-group", 組名)` 為 id，避免與其他區塊衝突
+
+## Code review 後的調整
+
+- **D1 API**：`names()` 改為 `allowed() -> String`（以「、」串接，與 `string_enum!` 的 `allowed` 同名同義），並實作 `Display`；以編譯期斷言確保 `ALL` 列出每個值。不改用 `string_enum!`：其 `parse` 會 trim 並忽略大小寫，與 D1 的完全比對衝突，且缺 `Ord`、`Default`
+- **D2 驗證**：`validate_role` 與 `build_product` 共用 `product_role`，值不在清單時一律回傳錯誤，不再以 `unwrap_or_default` 靜默改為「其他」
+- **D4 分組**：`group_indices` 改以 `BTreeMap<ComponentGroup, Vec<usize>>` 收集（與 `groups.rs` 的資產說明分組相同做法），取代排序後切段
+- **D5 編輯對話框**：元件 `Grid` 改為不加條紋（`striped(false)`）：組名列會打亂交替條紋，改以粗體組名區隔
+- **D7 `asset show`**：目錄改在開啟資料庫與輸出任何內容前載入，`catalog.d` 有錯時直接失敗、不留下半份輸出（新增 `asset_show_fails_before_output_on_bad_role` 測試）；版本歷史改以新增的 `ComponentRepo::history_for_asset`（單一 JOIN 查詢）取得，不再逐元件查詢
+- **未調整（取捨）**：
+  - TUI 角色欄固定 14 欄會使 80 欄終端機的元件欄變窄：spec TUI component roles 要求每列第一欄顯示組名，縮窄會截斷「資料庫管理系統」，改用組名列則違反 spec；維持 D6
+  - 種子測試寫死 78 項與各角色數量：任務 2.3 明定以 D3 表格逐項斷言數量，作為種子與 design 一致的守門；日後增修種子產品時一併更新 D3 與此測試
+
 ## 架構圖
 
-預期不需更新：沒有新增 crate、crate 間相依或外部整合；變更在 core 目錄模組、frontend 顯示模組與三個前端的畫面。apply 完成時依 `/opsx-auto` 流程再確認一次。
+架構圖：不需更新。apply 後以 `git diff HEAD` 確認：沒有 workspace `members` 或 `crates/*/Cargo.toml` 內部 `path =` 相依的變更、沒有新增或移除執行檔，也沒有新增外部系統或本機服務的互動；變更只在 core 目錄模組（`catalog/role.rs`）、frontend 顯示模組（`component_groups.rs`）、三個前端的畫面與 CLI 輸出（cli 已相依 frontend）。

@@ -30,6 +30,8 @@ pub struct ProductDef {
     pub display_name: Option<String>,
     pub vendor_display: Option<String>,
     pub version_scheme: Option<String>,
+    /// 元件角色（`role.rs` 的值）；未寫時為 `other`，覆寫時沿用先前來源
+    pub role: Option<String>,
     pub advisory_source: Option<String>,
     #[serde(default)]
     pub aliases: Vec<String>,

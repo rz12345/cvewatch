@@ -3,13 +3,15 @@
 //! （只對 active 資產，與 Enter 相同）。
 //!
 //! 產品以目錄的顯示名稱呈現（產品 key 只在滑鼠提示中），類別與曝露度雙語（design 11 D1）。
+//! 元件依目錄角色分組：組名為粗體小標，元件與版本歷史縮排在組名下（21 design D5）。
 //! 識別欄位與 IP 在管理欄位之後；管理介面位址為連結，點擊後經 frontend 的 Opener 開啟
 //! （20 design D11：不用 `egui::Hyperlink`，它不經過 Opener，也不會在狀態列回報結果）。
 
-use cvewatch_core::assets::{AssetRecord, AssetStatus, ComponentKind, SystemDirectory};
+use cvewatch_core::assets::{AssetRecord, AssetStatus, Component, ComponentKind, SystemDirectory};
 use cvewatch_core::catalog::Catalog;
 use cvewatch_core::matching::query::FindingRow;
 use cvewatch_frontend::asset_form::{personal_data_label, rated_text};
+use cvewatch_frontend::component_groups::group_components;
 use cvewatch_frontend::data::AssetEntry;
 use cvewatch_frontend::display::{
     class_label, component_line, exposure_label, identity_rows, product_name, shown_name,
@@ -185,19 +187,29 @@ impl GuiApp {
     fn components_list(&self, ui: &mut egui::Ui, a: &AssetEntry) {
         let catalog = &self.ws.settings.catalog;
         heading(ui, format!("元件（{}）", a.components.len()));
-        for c in &a.components {
-            let text = one_line(&component_line(catalog, c));
-            let resp = ui.label(text);
-            if let ComponentKind::Product { product_key, .. } = &c.kind {
-                resp.on_hover_text(format!("產品 key：{product_key}"));
-            }
-            for h in a.history.get(&c.id).into_iter().flatten() {
-                ui.weak(format!(
-                    "    先前版本 {}（{} 變更）",
-                    one_line(&h.version_raw),
-                    short_time(&h.changed_at, self.ws.services.tz)
-                ));
-            }
+        for (group, components) in group_components(catalog, &a.components) {
+            ui.label(egui::RichText::new(group.label()).strong());
+            ui.indent(("component-group", group.label()), |ui| {
+                for c in components {
+                    self.component_entry(ui, a, c);
+                }
+            });
+        }
+    }
+
+    /// 一個元件與其版本歷史（21 design D5：縮排在組名下）。
+    fn component_entry(&self, ui: &mut egui::Ui, a: &AssetEntry, c: &Component) {
+        let text = one_line(&component_line(&self.ws.settings.catalog, c));
+        let resp = ui.label(text);
+        if let ComponentKind::Product { product_key, .. } = &c.kind {
+            resp.on_hover_text(format!("產品 key：{product_key}"));
+        }
+        for h in a.history.get(&c.id).into_iter().flatten() {
+            ui.weak(format!(
+                "    先前版本 {}（{} 變更）",
+                one_line(&h.version_raw),
+                short_time(&h.changed_at, self.ws.services.tz)
+            ));
         }
     }
 
