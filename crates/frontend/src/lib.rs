@@ -8,6 +8,7 @@ pub mod display;
 pub mod filter;
 pub mod findings;
 pub mod links;
+pub mod product_search;
 pub mod report;
 pub mod services;
 pub mod settings;

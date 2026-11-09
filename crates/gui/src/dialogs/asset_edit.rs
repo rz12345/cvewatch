@@ -8,6 +8,7 @@
 //! 驗證錯誤以介面用語紅字顯示在欄位下方，失敗時保留對話框與輸入內容；本地驗證失敗不寫狀態列，
 //! 以「取消」或 Esc 關閉時清除對話框留在狀態列的寫入失敗訊息（design 11 D5）。
 
+use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use cvewatch_core::assets::classes::{MAX_RATING, MIN_RATING};
@@ -15,14 +16,13 @@ use cvewatch_core::assets::columns::StandardField;
 use cvewatch_core::assets::validate::{RATING_FIELDS, REQUIRED_FIELDS};
 use cvewatch_core::assets::{AssetClasses, Exposure};
 use cvewatch_core::catalog::Catalog;
-use cvewatch_frontend::asset_form::{
-    field_label, product_choices, search_products, AssetForm, FormErrors, FormMode, ProductChoice,
-};
+use cvewatch_frontend::asset_form::{field_label, AssetForm, FormErrors, FormMode};
 use cvewatch_frontend::display::{class_label, exposure_label};
 use cvewatch_frontend::Level;
 use eframe::egui;
 
 use super::asset_components::{add_component, components, unresolved};
+use super::product_picker::PickerState;
 use super::{escape_pressed, AssetDialog};
 use crate::app::GuiApp;
 use crate::screens::ALERT;
@@ -53,10 +53,10 @@ pub struct AssetEdit {
     pub errors: FormErrors,
     /// 寫入失敗的訊息（core 拒絕或中途失敗）
     pub failure: Option<String>,
-    /// 「加入元件」的搜尋字串
-    pub search: String,
-    /// 「加入元件」選單在上一幀是開啟的（剛開啟的那一幀讓搜尋框取得焦點）
-    pub picker_open: bool,
+    /// 「加入元件」選擇器的狀態（搜尋字、反白、是否開啟）
+    pub add_picker: PickerState,
+    /// 各未辨識產品（`asset_unresolved.id`）「改為…」選擇器的狀態
+    pub unresolved_pickers: HashMap<i64, PickerState>,
     /// 下一幀讓這個元件列的版本欄取得焦點（剛加入的元件）
     pub focus_version: Option<usize>,
     /// 子類別選單（開啟時依設定檔建立一次，不在每一幀重新組字）
@@ -71,8 +71,8 @@ impl AssetEdit {
             form,
             errors: FormErrors::default(),
             failure: None,
-            search: String::new(),
-            picker_open: false,
+            add_picker: PickerState::default(),
+            unresolved_pickers: HashMap::new(),
             focus_version: None,
         }
     }
@@ -86,12 +86,6 @@ impl AssetEdit {
 enum Action {
     Save,
     Cancel,
-}
-
-/// 目錄產品選單：「加入元件」的搜尋結果與「改為目錄產品」的完整清單。
-struct Products {
-    matching: Vec<ProductChoice>,
-    all: Vec<ProductChoice>,
 }
 
 impl GuiApp {
@@ -120,15 +114,11 @@ impl GuiApp {
     pub(super) fn show_asset_edit(&mut self, ctx: &egui::Context, mut edit: Box<AssetEdit>) {
         let catalog = &self.ws.settings.catalog;
         let classes = &self.ws.settings.classes;
-        let products = Products {
-            matching: search_products(catalog, &edit.search),
-            all: product_choices(catalog),
-        };
         // Esc 先用來關閉下拉選單；有未儲存的修改時不以 Esc 關閉（避免丟失輸入，請按「取消」）
         let popup_open = egui::Popup::is_any_open(ctx);
         let mut action = None;
         egui::Modal::new(egui::Id::unique("dialog-asset-edit")).show(ctx, |ui| {
-            action = body(ui, &mut edit, &products, catalog, classes);
+            action = body(ui, &mut edit, catalog, classes);
         });
         if action.is_none() && !popup_open && !edit.dirty() && escape_pressed(ctx) {
             action = Some(Action::Cancel);
@@ -180,7 +170,6 @@ impl GuiApp {
 fn body(
     ui: &mut egui::Ui,
     edit: &mut AssetEdit,
-    products: &Products,
     catalog: &Catalog,
     classes: &AssetClasses,
 ) -> Option<Action> {
@@ -195,8 +184,8 @@ fn body(
             fields(ui, edit, classes);
             ui.separator();
             components(ui, edit, catalog);
-            unresolved(ui, edit, &products.all, catalog);
-            add_component(ui, edit, &products.matching);
+            unresolved(ui, edit, catalog);
+            add_component(ui, edit, catalog);
         });
     ui.separator();
     let marked = !edit.errors.fields.is_empty()

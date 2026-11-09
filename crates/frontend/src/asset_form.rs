@@ -472,45 +472,11 @@ pub fn isms_conflict(form: &AssetForm, data: &Snapshot) -> Option<String> {
     })
 }
 
-/// 目錄產品選單的一個選項。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct ProductChoice {
-    pub key: String,
-    pub display_name: String,
-    pub vendor_display: String,
-}
+pub use crate::product_search::{search_products, ProductChoice};
 
-impl ProductChoice {
-    /// 選單顯示文字。
-    pub fn label(&self) -> String {
-        format!("{}（{}）", self.display_name, self.vendor_display)
-    }
-}
-
-/// 目錄中的全部產品（依目錄順序）。
+/// 目錄中的全部產品（依顯示名稱）。
 pub fn product_choices(catalog: &Catalog) -> Vec<ProductChoice> {
     search_products(catalog, "")
-}
-
-/// 以 key、display_name 或別名搜尋（不分大小寫、部分相符）；空字串列出全部。
-pub fn search_products(catalog: &Catalog, query: &str) -> Vec<ProductChoice> {
-    let q = query.trim().to_lowercase();
-    catalog
-        .products()
-        .iter()
-        .filter(|p| {
-            q.is_empty()
-                || std::iter::once(&p.key)
-                    .chain(std::iter::once(&p.display_name))
-                    .chain(p.aliases.iter())
-                    .any(|name| name.to_lowercase().contains(&q))
-        })
-        .map(|p| ProductChoice {
-            key: p.key.clone(),
-            display_name: p.display_name.clone(),
-            vendor_display: p.vendor_display.clone(),
-        })
-        .collect()
 }
 
 #[cfg(test)]

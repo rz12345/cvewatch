@@ -43,12 +43,7 @@ impl Dotted {
     }
 
     fn cmp_with(&self, other: &Dotted) -> Ordering {
-        let len = self.numbers.len().max(other.numbers.len());
-        let at = |v: &[u64], i: usize| v.get(i).copied().unwrap_or(0);
-        (0..len)
-            .map(|i| at(&self.numbers, i).cmp(&at(&other.numbers, i)))
-            .find(|o| o.is_ne())
-            .unwrap_or(Ordering::Equal)
+        super::cmp_padded(&self.numbers, &other.numbers)
             .then_with(|| suffix_key(&self.suffix).cmp(&suffix_key(&other.suffix)))
     }
 }

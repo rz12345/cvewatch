@@ -434,3 +434,106 @@ fn dsm_exclusive_lower_bound_excludes_version_line() {
     assert!(w.finding(line, CVE).is_none(), "7.2.1 版本線被排除");
     assert!(w.finding(next, CVE).is_some());
 }
+
+// ── 14：Cisco 與 Juniper 的 CNA 區間 ─────────────────────────
+
+/// 測試用產品（模擬 catalog.d），不依賴種子目錄的內容。
+const VENDOR_SCHEMES: &str = r#"
+[[product]]
+key = "t-cisco"
+display_name = "Test Cisco IOS"
+vendor_display = "Cisco"
+version_scheme = "cisco"
+cna = [{ vendor = "TestCisco", product = "IOS" }]
+
+[[product]]
+key = "t-junos"
+display_name = "Test Junos"
+vendor_display = "Juniper Networks"
+version_scheme = "junos"
+cna = [{ vendor = "TestJuniper", product = "Junos OS" }]
+"#;
+
+#[test]
+fn cisco_range_from_another_train_is_unknown() {
+    let mut w = common::matching::world_with(Some(VENDOR_SCHEMES));
+    let other_train = w.asset("SW-01", "internal", &[("t-cisco", "15.2(4)M3")])[0];
+    let inside = w.asset("SW-02", "internal", &[("t-cisco", "15.2(7)E9")])[0];
+    let fixed = w.asset("SW-03", "internal", &[("t-cisco", "15.2(7)E11")])[0];
+    w.cve(
+        CVE,
+        json!([affected(
+            "TestCisco",
+            "IOS",
+            Some("unaffected"),
+            json!([{"version": "15.2(7)E8", "lessThan": "15.2(7)E11", "status": "affected"}])
+        )]),
+        json!([]),
+    );
+    w.run();
+    let f = w
+        .finding(other_train, CVE)
+        .expect("跨 train 不可判定為不受影響");
+    assert_eq!(f.confidence, "probable");
+    assert_eq!(w.finding(inside, CVE).unwrap().confidence, "confirmed");
+    assert!(w.finding(fixed, CVE).is_none());
+}
+
+#[test]
+fn cisco_exact_versions_from_other_trains_are_not_equal() {
+    let mut w = common::matching::world_with(Some(VENDOR_SCHEMES));
+    let c = w.asset("SW-01", "internal", &[("t-cisco", "15.2(7)E8")])[0];
+    w.cve(
+        CVE,
+        json!([affected(
+            "TestCisco",
+            "IOS",
+            Some("unaffected"),
+            json!([
+                {"version": "15.2(4)M3", "status": "affected"},
+                {"version": "15.0(2)SE11", "status": "affected"}
+            ])
+        )]),
+        json!([]),
+    );
+    w.run();
+    assert!(
+        w.finding(c, CVE).is_none(),
+        "逐版列舉的其他 train 不涵蓋此版本"
+    );
+}
+
+#[test]
+fn junos_ranges_across_release_lines() {
+    let mut w = common::matching::world_with(Some(VENDOR_SCHEMES));
+    let c = w.asset("RT-01", "internal", &[("t-junos", "21.4R3-S5")])[0];
+    w.cve(
+        CVE,
+        json!([affected(
+            "TestJuniper",
+            "Junos OS",
+            Some("unaffected"),
+            json!([{"version": "22.2", "lessThan": "22.2R3-S3", "status": "affected"}])
+        )]),
+        json!([]),
+    );
+    w.run();
+    assert!(w.finding(c, CVE).is_none(), "21.4 早於 22.2，不在區間");
+
+    const OTHER: &str = "CVE-2099-10002";
+    w.cve(
+        OTHER,
+        json!([affected(
+            "TestJuniper",
+            "Junos OS",
+            Some("unaffected"),
+            json!([
+                {"version": "0", "lessThan": "21.4R3-S6", "status": "affected"},
+                {"version": "22.2", "lessThan": "22.2R3-S3", "status": "affected"}
+            ])
+        )]),
+        json!([]),
+    );
+    w.run();
+    assert_eq!(w.finding(c, OTHER).unwrap().confidence, "confirmed");
+}

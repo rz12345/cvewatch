@@ -3,10 +3,14 @@
 //! 解析失敗回傳 None，比較無法判定（例如 ESXi 對照不到的 build 與 Update 名稱）也回傳 None；
 //! 呼叫端一律視為「未知」，不猜測。
 
+pub mod cisco;
 pub mod dotted;
 pub mod dsm;
 pub mod esxi;
+pub mod junos;
+pub mod numeric;
 pub mod panos;
+pub mod zyxel;
 
 use std::cmp::Ordering;
 use std::collections::BTreeMap;
@@ -20,6 +24,10 @@ pub enum Version {
     Panos(panos::Panos),
     Esxi(esxi::Esxi),
     Dsm(dsm::Dsm),
+    Cisco(cisco::Cisco),
+    Junos(junos::Junos),
+    Numeric(numeric::Numeric),
+    Zyxel(zyxel::Zyxel),
 }
 
 pub trait VersionScheme: Send + Sync {
@@ -49,6 +57,16 @@ pub trait VersionScheme: Send + Sync {
     }
 }
 
+/// 數字段逐段比較，較短者補 0（dotted 與 numeric 共用）。
+pub(crate) fn cmp_padded(a: &[u64], b: &[u64]) -> Ordering {
+    let len = a.len().max(b.len());
+    let at = |v: &[u64], i: usize| v.get(i).copied().unwrap_or(0);
+    (0..len)
+        .map(|i| at(a, i).cmp(&at(b, i)))
+        .find(|o| o.is_ne())
+        .unwrap_or(Ordering::Equal)
+}
+
 /// `v ≤ bound`（含 bound 涵蓋的版本線）。
 pub fn at_most(scheme: &dyn VersionScheme, v: &Version, bound: &Version) -> Option<bool> {
     match scheme.cmp(v, bound)? {
@@ -66,6 +84,10 @@ pub struct Schemes {
     panos: panos::PanosScheme,
     esxi: esxi::EsxiScheme,
     dsm: dsm::DsmScheme,
+    cisco: cisco::CiscoScheme,
+    junos: junos::JunosScheme,
+    numeric: numeric::NumericScheme,
+    zyxel: zyxel::ZyxelScheme,
 }
 
 impl Schemes {
@@ -76,6 +98,10 @@ impl Schemes {
             panos: panos::PanosScheme,
             esxi: esxi::EsxiScheme::new(esxi_builds),
             dsm: dsm::DsmScheme,
+            cisco: cisco::CiscoScheme,
+            junos: junos::JunosScheme,
+            numeric: numeric::NumericScheme,
+            zyxel: zyxel::ZyxelScheme,
         }
     }
 
@@ -95,12 +121,16 @@ impl Schemes {
     }
 
     pub fn get(&self, name: &str) -> Option<&dyn VersionScheme> {
-        let all: [&dyn VersionScheme; 5] = [
+        let all: [&dyn VersionScheme; 9] = [
             &self.dotted,
             &self.ubuntu,
             &self.panos,
             &self.esxi,
             &self.dsm,
+            &self.cisco,
+            &self.junos,
+            &self.numeric,
+            &self.zyxel,
         ];
         all.into_iter().find(|s| s.name() == name)
     }
@@ -175,6 +205,33 @@ mod tests {
                 ],
             ),
             ("ubuntu", vec!["22.04", "22.04.4", "22.04.4 lts"]),
+            (
+                "cisco",
+                vec![
+                    "15.2(7)e8",
+                    "9.18(4)22",
+                    "10.2(3t)",
+                    "12.4(25)",
+                    "version 15.2(7)e8",
+                ],
+            ),
+            (
+                "junos",
+                vec!["21.4r3-s5", "22.7r2.4", "21.4", "15.1x49-d200"],
+            ),
+            (
+                "numeric",
+                vec![
+                    "7.0.1-5145",
+                    "14.1-29.72",
+                    "5.1.7.2770 build 20240520",
+                    "r81.20",
+                    "h5.1.7",
+                    "15 build 41800",
+                    "5.1.x",
+                ],
+            ),
+            ("zyxel", vec!["v2.80(abcd.1)c0", "2.80(abcd.1)c0"]),
         ];
         let schemes = Schemes::new(BTreeMap::new());
         for (name, versions) in samples {

@@ -353,3 +353,93 @@ fn inventory_import_marks_match_stale_in_its_transaction() {
     );
     assert!(match_is_stale(&conn).unwrap(), "版本變更 → 比對待補");
 }
+
+// ── 14 任務 3.12：擴充目錄產品以實際 CVE 記錄比對 ───────────────
+
+/// (資產編號, 產品 key, 元件版本, CVE, 預期信心等級)；記錄取自 cvelistV5（tests/fixtures/ingest/README.md）。
+const EXPANDED: [(&str, &str, &str, &str, &str); 8] = [
+    (
+        "SW-CX",
+        "hpe-aoscx",
+        "10.13.1100",
+        "CVE-2026-73783",
+        "confirmed",
+    ),
+    (
+        "SW-IOS",
+        "cisco-ios",
+        "15.2(7)E7",
+        "CVE-2026-20301",
+        "confirmed",
+    ),
+    // CNA 寫成 9.8.2.14，清冊照設備畫面寫 9.8(2)14
+    (
+        "FW-ASA",
+        "cisco-asa",
+        "9.8(2)14",
+        "CVE-2023-20269",
+        "confirmed",
+    ),
+    (
+        "RT-JUN",
+        "juniper-junos",
+        "23.2R2-S3",
+        "CVE-2026-103994",
+        "confirmed",
+    ),
+    (
+        "FW-FGT",
+        "fortinet-fortios",
+        "7.4.2",
+        "CVE-2024-21762",
+        "confirmed",
+    ),
+    (
+        "NAS-QTS",
+        "qnap-qts",
+        "5.2.8.3359 build 20260115",
+        "CVE-2026-41539",
+        "confirmed",
+    ),
+    // CNA 區間為 12.1.2 ≤ v ≤ 12.1.2（含 build 的 12.1.2.172 由 NVD CPE 的上界判定）
+    (
+        "BK-VBR",
+        "veeam-backup-replication",
+        "12.1.2",
+        "CVE-2024-40711",
+        "confirmed",
+    ),
+    // CNA 版本為 `>= 1.12.0, < 3.5.0` 字串，無法解析 → 未知（probable），不判定為不受影響
+    ("WEB-JQ", "jquery", "3.4.1", "CVE-2020-11022", "probable"),
+];
+
+/// CNA 寫成 `n/a / n/a`，只能以描述關鍵字（「discovered in Ruby」）關聯。
+const RUBY_NA: &str = "CVE-2024-27282";
+
+#[test]
+fn expanded_catalog_products_match_recorded_cves() {
+    let mut w = common::matching::world();
+    let components: Vec<i64> = EXPANDED
+        .iter()
+        .map(|(tag, key, version, _, _)| w.asset(tag, "internal", &[(key, version)])[0])
+        .collect();
+    w.asset("WEB-RB", "internal", &[("ruby", "3.3.0")]);
+    let index = RelevanceIndex::new(&w.catalog, package_keys(&w.conn).unwrap());
+    for id in EXPANDED.iter().map(|c| c.3).chain([RUBY_NA]) {
+        let bytes = read_ingest(&format!("cvelist/records/{id}.json"));
+        let record = cve5::parse(&bytes).expect("CVE 紀錄");
+        let reason = index
+            .evaluate(&record)
+            .unwrap_or_else(|| panic!("{id} 應通過關聯性篩選"));
+        store::upsert_record(&w.conn, &record, &bytes, reason, NOW).expect("寫入紀錄");
+    }
+    w.run();
+    for (c, (tag, key, _, cve, confidence)) in components.iter().zip(EXPANDED) {
+        let f = w
+            .finding(*c, cve)
+            .unwrap_or_else(|| panic!("{tag}（{key}）應命中 {cve}"));
+        assert_eq!(f.confidence, confidence, "{tag} {cve}");
+    }
+    let (reason, _, resolved) = w.pending(RUBY_NA).expect("Ruby 的 n/a 記錄進入等待區");
+    assert_eq!((reason.as_str(), resolved), ("keyword_only", None));
+}

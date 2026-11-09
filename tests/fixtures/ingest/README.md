@@ -14,6 +14,15 @@
 | `cvelist/records/CVE-2026-103479.json` | 同上 | WordPress 外掛（Wordfence），與目錄無關 |
 | `cvelist/records/CVE-2099-50001.json` | **合成** | dataVersion 5.0 形狀（repo 已無 5.0 紀錄）、VMware ESXi |
 | `cvelist/records/CVE-2099-50002.json` | **合成** | affected 為 n/a、描述含 `Proxmox Virtual Environment`（僅關鍵字相符） |
+| `cvelist/records/CVE-2026-73783.json` | cvelistV5 raw（2026-11-09 下載；以下同，`versions` 只留前 7 筆、移除 `adp`、credits 等） | HPE AOS-CX（14 擴充目錄） |
+| `cvelist/records/CVE-2026-20301.json` | 同上 | Cisco `IOS`（`cisco` 版本格式、逐版列舉）與 IOS XE |
+| `cvelist/records/CVE-2023-20269.json` | 同上 | Cisco ASA（CNA 點分寫法 `9.8.2.14`）與 FTD |
+| `cvelist/records/CVE-2026-103994.json` | 同上 | Juniper Junos OS（`junos` 版本格式、跨版本線區間） |
+| `cvelist/records/CVE-2024-21762.json` | 同上 | Fortinet FortiOS |
+| `cvelist/records/CVE-2026-41539.json` | 同上 | QNAP QTS／QuTS hero（`numeric` 版本格式、`build` 分隔） |
+| `cvelist/records/CVE-2024-40711.json` | 同上 | Veeam（CNA 產品寫成 `Backup and  Recovery`） |
+| `cvelist/records/CVE-2020-11022.json` | 同上 | jQuery（版本為 `>= 1.12.0, < 3.5.0` 字串，判定為未知） |
+| `cvelist/records/CVE-2024-27282.json` | 同上 | Ruby；affected 為 `n/a / n/a`（僅關鍵字相符） |
 | `cvelist/releases.json` | GitHub Releases API（前 8 筆） | asset 選擇：baseline、每小時 delta、end_of_day |
 | `nvd/page1.json`、`page2.json` | NVD API 2.0，`virtualMatchString=cpe:2.3:o:paloaltonetworks:pan-os` | 分頁（`totalResults` 改為 3） |
 | `kev/kev.json` | CISA KEV（3 筆） | KEV 更新 |

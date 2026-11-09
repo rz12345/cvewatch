@@ -92,20 +92,20 @@ display_name = "Synology DSM"
 cpe = []
 
 [[product]]
-key = "fortinet-fortios"
-display_name = "FortiOS"
-vendor_display = "Fortinet"
+key = "example-fw"
+display_name = "ExampleOS"
+vendor_display = "Example Networks"
 version_scheme = "dotted"
-aliases = ["fortigate"]
-cna = [{ vendor = "Fortinet", product = "FortiOS" }]
+aliases = ["examplegate"]
+cna = [{ vendor = "Example Networks", product = "ExampleOS" }]
 "#,
     )])
     .unwrap();
     let dsm = catalog.get("synology-dsm").unwrap();
     assert_eq!(dsm.display_name, "Synology DSM");
     assert!(dsm.cpe.is_empty());
-    let forti = catalog.resolve("FortiGate").unwrap();
-    assert_eq!(forti.key, "fortinet-fortios");
+    let forti = catalog.resolve("ExampleGate").unwrap();
+    assert_eq!(forti.key, "example-fw");
     assert!(
         forti.cpe.is_empty() && forti.cna.len() == 1,
         "只有 CNA 識別也可載入"
@@ -273,4 +273,207 @@ fn keywords_are_inherited_or_overridden() {
         overridden.get("proxmox-ve").unwrap().keywords,
         vec!["Proxmox Backup".to_string()]
     );
+}
+
+// ── 14：種子目錄擴充 ─────────────────────────────────────────
+
+/// spec 情境的產品名稱 → 產品 key（名稱為顯示名稱或「廠牌＋產品」別名）。
+fn assert_listed(catalog: &Catalog, expected: &[(&str, &str)]) {
+    for (name, key) in expected {
+        let found = catalog.resolve(name).map(|p| p.key.as_str());
+        assert_eq!(found, Some(*key), "目錄應包含 {name}");
+    }
+}
+
+/// Scenario: Network firmware and appliances
+#[test]
+fn seed_lists_network_firmware_and_appliances() {
+    assert_listed(
+        &Catalog::seed().unwrap(),
+        &[
+            ("PAN-OS", "paloalto-panos"),
+            ("AOS-CX", "hpe-aoscx"),
+            ("HPE ArubaOS", "hpe-arubaos"),
+            ("HPE AOS-Switch", "hpe-aos-switch"),
+            ("Cisco IOS", "cisco-ios"),
+            ("Cisco IOS XE", "cisco-iosxe"),
+            ("Cisco NX-OS", "cisco-nxos"),
+            ("Cisco ASA", "cisco-asa"),
+            ("Cisco Secure Firewall Threat Defense", "cisco-ftd"),
+            ("Juniper Junos OS", "juniper-junos"),
+            ("Arista EOS", "arista-eos"),
+            ("MikroTik RouterOS", "mikrotik-routeros"),
+            ("Fortinet FortiOS", "fortinet-fortios"),
+            ("FortiClient", "fortinet-forticlient"),
+            ("SonicWall SonicOS", "sonicwall-sonicos"),
+            ("Sophos Firewall", "sophos-firewall"),
+            ("WatchGuard Fireware", "watchguard-fireware"),
+            ("Check Point Gaia", "checkpoint-gaia"),
+            ("Ivanti Connect Secure", "ivanti-connect-secure"),
+            ("F5 BIG-IP", "f5-bigip"),
+            ("NetScaler ADC", "citrix-netscaler"),
+            ("RUCKUS Unleashed", "ruckus-unleashed"),
+            ("RUCKUS SmartZone", "ruckus-smartzone"),
+            ("UniFi Network", "ubiquiti-unifi-network"),
+            ("PIXIS", "pixis"),
+        ],
+    );
+}
+
+/// Scenario: Storage and backup products
+#[test]
+fn seed_lists_storage_and_backup_products() {
+    assert_listed(
+        &Catalog::seed().unwrap(),
+        &[
+            ("DiskStation Manager", "synology-dsm"),
+            ("QNAP QTS", "qnap-qts"),
+            ("QNAP QuTS hero", "qnap-quts-hero"),
+            ("ASUSTOR ADM", "asustor-adm"),
+            ("TrueNAS", "truenas"),
+            ("NetApp ONTAP", "netapp-ontap"),
+            ("QSAN SANOS", "qsan-sanos"),
+            ("Veeam Backup & Replication", "veeam-backup-replication"),
+            ("NAKIVO Backup & Replication", "nakivo-backup-replication"),
+            ("Acronis Cyber Protect", "acronis-cyber-protect"),
+            ("Commvault", "commvault"),
+            ("Veritas NetBackup", "veritas-netbackup"),
+            ("Veritas Backup Exec", "veritas-backup-exec"),
+        ],
+    );
+}
+
+/// Scenario: Server software and libraries
+#[test]
+fn seed_lists_server_software_and_libraries() {
+    assert_listed(
+        &Catalog::seed().unwrap(),
+        &[
+            ("nginx", "nginx"),
+            ("Apache HTTP Server", "apache-httpd"),
+            ("Apache Tomcat", "apache-tomcat"),
+            ("MariaDB", "mariadb"),
+            ("MySQL", "mysql"),
+            ("PostgreSQL", "postgresql"),
+            ("Microsoft SQL Server", "mssql-server"),
+            ("MongoDB", "mongodb"),
+            ("Redis", "redis"),
+            ("Ruby", "ruby"),
+            ("Ruby on Rails", "rails"),
+            ("PHP", "php"),
+            ("Python", "python"),
+            ("Node.js", "nodejs"),
+            ("Java SE", "java-se"),
+            ("Django", "django"),
+            ("Laravel", "laravel"),
+            ("WordPress", "wordpress"),
+            ("Drupal", "drupal"),
+            ("CKEditor 4", "ckeditor4"),
+            ("TinyMCE", "tinymce"),
+            ("Bootstrap", "bootstrap"),
+            ("jQuery", "jquery"),
+            ("jQuery UI", "jquery-ui"),
+            ("Lodash", "lodash"),
+            ("Moment.js", "momentjs"),
+            ("OpenSSL", "openssl"),
+            ("OpenSSH", "openssh"),
+            ("Samba", "samba"),
+            ("BIND 9", "bind9"),
+            ("FreeRADIUS", "freeradius"),
+        ],
+    );
+}
+
+/// Scenario: Brand and product spellings
+#[test]
+fn brand_and_product_spellings_resolve() {
+    assert_listed(
+        &Catalog::seed().unwrap(),
+        &[
+            ("HPE Aruba Networking AOS-CX", "hpe-aoscx"),
+            ("Cisco IOS XE Software", "cisco-iosxe"),
+            ("Juniper Junos", "juniper-junos"),
+            ("FortiGate FortiOS", "fortinet-fortios"),
+            ("QNAP QTS", "qnap-qts"),
+            ("Apache httpd", "apache-httpd"),
+            ("Microsoft SQL Server", "mssql-server"),
+            ("moment.js", "momentjs"),
+            ("Ckeditor4", "ckeditor4"),
+            ("Ruby on Rails", "rails"),
+        ],
+    );
+}
+
+/// Scenario: Product with keywords only
+#[test]
+fn pixis_has_keywords_only() {
+    let catalog = Catalog::seed().unwrap();
+    let pixis = catalog.get("pixis").unwrap();
+    assert!(pixis.cpe.is_empty() && pixis.cna.is_empty());
+    assert!(!pixis.keywords.is_empty());
+}
+
+#[test]
+fn seed_has_78_products_each_with_an_identifier() {
+    let catalog = Catalog::seed().expect("種子目錄載入（別名衝突會失敗）");
+    assert_eq!(catalog.products().len(), 78);
+    for p in catalog.products() {
+        assert!(
+            !p.cpe.is_empty() || !p.cna.is_empty() || !p.keywords.is_empty(),
+            "{} 至少要有一組 CPE、CNA 或關鍵字",
+            p.key
+        );
+    }
+}
+
+/// Scenario: Model spelling without a local alias（虛構型號）
+#[test]
+fn model_spelling_without_a_local_alias_is_unresolved() {
+    let catalog = Catalog::seed().unwrap();
+    assert!(catalog.resolve("Aruba XYZ-100").is_none());
+}
+
+/// Scenario: Model alias declared locally（虛構型號）
+#[test]
+fn model_alias_declared_locally() {
+    let catalog = with_user(&[(
+        "site.toml",
+        r#"
+[[product]]
+key = "hpe-aoscx"
+aliases = ["Aruba XYZ-100"]
+"#,
+    )])
+    .unwrap();
+    assert_eq!(catalog.resolve("Aruba XYZ-100").unwrap().key, "hpe-aoscx");
+    assert_eq!(catalog.resolve("aruba xyz100").unwrap().key, "hpe-aoscx");
+}
+
+/// Scenario: Per-model product declared locally（虛構型號代碼）
+#[test]
+fn per_model_product_declared_locally() {
+    let catalog = with_user(&[(
+        "site.toml",
+        r#"
+[[product]]
+key = "zyxel-switch"
+display_name = "Zyxel 交換器韌體"
+vendor_display = "Zyxel"
+version_scheme = "zyxel"
+aliases = ["Zyxel ABC-100", "Zyxel ABC-200"]
+cpe = [
+  { part = "o", vendor = "zyxel", product = "abc-100_firmware" },
+  { part = "o", vendor = "zyxel", product = "abc-200_firmware" },
+]
+"#,
+    )])
+    .unwrap();
+    let p = catalog.get("zyxel-switch").unwrap();
+    assert_eq!(p.version_scheme, "zyxel");
+    assert_eq!(p.cpe.len(), 2);
+    assert_eq!(
+        catalog.resolve("Zyxel ABC-200").unwrap().key,
+        "zyxel-switch"
+    );
+    assert!(p.scheme().parse("V2.80(ABCD.1)C0").is_some());
 }

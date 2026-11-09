@@ -87,7 +87,7 @@ pub struct CpeVersion {
 ///
 /// update 為 `*`（ANY）時涵蓋該版本線的任何 update／hotfix；為 `-`（NA）或空白時只有該版本本身。
 /// DSM 以數字開頭的 update 是 build（`7.2.1:69057` → `7.2.1-69057`、`7.1.1:42962-1` → `7.1.1-42962-1`），
-/// `update_3` 這類才以空白相接。
+/// `update_3` 這類才以空白相接；Junos／Ivanti 的 `r3-s5` 直接相接，數字分段的 `build_…` 以空白相接。
 pub fn cpe_version(scheme: &str, version: &str, update: &str) -> Option<CpeVersion> {
     if is_any(version) {
         return None;
@@ -107,6 +107,10 @@ pub fn cpe_version(scheme: &str, version: &str, update: &str) -> Option<CpeVersi
     let text = match scheme {
         "esxi" => format!("{version} {update}"),
         "dsm" if !numeric => format!("{version} {update}"),
+        // Junos `21.4:r3-s5`、Ivanti `22.7:r2.4` → `21.4r3-s5`、`22.7r2.4`
+        "junos" if !numeric => format!("{version}{update}"),
+        // QNAP `5.1.7.2770:build_20240520` → `5.1.7.2770 build_20240520`（`_` 解析時視為空白）
+        "numeric" if !numeric => format!("{version} {update}"),
         _ => format!("{version}-{update}"),
     };
     Some(CpeVersion {
@@ -213,4 +217,39 @@ fn verdict_for(scheme: &dyn VersionScheme, v: &Version, rows: &[&NvdMatch]) -> E
         Verdict::NotAffected,
         format!("不在 NVD 的 {} 個受影響條件內", rows.len()),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::matching::version::Schemes;
+
+    fn text(scheme: &str, version: &str, update: &str) -> String {
+        cpe_version(scheme, version, update).unwrap().text
+    }
+
+    #[test]
+    fn vendor_updates_join_as_the_scheme_parses_them() {
+        let schemes = Schemes::new(Default::default());
+        for (scheme, version, update, expected) in [
+            ("junos", "21.4", "r3-s5", "21.4r3-s5"),
+            ("junos", "22.7", "r2.4", "22.7r2.4"),
+            (
+                "numeric",
+                "5.1.7.2770",
+                "build_20240520",
+                "5.1.7.2770 build_20240520",
+            ),
+            ("numeric", "7.0.1", "5145", "7.0.1-5145"),
+            ("panos", "11.1.4", "h7", "11.1.4-h7"),
+        ] {
+            let joined = text(scheme, version, update);
+            assert_eq!(joined, expected);
+            assert!(
+                schemes.get(scheme).unwrap().parse(&joined).is_some(),
+                "{scheme} 應能解析 {joined}"
+            );
+        }
+        assert!(cpe_version("junos", "21.4", "*").unwrap().any_update);
+    }
 }

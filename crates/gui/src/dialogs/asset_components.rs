@@ -2,14 +2,15 @@
 //!
 //! 產品以目錄的顯示名稱呈現（版本欄標籤例如「PAN-OS 版本」）。未辨識產品列依「原文與版本 →
 //! 處置選單 → 刪除」排列。加入元件的焦點流程（design 11 D6）：選單開啟時搜尋框取得焦點，
-//! 選擇產品後焦點移到該元件的版本欄。
+//! 選擇產品後焦點移到該元件的版本欄。兩處都使用共用的產品選擇器（[`super::product_picker`]）。
 
 use cvewatch_core::catalog::Catalog;
-use cvewatch_frontend::asset_form::{ComponentDraft, ProductChoice, UnresolvedAction};
+use cvewatch_frontend::asset_form::{ComponentDraft, UnresolvedAction};
 use cvewatch_frontend::display::product_name;
 use eframe::egui;
 
 use super::asset_edit::AssetEdit;
+use super::product_picker::{product_picker, Picked, PickerButton, PickerMode};
 use crate::screens::ALERT;
 use crate::text::one_line;
 
@@ -18,6 +19,9 @@ pub const PACKAGE_NOTE: &str = "由套件清單管理";
 
 /// 「加入元件」選單的標籤。
 pub const ADD_COMPONENT: &str = "加入元件";
+
+/// 未辨識產品「改為…」的提示。
+pub const MAP_HINT: &str = "改為目錄產品（沿用原版本字串）";
 
 const VERSION_WIDTH: f32 = 180.0;
 
@@ -99,12 +103,7 @@ fn component_row(
     false
 }
 
-pub(super) fn unresolved(
-    ui: &mut egui::Ui,
-    edit: &mut AssetEdit,
-    products: &[ProductChoice],
-    catalog: &Catalog,
-) {
+pub(super) fn unresolved(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Catalog) {
     if edit.form.unresolved.is_empty() {
         return;
     }
@@ -112,6 +111,7 @@ pub(super) fn unresolved(
     ui.label(egui::RichText::new("未辨識產品").strong());
     let errors = edit.errors.clone();
     for (i, u) in edit.form.unresolved.iter_mut().enumerate() {
+        let state = edit.unresolved_pickers.entry(u.id).or_default();
         ui.horizontal(|ui| {
             let raw = one_line(&u.product_raw);
             let l = ui.label(format!("{raw} {}", one_line(&u.version_raw)));
@@ -120,25 +120,21 @@ pub(super) fn unresolved(
                 UnresolvedAction::MapTo(key) => format!("改為 {}", product_name(catalog, key)),
                 UnresolvedAction::Delete => "儲存時刪除".to_string(),
             };
-            let combo = egui::ComboBox::from_id_salt(("unresolved-action", u.id))
-                .selected_text(current)
-                .show_ui(ui, |ui| {
-                    if ui.selectable_label(false, "保留").clicked() {
-                        u.action = UnresolvedAction::Keep;
-                    }
-                    for p in products {
-                        if ui
-                            .selectable_label(false, format!("改為 {}", p.label()))
-                            .clicked()
-                        {
-                            u.action = UnresolvedAction::MapTo(p.key.clone());
-                        }
-                    }
-                });
-            combo
-                .response
-                .labelled_by(l.id)
-                .on_hover_text("改為目錄產品（沿用原版本字串）");
+            let mode = PickerMode::Unresolved {
+                product_raw: &u.product_raw,
+            };
+            let button = PickerButton {
+                id: ui.make_persistent_id(("unresolved-action", u.id)),
+                text: &current,
+                label: l.id,
+                hover: Some(MAP_HINT),
+            };
+            let picked = product_picker(ui, button, state, catalog, mode);
+            match picked {
+                Some(Picked::Keep) => u.action = UnresolvedAction::Keep,
+                Some(Picked::Product(key)) => u.action = UnresolvedAction::MapTo(key),
+                None => {}
+            }
             if ui.button(format!("刪除「{raw}」")).clicked() {
                 u.action = UnresolvedAction::Delete;
             }
@@ -149,38 +145,21 @@ pub(super) fn unresolved(
     }
 }
 
-pub(super) fn add_component(ui: &mut egui::Ui, edit: &mut AssetEdit, choices: &[ProductChoice]) {
+pub(super) fn add_component(ui: &mut egui::Ui, edit: &mut AssetEdit, catalog: &Catalog) {
     ui.add_space(6.0);
     let mut picked = None;
-    let just_opened = !edit.picker_open;
     ui.horizontal(|ui| {
         let l = ui.label(ADD_COMPONENT);
-        let combo = egui::ComboBox::from_id_salt("add-component")
-            .selected_text("選擇目錄產品…")
-            .height(320.0)
-            .show_ui(ui, |ui| {
-                let s = ui.label("搜尋產品");
-                let search = ui
-                    .add(egui::TextEdit::singleline(&mut edit.search).desired_width(220.0))
-                    .labelled_by(s.id);
-                if just_opened {
-                    search.request_focus();
-                }
-                for c in choices {
-                    if ui.selectable_label(false, c.label()).clicked() {
-                        picked = Some(c.key.clone());
-                    }
-                }
-                if choices.is_empty() {
-                    ui.label("沒有相符的產品");
-                }
-            });
-        combo.response.labelled_by(l.id);
-        edit.picker_open = combo.inner.is_some();
+        let button = PickerButton {
+            id: ui.make_persistent_id("add-component"),
+            text: "選擇目錄產品…",
+            label: l.id,
+            hover: None,
+        };
+        picked = product_picker(ui, button, &mut edit.add_picker, catalog, PickerMode::Add);
     });
-    if let Some(key) = picked {
+    if let Some(Picked::Product(key)) = picked {
         edit.form.add_product(&key);
-        edit.search.clear();
         edit.focus_version = Some(edit.form.components.len() - 1);
     }
 }

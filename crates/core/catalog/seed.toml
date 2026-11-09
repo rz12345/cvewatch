@@ -4,7 +4,16 @@
 #   key              產品識別（小寫英數字與 -）
 #   display_name     顯示名稱（自動視為別名）
 #   vendor_display   廠商顯示名稱
-#   version_scheme   版本格式：dotted、panos、dsm、esxi、ubuntu
+#   version_scheme   版本格式：
+#                      dotted   數字段＋尾碼              7.16.2、3.0.0-rc2、1.0.2a
+#                      panos    PAN-OS                    11.1.4-h7
+#                      dsm      Synology DSM              7.2.2-72806 Update 3
+#                      esxi     VMware ESXi／vCenter      8.0 U3c、build 24414501
+#                      ubuntu   Ubuntu                    22.04.4 LTS
+#                      cisco    Cisco IOS／ASA／NX-OS     15.2(7)E8、9.18(4)22、10.2(3t)（同主次版本與 train 才可比較）
+#                      junos    Juniper／Ivanti           21.4R3-S5、22.7R2.4
+#                      numeric  數字分段（可有字母前綴）  7.0.1-5145、14.1-29.72、5.1.7.2770 build 20240520、R81.20
+#                      zyxel    Zyxel 韌體                V2.80(ABCD.1)C0（同型號代碼才可比較）
 #   advisory_source  原廠公告來源 id（對應 [[sources.csaf]]），選填
 #   aliases          清冊中可能出現的寫法；比較前會 NFKC、小寫並移除空白與 -_./
 #   cpe              NVD CPE 的 part / vendor / product
@@ -40,6 +49,354 @@ cna = [{ vendor = "Palo Alto Networks", product = "PAN-OS" }]
 csaf = [{ vendor = "Palo Alto Networks", product = "PAN-OS" }]
 keywords = ["PAN-OS"]
 
+# 別名只寫廠牌＋產品／產品線名稱，不寫硬體型號：型號對應到韌體產品的別名、逐型號發布 CVE 的產品
+# （例如 Zyxel 交換器韌體）請寫在 <data_dir>\catalog.d\*.toml（見使用說明）。
+
+[[product]]
+key = "hpe-aoscx"
+display_name = "AOS-CX"
+vendor_display = "HPE Aruba Networking"
+version_scheme = "dotted"         # 10.13.1180
+aliases = ["arubaos-cx", "aruba aos-cx", "hpe aos-cx", "hpe aruba networking aos-cx", "aruba cx",
+           "hpe aruba cx"]
+cpe = [
+  { part = "o", vendor = "hpe", product = "arubaos-cx" },
+  { part = "o", vendor = "arubanetworks", product = "aos-cx" },
+]
+cna = [
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "AOS-CX" },
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "HPE Aruba Networking AOS-CX" },
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "HPE Aruba Networkign AOS-CX" },
+]
+
+[[product]]
+key = "hpe-aos-switch"
+display_name = "AOS-Switch"
+vendor_display = "HPE Aruba Networking"
+version_scheme = "dotted"         # 16.11.0031
+aliases = ["aos-s", "arubaos-switch", "hpe aos-switch", "aruba aos-switch", "hpe arubaos-switch"]
+cpe = [{ part = "o", vendor = "hpe", product = "arubaos-switch" }]
+cna = [
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "AOS-Switch (AOS-S)" },
+  { vendor = "Hewlett Packard Enterprise", product = "ArubaOS-Switch" },
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "ArubaOS-S Switch" },
+]
+
+[[product]]
+key = "hpe-arubaos"
+display_name = "ArubaOS"
+vendor_display = "HPE Aruba Networking"
+version_scheme = "dotted"         # 8.10.0.23（控制器與 Instant AP）
+aliases = ["hpe arubaos", "aruba os", "aos-8", "aos-10", "aruba instant", "arubaos instant", "instantos"]
+cpe = [
+  { part = "o", vendor = "arubanetworks", product = "arubaos" },
+  { part = "o", vendor = "arubanetworks", product = "instant" },
+  { part = "o", vendor = "hpe", product = "arubaos" },
+]
+cna = [
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "ArubaOS (AOS)" },
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "AOS-8 Instant and AOS-10 AP" },
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "Aruba Access Points running InstantOS and ArubaOS 10" },
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "ArubaOS Wi-Fi Controllers and Campus/Remote Access Points" },
+  { vendor = "Hewlett Packard Enterprise (HPE)", product = "HPE Aruba Networking Access Points, Instant AOS-8, and AOS-10" },
+  { vendor = "Hewlett Packard Enterprise", product = "ArubaOS" },
+  { vendor = "n/a", product = "Aruba Instant Access Points" },
+]
+
+[[product]]
+key = "cisco-ios"
+display_name = "Cisco IOS"
+vendor_display = "Cisco"
+version_scheme = "cisco"          # 15.2(7)E8
+aliases = ["cisco ios software"]
+cpe = [{ part = "o", vendor = "cisco", product = "ios" }]
+cna = [
+  { vendor = "Cisco", product = "IOS" },
+  { vendor = "Cisco", product = "Cisco IOS" },
+  { vendor = "Cisco", product = "Cisco IOS Software" },
+]
+
+[[product]]
+key = "cisco-iosxe"
+display_name = "Cisco IOS XE"
+vendor_display = "Cisco"
+version_scheme = "dotted"         # 17.9.4a
+aliases = ["cisco ios xe software", "ios xe"]
+cpe = [{ part = "o", vendor = "cisco", product = "ios_xe" }]
+cna = [
+  { vendor = "Cisco", product = "Cisco IOS XE Software" },
+  { vendor = "n/a", product = "Cisco IOS XE" },
+]
+
+[[product]]
+key = "cisco-nxos"
+display_name = "Cisco NX-OS"
+vendor_display = "Cisco"
+version_scheme = "cisco"          # 10.2(3t)、9.3(10)
+aliases = ["cisco nx-os software", "nx-os"]
+cpe = [{ part = "o", vendor = "cisco", product = "nx-os" }]
+cna = [
+  { vendor = "Cisco", product = "Cisco NX-OS Software" },
+  { vendor = "n/a", product = "Cisco NX-OS" },
+]
+
+[[product]]
+key = "cisco-asa"
+display_name = "Cisco ASA"
+vendor_display = "Cisco"
+version_scheme = "cisco"          # 9.18(4)22；CNA 記錄寫成 9.18.4.22
+aliases = ["cisco adaptive security appliance", "cisco asa software", "cisco secure firewall asa"]
+cpe = [{ part = "a", vendor = "cisco", product = "adaptive_security_appliance_software" }]
+cna = [
+  { vendor = "Cisco", product = "Cisco Adaptive Security Appliance (ASA) Software" },
+  { vendor = "Cisco", product = "Cisco Secure Firewall Adaptive Security Appliance (ASA) Software" },
+  { vendor = "Cisco", product = "Cisco Adaptive Security Appliance Software" },
+]
+
+[[product]]
+key = "cisco-ftd"
+display_name = "Cisco Secure Firewall Threat Defense"
+vendor_display = "Cisco"
+version_scheme = "dotted"         # 7.2.5.1
+aliases = ["cisco ftd", "cisco firepower threat defense", "firepower threat defense"]
+cpe = [
+  { part = "a", vendor = "cisco", product = "secure_firewall_threat_defense" },
+  { part = "a", vendor = "cisco", product = "firepower_threat_defense" },
+]
+cna = [
+  { vendor = "Cisco", product = "Cisco Firepower Threat Defense Software" },
+  { vendor = "Cisco", product = "Cisco Secure Firewall Threat Defense (FTD) Software" },
+  { vendor = "Cisco", product = "Cisco Firepower Threat Defense (FTD) Software" },
+]
+
+[[product]]
+key = "juniper-junos"
+display_name = "Junos OS"
+vendor_display = "Juniper Networks"
+version_scheme = "junos"          # 21.4R3-S5
+aliases = ["junos", "juniper junos", "juniper junos os"]
+cpe = [{ part = "o", vendor = "juniper", product = "junos" }]
+cna = [{ vendor = "Juniper Networks", product = "Junos OS" }]
+
+[[product]]
+key = "arista-eos"
+display_name = "Arista EOS"
+vendor_display = "Arista Networks"
+version_scheme = "dotted"         # 4.34.5M
+aliases = ["arista networks eos"]
+cpe = [{ part = "o", vendor = "arista", product = "eos" }]
+cna = [{ vendor = "Arista Networks", product = "EOS" }]
+
+[[product]]
+key = "mikrotik-routeros"
+display_name = "RouterOS"
+vendor_display = "MikroTik"
+version_scheme = "dotted"         # 7.16.2
+aliases = ["mikrotik routeros"]
+cpe = [{ part = "o", vendor = "mikrotik", product = "routeros" }]
+cna = [
+  { vendor = "MikroTik", product = "RouterOS" },
+  { vendor = "MicroTik", product = "RouterOS" },
+  { vendor = "n/a", product = "MikroTik RouterOS" },
+  { vendor = "Tenable", product = "MikroTik RouterOS" },
+]
+keywords = ["MikroTik RouterOS"]
+
+[[product]]
+key = "fortinet-fortios"
+display_name = "FortiOS"
+vendor_display = "Fortinet"
+version_scheme = "dotted"         # 7.4.3
+aliases = ["fortinet fortios", "fortigate fortios", "fortigate"]
+cpe = [{ part = "o", vendor = "fortinet", product = "fortios" }]
+cna = [
+  { vendor = "Fortinet", product = "FortiOS" },
+  { vendor = "Fortinet", product = "Fortinet FortiOS" },
+]
+
+[[product]]
+key = "fortinet-forticlient"
+display_name = "FortiClient"
+vendor_display = "Fortinet"
+version_scheme = "dotted"         # 7.2.4（EMS 為另一產品，不列入）
+aliases = ["fortinet forticlient", "forticlient vpn"]
+cpe = [{ part = "a", vendor = "fortinet", product = "forticlient" }]
+cna = [
+  { vendor = "Fortinet", product = "FortiClientWindows" },
+  { vendor = "Fortinet", product = "FortiClientMac" },
+  { vendor = "Fortinet", product = "FortiClientLinux" },
+  { vendor = "Fortinet", product = "Fortinet FortiClientWindows" },
+  { vendor = "Fortinet", product = "Fortinet FortiClientMac" },
+  { vendor = "Fortinet", product = "Fortinet FortiClientLinux" },
+  { vendor = "Fortinet", product = "Fortinet FortiClient for Windows" },
+  { vendor = "Fortinet", product = "FortiClient for Mac OS" },
+]
+
+[[product]]
+key = "sonicwall-sonicos"
+display_name = "SonicOS"
+vendor_display = "SonicWall"
+version_scheme = "numeric"        # 7.0.1-5145
+aliases = ["sonicwall sonicos"]
+cpe = [{ part = "o", vendor = "sonicwall", product = "sonicos" }]
+cna = [{ vendor = "SonicWall", product = "SonicOS" }]
+
+[[product]]
+key = "sophos-firewall"
+display_name = "Sophos Firewall"
+vendor_display = "Sophos"
+version_scheme = "dotted"         # 21.0.2（「21.0 MR2」無法解析，請改填數字版本）
+aliases = ["sophos xg firewall", "sophos sfos", "sfos"]
+cpe = [
+  { part = "o", vendor = "sophos", product = "sfos" },
+  { part = "o", vendor = "sophos", product = "xg_firewall_firmware" },
+  { part = "a", vendor = "sophos", product = "firewall" },
+]
+cna = [{ vendor = "Sophos", product = "Sophos Firewall" }]
+
+[[product]]
+key = "watchguard-fireware"
+display_name = "Fireware OS"
+vendor_display = "WatchGuard"
+version_scheme = "dotted"         # 12.10.3、2025.1
+aliases = ["fireware", "watchguard fireware", "watchguard fireware os"]
+cpe = [{ part = "o", vendor = "watchguard", product = "fireware" }]
+cna = [{ vendor = "WatchGuard", product = "Fireware OS" }]
+
+[[product]]
+key = "checkpoint-gaia"
+display_name = "Check Point Gaia"
+vendor_display = "Check Point"
+version_scheme = "numeric"        # R81.20（Jumbo Hotfix Take 寫法無法比較）
+aliases = ["checkpoint gaia", "check point gaia os", "check point quantum security gateway"]
+cpe = [{ part = "o", vendor = "checkpoint", product = "gaia_os" }]
+cna = [{ vendor = "checkpoint", product = "Quantum Security Gateway" }]
+
+[[product]]
+key = "ivanti-connect-secure"
+display_name = "Ivanti Connect Secure"
+vendor_display = "Ivanti"
+version_scheme = "junos"          # 22.7R2.4、25.1.1.3
+aliases = ["ivanti ics", "pulse connect secure"]
+cpe = [{ part = "a", vendor = "ivanti", product = "connect_secure" }]
+cna = [
+  { vendor = "Ivanti", product = "Connect Secure" },
+  { vendor = "n/a", product = "Pulse Connect Secure" },
+]
+
+[[product]]
+key = "f5-bigip"
+display_name = "F5 BIG-IP"
+vendor_display = "F5"
+version_scheme = "dotted"         # 17.1.1.3
+aliases = ["big-ip", "f5 big-ip ltm"]
+# NVD 以模組分別列出 CPE（LTM、APM、AFM、ASM…），版本相同
+cpe = [
+  { part = "a", vendor = "f5", product = "big-ip_local_traffic_manager" },
+  { part = "a", vendor = "f5", product = "big-ip_access_policy_manager" },
+  { part = "a", vendor = "f5", product = "big-ip_advanced_firewall_manager" },
+  { part = "a", vendor = "f5", product = "big-ip_application_security_manager" },
+  { part = "a", vendor = "f5", product = "big-ip_advanced_web_application_firewall" },
+  { part = "a", vendor = "f5", product = "big-ip_domain_name_system" },
+  { part = "a", vendor = "f5", product = "big-ip_global_traffic_manager" },
+  { part = "a", vendor = "f5", product = "big-ip_link_controller" },
+  { part = "a", vendor = "f5", product = "big-ip_policy_enforcement_manager" },
+  { part = "a", vendor = "f5", product = "big-ip_application_acceleration_manager" },
+  { part = "a", vendor = "f5", product = "big-ip_analytics" },
+  { part = "a", vendor = "f5", product = "big-ip_fraud_protection_service" },
+  { part = "a", vendor = "f5", product = "big-ip_carrier-grade_nat" },
+  { part = "a", vendor = "f5", product = "big-ip_ddos_hybrid_defender" },
+  { part = "a", vendor = "f5", product = "big-ip_ssl_orchestrator" },
+  { part = "a", vendor = "f5", product = "big-ip_webaccelerator" },
+  { part = "a", vendor = "f5", product = "big-ip_edge_gateway" },
+]
+cna = [
+  { vendor = "F5", product = "BIG-IP" },
+  { vendor = "F5", product = "BIG-IP APM" },
+  { vendor = "n/a", product = "BIG-IP" },
+  { vendor = "n/a", product = "BIG-IP APM" },
+]
+
+[[product]]
+key = "citrix-netscaler"
+display_name = "NetScaler ADC"
+vendor_display = "Cloud Software Group"
+version_scheme = "numeric"        # 14.1-29.72
+aliases = ["netscaler", "citrix netscaler", "citrix adc", "netscaler gateway", "citrix gateway"]
+cpe = [
+  { part = "a", vendor = "citrix", product = "netscaler_application_delivery_controller" },
+  { part = "a", vendor = "citrix", product = "netscaler_gateway" },
+  { part = "a", vendor = "citrix", product = "application_delivery_controller" },
+  { part = "a", vendor = "citrix", product = "gateway" },
+]
+cna = [
+  { vendor = "NetScaler", product = "ADC" },
+  { vendor = "NetScaler", product = "Gateway" },
+  { vendor = "NetScaler", product = "NetScaler ADC" },
+  { vendor = "NetScaler", product = "NetScaler Gateway" },
+  { vendor = "Citrix NetScaler", product = "ADC" },
+  { vendor = "Citrix NetScaler", product = "Gateway" },
+  { vendor = "Citrix", product = "NetScaler ADC" },
+  { vendor = "Citrix", product = "NetScaler Gateway" },
+  { vendor = "Cloud Software Group", product = "NetScaler ADC" },
+  { vendor = "Cloud Software Group", product = "NetScaler Gateway" },
+]
+
+[[product]]
+key = "ruckus-unleashed"
+display_name = "RUCKUS Unleashed"
+vendor_display = "RUCKUS Networks"
+version_scheme = "dotted"         # 200.15.6.212.27
+aliases = ["ruckus unleashed"]
+cpe = [
+  { part = "o", vendor = "ruckuswireless", product = "unleashed" },
+  { part = "o", vendor = "ruckuswireless", product = "unleashed_firmware" },
+]
+cna = [
+  { vendor = "Ruckus Networks", product = "RUCKUS Unleashed" },
+  { vendor = "Ruckus", product = "RUCKUS Unleashed" },
+]
+keywords = ["Ruckus Unleashed"]
+
+[[product]]
+key = "ruckus-smartzone"
+display_name = "RUCKUS SmartZone"
+vendor_display = "RUCKUS Networks"
+version_scheme = "dotted"         # 7.1.0
+aliases = ["ruckus smartzone", "smartzone"]
+cpe = [
+  { part = "o", vendor = "commscope", product = "ruckus_smartzone_firmware" },
+  { part = "o", vendor = "ruckuswireless", product = "smartzone_ap" },
+]
+cna = [
+  { vendor = "RUCKUS", product = "SmartZone" },
+  { vendor = "CommScope", product = "SmartZone" },
+]
+keywords = ["SmartZone"]
+
+[[product]]
+key = "ubiquiti-unifi-network"
+display_name = "UniFi Network"
+vendor_display = "Ubiquiti"
+version_scheme = "dotted"         # 9.0.114
+aliases = ["unifi network application", "ubiquiti unifi network", "unifi network controller", "unifi controller"]
+cpe = [{ part = "a", vendor = "ui", product = "unifi_network_application" }]
+cna = [
+  { vendor = "Ubiquiti", product = "UniFi Network Application" },
+  { vendor = "Ubiquiti", product = "UniFi Network Controller" },
+  { vendor = "Ubiquiti", product = "UniFi Network Server" },
+  { vendor = "n/a", product = "UniFi Network application" },
+]
+
+[[product]]
+key = "pixis"
+display_name = "PIXIS IP 管理"
+vendor_display = "PIXIS"
+version_scheme = "dotted"
+# 查無 CPE 與 CNA 記錄（2026-11-09），只能以描述關鍵字比對
+aliases = ["pixis", "pixis ip 管理軟體", "pixis ip management"]
+keywords = ["PIXIS"]
+
 # ── 虛擬化 / 伺服器 ─────────────────────────────────────────
 
 [[product]]
@@ -47,7 +404,7 @@ key = "vmware-esxi"
 display_name = "ESXi"
 vendor_display = "VMware by Broadcom"
 version_scheme = "esxi"           # 8.0 U3c 或 build 24414501
-aliases = ["vmware esxi", "vsphere esxi", "esx"]
+aliases = ["vmware esxi", "vsphere esxi", "esx", "vmware vsphere", "vsphere"]
 cpe = [{ part = "o", vendor = "vmware", product = "esxi" }]
 cna = [
   { vendor = "VMware", product = "ESXi" },
@@ -114,6 +471,542 @@ cna = [
   { vendor = "Synology", product = "DiskStation Manager" },
 ]
 keywords = ["DiskStation Manager", "Synology DSM"]
+
+[[product]]
+key = "qnap-qts"
+display_name = "QTS"
+vendor_display = "QNAP"
+version_scheme = "numeric"        # 5.1.7.2770 build 20240520
+aliases = ["qnap qts"]
+cpe = [{ part = "o", vendor = "qnap", product = "qts" }]
+cna = [
+  { vendor = "QNAP Systems", product = "QTS" },
+  { vendor = "QNAP", product = "QTS" },
+]
+
+[[product]]
+key = "qnap-quts-hero"
+display_name = "QuTS hero"
+vendor_display = "QNAP"
+version_scheme = "numeric"        # h5.1.7.2770 build 20240520（前綴 h 與 QTS 區隔）
+aliases = ["qnap quts hero"]
+cpe = [{ part = "o", vendor = "qnap", product = "quts_hero" }]
+cna = [{ vendor = "QNAP Systems", product = "QuTS hero" }]
+
+[[product]]
+key = "asustor-adm"
+display_name = "ADM"
+vendor_display = "ASUSTOR"
+version_scheme = "dotted"         # 4.3.3.ROF1
+aliases = ["asustor adm", "asustor data master"]
+cpe = [{ part = "o", vendor = "asustor", product = "data_master" }]
+cna = [
+  { vendor = "ASUSTOR", product = "ADM" },
+  { vendor = "Tenable", product = "ASUSTOR Data Master" },
+]
+
+[[product]]
+key = "truenas"
+display_name = "TrueNAS"
+vendor_display = "iXsystems"
+version_scheme = "dotted"         # 25.04.2、13.0-U6.1
+aliases = ["truenas core", "truenas scale", "ixsystems truenas"]
+cpe = [{ part = "o", vendor = "ixsystems", product = "truenas_firmware" }]
+cna = [
+  { vendor = "iXsystems", product = "TrueNAS CORE" },
+  { vendor = "iXsystems", product = "TrueNAS SCALE" },
+]
+
+[[product]]
+key = "netapp-ontap"
+display_name = "ONTAP"
+vendor_display = "NetApp"
+version_scheme = "dotted"         # 9.14.1P3
+aliases = ["netapp ontap", "ontap 9", "netapp ontap 9", "clustered data ontap"]
+cpe = [
+  { part = "a", vendor = "netapp", product = "ontap_9" },
+  { part = "a", vendor = "netapp", product = "clustered_data_ontap" },
+]
+cna = [
+  { vendor = "NetApp", product = "ONTAP 9" },
+  { vendor = "NetApp", product = "Clustered Data ONTAP" },
+  { vendor = "n/a", product = "Clustered Data ONTAP" },
+]
+
+[[product]]
+key = "qsan-sanos"
+display_name = "SANOS"
+vendor_display = "QSAN"
+version_scheme = "dotted"         # 2.0.0（XCubeSAN 系列的作業系統）
+aliases = ["qsan sanos"]
+cpe = [{ part = "a", vendor = "qsan", product = "sanos" }]
+cna = [{ vendor = "QSAN", product = "SANOS" }]
+keywords = ["QSAN SANOS"]
+
+# ── 備份 ────────────────────────────────────────────────────
+
+[[product]]
+key = "veeam-backup-replication"
+display_name = "Veeam Backup & Replication"
+vendor_display = "Veeam"
+version_scheme = "dotted"         # 12.3.0.310
+aliases = ["veeam", "veeam b&r", "veeam backup and replication", "veeam vbr"]
+cpe = [{ part = "a", vendor = "veeam", product = 'veeam_backup_\&_replication' }]
+cna = [
+  { vendor = "Veeam", product = "Backup and Replication" },
+  { vendor = "Veeam", product = "Backup & Replication" },
+  # Veeam 2024–2025 年部分 VBR 記錄的寫法（CVE-2024-40711、CVE-2025-23120 等）
+  { vendor = "Veeam", product = "Backup and Recovery" },
+]
+keywords = ["Veeam Backup & Replication"]
+
+[[product]]
+key = "nakivo-backup-replication"
+display_name = "NAKIVO Backup & Replication"
+vendor_display = "NAKIVO"
+version_scheme = "dotted"         # 11.0.2
+aliases = ["nakivo", "nakivo backup and replication", "nakivo b&r"]
+cpe = [
+  { part = "a", vendor = "nakivo", product = 'backup_\&_replication_director' },
+  { part = "a", vendor = "nakivo", product = 'backup_\&_replication_transporter' },
+]
+cna = [{ vendor = "NAKIVO", product = "Backup & Replication Director" }]
+keywords = ["NAKIVO Backup"]
+
+[[product]]
+key = "acronis-cyber-protect"
+display_name = "Acronis Cyber Protect"
+vendor_display = "Acronis"
+version_scheme = "numeric"        # 只填 build 編號：39938（CNA 記錄只寫 build）
+aliases = ["acronis", "acronis cyber protect cloud agent"]
+cpe = [{ part = "a", vendor = "acronis", product = "cyber_protect" }]
+cna = [
+  { vendor = "Acronis", product = "Acronis Cyber Protect 15" },
+  { vendor = "Acronis", product = "Acronis Cyber Protect 16" },
+  { vendor = "Acronis", product = "Acronis Cyber Protect 17" },
+  { vendor = "Acronis", product = "Acronis Cyber Protect Cloud Agent" },
+]
+
+[[product]]
+key = "commvault"
+display_name = "Commvault"
+vendor_display = "Commvault"
+version_scheme = "dotted"         # 11.36.126
+aliases = ["commvault cloud", "commcell"]
+cpe = [{ part = "a", vendor = "commvault", product = "commvault" }]
+cna = [
+  { vendor = "Commvault", product = "Commvault Cloud" },
+  { vendor = "Commvault", product = "CommCell" },
+  { vendor = "Commvault", product = "Commvault" },
+]
+
+[[product]]
+key = "veritas-netbackup"
+display_name = "NetBackup"
+vendor_display = "Veritas"
+version_scheme = "dotted"         # 10.4.0.1
+aliases = ["veritas netbackup", "cohesity netbackup"]
+cpe = [{ part = "a", vendor = "veritas", product = "netbackup" }]
+cna = [{ vendor = "Veritas", product = "NetBackup" }]
+
+[[product]]
+key = "veritas-backup-exec"
+display_name = "Backup Exec"
+vendor_display = "Veritas"
+version_scheme = "dotted"         # 22.0.1193.1605
+aliases = ["veritas backup exec"]
+# CNA 記錄未使用此產品名稱（2026-11-09），靠 NVD CPE 比對
+cpe = [{ part = "a", vendor = "veritas", product = "backup_exec" }]
+
+# ── 網站與資料庫 ────────────────────────────────────────────
+# Linux 上由發行版套件安裝者（例如 Ubuntu 的 1.24.0-2ubuntu7）版本含發行版修補，
+# 以上游版本比對會誤判：這類主機請改用 asset import-packages；目錄產品用於自行編譯或官方套件。
+
+[[product]]
+key = "nginx"
+display_name = "nginx"
+vendor_display = "F5"
+version_scheme = "dotted"         # 1.26.0
+aliases = ["nginx open source", "f5 nginx"]
+cpe = [
+  { part = "a", vendor = "f5", product = "nginx" },
+  { part = "a", vendor = "f5", product = "nginx_open_source" },
+  { part = "a", vendor = "nginx", product = "nginx" },
+]
+cna = [{ vendor = "F5", product = "NGINX Open Source" }]
+
+[[product]]
+key = "apache-httpd"
+display_name = "Apache HTTP Server"
+vendor_display = "Apache"
+version_scheme = "dotted"         # 2.4.62
+aliases = ["apache httpd", "httpd", "apache2", "apache web server"]
+cpe = [{ part = "a", vendor = "apache", product = "http_server" }]
+cna = [
+  { vendor = "Apache Software Foundation", product = "Apache HTTP Server" },
+  { vendor = "Apache", product = "Apache HTTP Server" },
+  { vendor = "n/a", product = "Apache HTTP Server" },
+]
+
+[[product]]
+key = "apache-tomcat"
+display_name = "Apache Tomcat"
+vendor_display = "Apache"
+version_scheme = "dotted"         # 10.1.34
+aliases = ["tomcat"]
+cpe = [{ part = "a", vendor = "apache", product = "tomcat" }]
+cna = [
+  { vendor = "Apache Software Foundation", product = "Apache Tomcat" },
+  { vendor = "Apache", product = "Apache Tomcat" },
+  { vendor = "n/a", product = "Apache Tomcat" },
+]
+
+[[product]]
+key = "mariadb"
+display_name = "MariaDB"
+vendor_display = "MariaDB"
+version_scheme = "dotted"         # 10.11.9
+aliases = ["mariadb server"]
+cpe = [{ part = "a", vendor = "mariadb", product = "mariadb" }]
+cna = [
+  { vendor = "MariaDB", product = "server" },
+  { vendor = "MariaDB", product = "MariaDB" },
+  { vendor = "MariaDB Foundation", product = "MariaDB Server" },
+]
+
+[[product]]
+key = "mysql"
+display_name = "MySQL"
+vendor_display = "Oracle"
+version_scheme = "dotted"         # 8.0.40
+aliases = ["mysql server", "oracle mysql", "mysql community server"]
+cpe = [{ part = "a", vendor = "oracle", product = "mysql" }]
+cna = [{ vendor = "Oracle", product = "MySQL Server" }]
+
+[[product]]
+key = "postgresql"
+display_name = "PostgreSQL"
+vendor_display = "PostgreSQL"
+version_scheme = "dotted"         # 16.4
+aliases = ["postgres", "pgsql"]
+cpe = [{ part = "a", vendor = "postgresql", product = "postgresql" }]
+cna = [
+  { vendor = "n/a", product = "PostgreSQL" },
+  { vendor = "PostgreSQL", product = "PostgreSQL" },
+  { vendor = "PostgreSQL Global Development Group", product = "PostgreSQL" },
+  { vendor = "The PostgreSQL Global Development Group", product = "PostgreSQL" },
+]
+
+[[product]]
+key = "mssql-server"
+display_name = "Microsoft SQL Server"
+vendor_display = "Microsoft"
+version_scheme = "dotted"         # 填 build：15.0.4415.2
+aliases = ["sql server", "mssql", "ms sql server", "sql server 2016", "sql server 2017",
+           "sql server 2019", "sql server 2022", "sql server 2025"]
+cpe = [
+  { part = "a", vendor = "microsoft", product = "sql_server_2016" },
+  { part = "a", vendor = "microsoft", product = "sql_server_2017" },
+  { part = "a", vendor = "microsoft", product = "sql_server_2019" },
+  { part = "a", vendor = "microsoft", product = "sql_server_2022" },
+  { part = "a", vendor = "microsoft", product = "sql_server_2025" },
+]
+# CNA 產品名稱逐 CU 不同（例如 SQL Server 2019 (CU 32)），這裡只列 GDR 與常見寫法，其餘靠 NVD CPE
+cna = [
+  { vendor = "Microsoft", product = "Microsoft SQL Server 2016 Service Pack 3 (GDR)" },
+  { vendor = "Microsoft", product = "Microsoft SQL Server 2016 Service Pack 3 Azure Connect Feature Pack" },
+  { vendor = "Microsoft", product = "Microsoft SQL Server 2017 (GDR)" },
+  { vendor = "Microsoft", product = "Microsoft SQL Server 2017 (CU 31)" },
+  { vendor = "Microsoft", product = "Microsoft SQL Server 2019 (GDR)" },
+  { vendor = "Microsoft", product = "Microsoft SQL Server 2022 (GDR)" },
+  { vendor = "Microsoft", product = "Microsoft SQL Server 2025 for x64-based Systems (GDR)" },
+]
+
+[[product]]
+key = "mongodb"
+display_name = "MongoDB Server"
+vendor_display = "MongoDB"
+version_scheme = "dotted"         # 7.0.14
+aliases = ["mongodb", "mongod"]
+cpe = [{ part = "a", vendor = "mongodb", product = "mongodb" }]
+cna = [{ vendor = "MongoDB", product = "MongoDB Server" }]
+
+[[product]]
+key = "redis"
+display_name = "Redis"
+vendor_display = "Redis"
+version_scheme = "dotted"         # 7.2.5
+aliases = ["redis server", "redis oss"]
+cpe = [{ part = "a", vendor = "redis", product = "redis" }]
+cna = [{ vendor = "redis", product = "redis" }]
+
+# ── 執行環境與框架 ──────────────────────────────────────────
+
+[[product]]
+key = "ruby"
+display_name = "Ruby"
+vendor_display = "ruby-lang.org"
+version_scheme = "dotted"         # 3.3.5
+# 隨附 gem（cgi、uri、rexml…）各自有版本，請以 SBOM 匯入
+aliases = ["cruby", "ruby mri", "mri ruby"]
+cpe = [{ part = "a", vendor = "ruby-lang", product = "ruby" }]
+cna = [
+  { vendor = "Ruby", product = "Ruby" },
+  { vendor = "ruby-lang", product = "Ruby" },
+]
+# 許多 MITRE 指派的記錄 affected 寫成 n/a / n/a（例如 CVE-2024-27281、CVE-2024-27282）
+keywords = ["as distributed in Ruby", "discovered in Ruby", "in Ruby before", "in Ruby through"]
+
+[[product]]
+key = "rails"
+display_name = "Ruby on Rails"
+vendor_display = "Rails"
+version_scheme = "dotted"         # 7.1.4
+# 多數 CVE 記在元件 gem（activestorage、actionpack…），版本與 Rails 相同；rails-html-sanitizer 等版本獨立的 gem 不列入
+aliases = ["rails", "ror", "rubyonrails"]
+cpe = [
+  { part = "a", vendor = "rubyonrails", product = "rails" },
+  { part = "a", vendor = "rubyonrails", product = "ruby_on_rails" },
+  { part = "a", vendor = "rubyonrails", product = "actionview" },
+]
+cna = [
+  { vendor = "rails", product = "rails" },
+  { vendor = "rails", product = "activestorage" },
+  { vendor = "rails", product = "actionview" },
+  { vendor = "rails", product = "activesupport" },
+  { vendor = "rails", product = "actionpack" },
+  { vendor = "rails", product = "Action Pack" },
+  { vendor = "rubyonrails", product = "Active Storage" },
+]
+
+[[product]]
+key = "php"
+display_name = "PHP"
+vendor_display = "PHP Group"
+version_scheme = "dotted"         # 8.3.12
+aliases = []
+cpe = [{ part = "a", vendor = "php", product = "php" }]
+cna = [
+  { vendor = "PHP Group", product = "PHP" },
+  { vendor = "PHP", product = "PHP" },
+]
+
+[[product]]
+key = "python"
+display_name = "Python"
+vendor_display = "Python Software Foundation"
+version_scheme = "dotted"         # 3.12.6
+aliases = ["cpython", "python3"]
+cpe = [{ part = "a", vendor = "python", product = "python" }]
+cna = [{ vendor = "Python Software Foundation", product = "CPython" }]
+
+[[product]]
+key = "nodejs"
+display_name = "Node.js"
+vendor_display = "OpenJS Foundation"
+version_scheme = "dotted"         # 20.17.0
+aliases = ["node js"]
+cpe = [{ part = "a", vendor = "nodejs", product = "node.js" }]
+cna = [
+  { vendor = "nodejs", product = "node" },
+  { vendor = "The Node.js Project", product = "Node.js" },
+  { vendor = "Node.js", product = "Node.js" },
+]
+
+[[product]]
+key = "java-se"
+display_name = "Java SE"
+vendor_display = "Oracle"
+version_scheme = "dotted"         # 17.0.12、8u421
+aliases = ["oracle java", "oracle java se", "oracle jdk", "oracle jre"]
+cpe = [
+  { part = "a", vendor = "oracle", product = "jdk" },
+  { part = "a", vendor = "oracle", product = "jre" },
+  { part = "a", vendor = "oracle", product = "java_se" },
+]
+cna = [
+  { vendor = "Oracle", product = "Oracle Java SE" },
+  { vendor = "Oracle", product = "Java SE JDK and JRE" },
+  { vendor = "Oracle", product = "Java SE" },
+]
+
+[[product]]
+key = "django"
+display_name = "Django"
+vendor_display = "Django Software Foundation"
+version_scheme = "dotted"         # 5.1.1
+aliases = ["django framework"]
+cpe = [{ part = "a", vendor = "djangoproject", product = "django" }]
+cna = [{ vendor = "djangoproject", product = "Django" }]
+
+[[product]]
+key = "laravel"
+display_name = "Laravel"
+vendor_display = "Laravel"
+version_scheme = "dotted"         # 11.23.5
+aliases = ["laravel framework"]
+cpe = [{ part = "a", vendor = "laravel", product = "framework" }]
+cna = [{ vendor = "laravel", product = "framework" }]
+
+[[product]]
+key = "wordpress"
+display_name = "WordPress"
+vendor_display = "WordPress"
+version_scheme = "dotted"         # 6.6.2（只含核心，外掛請另以 SBOM 或 catalog.d 處理）
+aliases = ["wordpress core"]
+cpe = [{ part = "a", vendor = "wordpress", product = "wordpress" }]
+cna = [
+  { vendor = "WordPress", product = "WordPress" },
+  { vendor = "WordPress Foundation", product = "WordPress" },
+]
+
+[[product]]
+key = "drupal"
+display_name = "Drupal"
+vendor_display = "Drupal"
+version_scheme = "dotted"         # 10.3.5
+aliases = ["drupal core"]
+cpe = [{ part = "a", vendor = "drupal", product = "drupal" }]
+cna = [
+  { vendor = "Drupal", product = "Drupal core" },
+  { vendor = "Drupal.org", product = "Drupal Core" },
+]
+
+# ── 前端函式庫 ──────────────────────────────────────────────
+# 同一主機若也匯入含這些套件的 SBOM，同一 CVE 會由兩個元件各命中一次：請擇一使用。
+
+[[product]]
+key = "ckeditor4"
+display_name = "CKEditor 4"
+vendor_display = "CKSource"
+version_scheme = "dotted"         # 4.25.0-lts（CKEditor 5 為另一產品）
+aliases = ["ckeditor 4"]
+cpe = [{ part = "a", vendor = "ckeditor", product = "ckeditor" }]
+cna = [{ vendor = "ckeditor", product = "ckeditor4" }]
+keywords = ["CKEditor 4", "CKEditor4"]
+
+[[product]]
+key = "tinymce"
+display_name = "TinyMCE"
+vendor_display = "Tiny"
+version_scheme = "dotted"         # 7.3.0
+aliases = []
+cpe = [{ part = "a", vendor = "tiny", product = "tinymce" }]
+cna = [{ vendor = "tinymce", product = "tinymce" }]
+
+[[product]]
+key = "bootstrap"
+display_name = "Bootstrap"
+vendor_display = "Bootstrap"
+version_scheme = "dotted"         # 5.3.3
+aliases = ["twitter bootstrap", "getbootstrap"]
+cpe = [{ part = "a", vendor = "getbootstrap", product = "bootstrap" }]
+cna = [{ vendor = "Bootstrap", product = "Bootstrap" }]
+
+[[product]]
+key = "jquery"
+display_name = "jQuery"
+vendor_display = "OpenJS Foundation"
+version_scheme = "dotted"         # 3.7.1
+aliases = []
+cpe = [{ part = "a", vendor = "jquery", product = "jquery" }]
+cna = [
+  { vendor = "jquery", product = "jQuery" },
+  { vendor = "n/a", product = "jquery" },
+]
+
+[[product]]
+key = "jquery-ui"
+display_name = "jQuery UI"
+vendor_display = "OpenJS Foundation"
+version_scheme = "dotted"         # 1.13.3
+aliases = []
+cpe = [{ part = "a", vendor = "jqueryui", product = "jquery_ui" }]
+cna = [{ vendor = "jquery", product = "jquery-ui" }]
+
+[[product]]
+key = "lodash"
+display_name = "Lodash"
+vendor_display = "OpenJS Foundation"
+version_scheme = "dotted"         # 4.17.21
+aliases = []
+cpe = [{ part = "a", vendor = "lodash", product = "lodash" }]
+cna = [
+  { vendor = "lodash", product = "lodash" },
+  { vendor = "n/a", product = "Lodash" },
+]
+
+[[product]]
+key = "momentjs"
+display_name = "Moment.js"
+vendor_display = "Moment"
+version_scheme = "dotted"         # 2.30.1
+aliases = ["moment"]
+cpe = [{ part = "a", vendor = "momentjs", product = "moment" }]
+cna = [{ vendor = "moment", product = "moment" }]
+keywords = ["Moment.js"]
+
+# ── 系統元件 ────────────────────────────────────────────────
+# 由發行版套件安裝者請改用 asset import-packages（同上方網站與資料庫的說明）。
+
+[[product]]
+key = "openssl"
+display_name = "OpenSSL"
+vendor_display = "OpenSSL"
+version_scheme = "dotted"         # 3.0.15、1.1.1w
+aliases = []
+cpe = [{ part = "a", vendor = "openssl", product = "openssl" }]
+cna = [
+  { vendor = "OpenSSL", product = "OpenSSL" },
+  { vendor = "OpenSSL Software Foundation", product = "OpenSSL" },
+]
+
+[[product]]
+key = "openssh"
+display_name = "OpenSSH"
+vendor_display = "OpenBSD"
+version_scheme = "dotted"         # 9.8p1
+aliases = []
+cpe = [{ part = "a", vendor = "openbsd", product = "openssh" }]
+cna = [{ vendor = "OpenBSD", product = "OpenSSH" }]
+
+[[product]]
+key = "samba"
+display_name = "Samba"
+vendor_display = "Samba"
+version_scheme = "dotted"         # 4.20.5
+aliases = []
+cpe = [{ part = "a", vendor = "samba", product = "samba" }]
+cna = [
+  { vendor = "n/a", product = "samba" },
+  { vendor = "Samba", product = "Samba" },
+  { vendor = "The Samba Team", product = "samba" },
+]
+
+[[product]]
+key = "bind9"
+display_name = "BIND 9"
+vendor_display = "ISC"
+version_scheme = "dotted"         # 9.18.28
+aliases = ["isc bind", "isc bind 9"]
+cpe = [{ part = "a", vendor = "isc", product = "bind" }]
+cna = [
+  { vendor = "ISC", product = "BIND 9" },
+  { vendor = "ISC", product = "BIND" },
+]
+
+[[product]]
+key = "freeradius"
+display_name = "FreeRADIUS"
+vendor_display = "FreeRADIUS"
+version_scheme = "dotted"         # 3.2.6
+aliases = []
+cpe = [{ part = "a", vendor = "freeradius", product = "freeradius" }]
+cna = [
+  { vendor = "n/a", product = "freeradius" },
+  { vendor = "freeradius", product = "freeradius" },
+]
+keywords = ["FreeRADIUS"]
 
 # ── 作業系統（OS 套件另以 asset import-packages 匯入）──────────
 

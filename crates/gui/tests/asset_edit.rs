@@ -28,9 +28,7 @@ fn asset_edit_adding_an_asset_from_the_window() {
     h.get_by_label("類別 *").click();
     h.run();
     click_option(&mut h, "HW03 資安設備");
-    h.get_by_label("加入元件").click();
-    h.run();
-    click_option(&mut h, "PAN-OS（Palo Alto Networks）");
+    add_component(&mut h, "pan", "PAN-OS（Palo Alto Networks）");
     replace_text(&mut h, "PAN-OS 版本", "11.2.3");
     click(&mut h, "儲存");
     assert!(h.state().asset_dialog.is_none(), "{}", status(&h));
@@ -164,6 +162,19 @@ fn asset_edit_escape_does_not_discard_unsaved_input() {
     assert!(h.state().has_unsaved(), "關閉視窗前需確認");
 }
 
+/// 開啟「加入元件」、輸入搜尋字後點選產品（選擇器只列前 12 筆）。
+fn add_component(
+    h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiApp>,
+    query: &str,
+    option: &str,
+) {
+    h.get_by_label("加入元件").click();
+    h.run();
+    h.get_by_label("搜尋產品").type_text(query);
+    h.run();
+    click_option(h, option);
+}
+
 fn dialog<'a>(h: &'a egui_kittest::Harness<'_, cvewatch_gui::GuiApp>) -> &'a AssetEdit {
     match &h.state().asset_dialog {
         Some(AssetDialog::Edit(e)) => e,
@@ -193,9 +204,7 @@ fn asset_edit_cancel_clears_the_write_failure_from_the_status_bar() {
     h.get_by_label("類別 *").click();
     h.run();
     click_option(&mut h, "HW03 資安設備");
-    h.get_by_label("加入元件").click();
-    h.run();
-    click_option(&mut h, "PAN-OS（Palo Alto Networks）");
+    add_component(&mut h, "pan", "PAN-OS（Palo Alto Networks）");
     replace_text(&mut h, "PAN-OS 版本", "11.2.3");
     click(&mut h, "儲存");
     let failure = dialog(&h).failure.clone().expect("core 拒絕重複的資產編號");
@@ -225,7 +234,7 @@ fn asset_edit_keyboard_flow_when_adding_a_component() {
     );
     h.get_by_label("搜尋產品").type_text("pan");
     h.run();
-    assert_eq!(dialog(&h).search, "pan");
+    assert_eq!(dialog(&h).add_picker.search, "pan");
     click_option(&mut h, "PAN-OS（Palo Alto Networks）");
     assert!(h.get_by_label("PAN-OS 版本").is_focused(), "焦點移到版本欄");
     h.get_by_label("PAN-OS 版本").type_text("11.2.3");
@@ -241,9 +250,7 @@ fn asset_edit_duplicate_rows_have_separate_version_fields() {
     ctrl(&mut h, egui::Key::Num3);
     click(&mut h, "新增資產");
     for _ in 0..2 {
-        h.get_by_label("加入元件").click();
-        h.run();
-        click_option(&mut h, "PAN-OS（Palo Alto Networks）");
+        add_component(&mut h, "pan", "PAN-OS（Palo Alto Networks）");
     }
     assert_eq!(h.get_all_by_label("PAN-OS 版本").count(), 2);
     // 第二列剛加入，焦點在它的版本欄
@@ -269,9 +276,7 @@ fn new_asset_with_component(h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiA
     click(h, "新增資產");
     replace_text(h, "資產編號 *", tag);
     replace_text(h, "名稱 *", tag);
-    h.get_by_label("加入元件").click();
-    h.run();
-    click_option(h, "PAN-OS（Palo Alto Networks）");
+    add_component(h, "pan", "PAN-OS（Palo Alto Networks）");
     replace_text(h, "PAN-OS 版本", "11.2.3");
 }
 
@@ -376,4 +381,148 @@ fn asset_edit_isms_id_with_the_wrong_major_class() {
     );
     assert!(shows(&h, ISMS_CLASS_MISMATCH), "錯誤顯示在欄位旁");
     assert_eq!(asset_count(&h), before, "資料庫不變");
+}
+
+// ── 14 任務 5.5：產品選擇器 ──────────────────────────────────
+
+fn open_add_component(h: &mut egui_kittest::Harness<'_, cvewatch_gui::GuiApp>) {
+    ctrl(h, egui::Key::Num3);
+    click(h, "新增資產");
+    h.get_by_label("加入元件").click();
+    h.run();
+}
+
+/// Scenario: Picking with the keyboard
+#[test]
+fn asset_edit_picking_a_product_with_the_keyboard() {
+    let (mut h, _f) = gui(seeded_world());
+    open_add_component(&mut h);
+    assert!(h.get_by_label("搜尋產品").is_focused());
+    h.get_by_label("搜尋產品").type_text("cisco ios");
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    let form = &dialog(&h).form;
+    assert_eq!(form.components.len(), 1);
+    assert_eq!(form.components[0].product_key, "cisco-ios");
+    assert!(
+        h.get_by_label("Cisco IOS 版本").is_focused(),
+        "焦點移到版本欄"
+    );
+    // ↓ 移動反白後 Enter：選第二筆
+    h.get_by_label("加入元件").click();
+    h.run();
+    h.get_by_label("搜尋產品").type_text("cisco ios");
+    h.run();
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    h.key_press(egui::Key::Enter);
+    h.run();
+    assert_eq!(dialog(&h).form.components[1].product_key, "cisco-iosxe");
+}
+
+/// Scenario: Escape leaves components unchanged
+#[test]
+fn asset_edit_escape_closes_the_picker_without_changes() {
+    let (mut h, _f) = gui(seeded_world());
+    open_add_component(&mut h);
+    h.key_press(egui::Key::ArrowDown);
+    h.run();
+    h.key_press(egui::Key::Escape);
+    h.run();
+    assert!(h.query_by_label("搜尋產品").is_none(), "選擇器關閉");
+    assert!(h.state().asset_dialog.is_some(), "Esc 只關閉選擇器");
+    assert!(dialog(&h).form.components.is_empty(), "元件清單不變");
+}
+
+/// Scenario: Too many results（內建目錄 78 項，一次列 12 項）
+#[test]
+fn asset_edit_picker_shows_the_result_limit() {
+    let (mut h, _f) = gui(seeded_world());
+    open_add_component(&mut h);
+    assert!(shows(&h, "還有 66 項，再輸入文字縮小範圍"));
+    h.get_by_label("搜尋產品").type_text("zzz");
+    h.run();
+    assert!(shows(&h, "沒有相符的產品"));
+}
+
+/// PVE-01 加入一筆未辨識產品後開啟編輯。
+fn edit_with_unresolved(raw: &str) -> egui_kittest::Harness<'static, cvewatch_gui::GuiApp> {
+    let w = seeded_world();
+    w.conn
+        .execute(
+            "INSERT INTO asset_unresolved (asset_id, product_raw, version_raw, seen_at)
+             VALUES ((SELECT id FROM asset WHERE asset_tag = 'PVE-01'), ?1, '1.0', ?2)",
+            rusqlite::params![raw, common::matching::T0],
+        )
+        .unwrap();
+    let (mut h, _f) = gui(w);
+    select_asset(&mut h, "PVE-01");
+    click(&mut h, "編輯");
+    h
+}
+
+/// Scenario: Suggestion for a typo
+#[test]
+fn asset_edit_unresolved_picker_suggests_similar_products() {
+    let mut h = edit_with_unresolved("Synolgy DSM");
+    click_last(&mut h, "Synolgy DSM 1.0");
+    assert!(shows(&h, "建議"));
+    let keep = h.get_all_by_label("保留").last().unwrap().rect();
+    let suggestion = h
+        .get_all_by_label("改為 DiskStation Manager（Synology）")
+        .last()
+        .unwrap()
+        .rect();
+    let search = h.get_by_label("搜尋產品").rect();
+    assert!(search.top() < keep.top() && keep.top() < suggestion.top());
+    assert_eq!(
+        h.query_all_by_label("改為 DiskStation Manager（Synology）")
+            .count(),
+        1,
+        "建議不在搜尋結果中重複列出"
+    );
+    click_option(&mut h, "改為 DiskStation Manager（Synology）");
+    assert_eq!(
+        h.get_all_by_label("Synolgy DSM 1.0")
+            .last()
+            .unwrap()
+            .value()
+            .as_deref(),
+        Some("改為 DiskStation Manager"),
+        "處置顯示改為 DiskStation Manager"
+    );
+    let form = &dialog(&h).form;
+    let row = form
+        .unresolved
+        .iter()
+        .find(|u| u.product_raw == "Synolgy DSM")
+        .unwrap();
+    assert_eq!(
+        row.action,
+        cvewatch_frontend::asset_form::UnresolvedAction::MapTo("synology-dsm".into())
+    );
+}
+
+/// Scenario: Searching beyond suggestions
+#[test]
+fn asset_edit_unresolved_picker_searches_beyond_suggestions() {
+    let mut h = edit_with_unresolved("核心交換器");
+    click_last(&mut h, "核心交換器 1.0");
+    assert!(!shows(&h, "建議"), "沒有相似產品");
+    h.get_by_label("搜尋產品").type_text("cx");
+    h.run();
+    click_option(&mut h, "改為 AOS-CX（HPE Aruba Networking）");
+    let row = dialog(&h)
+        .form
+        .unresolved
+        .iter()
+        .find(|u| u.product_raw == "核心交換器")
+        .unwrap()
+        .action
+        .clone();
+    assert_eq!(
+        row,
+        cvewatch_frontend::asset_form::UnresolvedAction::MapTo("hpe-aoscx".into())
+    );
 }

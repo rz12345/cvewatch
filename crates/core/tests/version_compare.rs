@@ -610,3 +610,128 @@ fn catalog_rejects_numeric_update_build_names() {
     .to_string();
     assert!(err.contains("8.0.3") && err.contains("8.0 U3c"), "{err}");
 }
+
+// ── 14：cisco、junos、numeric、zyxel ─────────────────────────
+
+#[test]
+fn cisco_ordering_within_a_train() {
+    check(
+        "cisco",
+        &[
+            // spec 範例
+            ("15.2(6)E2", "<", "15.2(7)E8"),
+            ("15.2(7)E8", "<", "15.2(7)E10"),
+            ("9.18(4)8", "<", "9.18(4)22"),
+            ("10.2(3)", "<", "10.2(3t)"),
+            ("10.2(3t)", "<", "10.2(4)"),
+            ("12.4(25)", "=", "Version 12.4(25)"),
+        ],
+    );
+}
+
+#[test]
+fn cisco_versions_from_different_trains_are_unknown() {
+    let all = schemes();
+    let cisco = all.get("cisco").unwrap();
+    for (a, b) in [
+        ("15.2(4)M3", "15.2(7)E8"),
+        ("15.2(7)E8", "15.0(2)E8"),
+        ("12.4(25)", "12.4(25)T"),
+        ("9.18(4)22", "9.16(4)22"),
+    ] {
+        assert_eq!(compare(cisco, a, b), None, "{a} vs {b}");
+    }
+    unparseable("cisco", &["17.9.4a", "7.0(3)I7(9)", "15.2", "abc"]);
+}
+
+#[test]
+fn junos_ordering() {
+    check(
+        "junos",
+        &[
+            // spec 範例
+            ("21.4R3", "<", "21.4R3-S5"),
+            ("21.4R3-S5", "<", "21.4R3-S10"),
+            ("21.4R3-S5", "<", "22.2"),
+            ("22.2", "<", "22.2R1"),
+            ("22.2R3-S2", "<", "22.2R3-S3"),
+            // Ivanti
+            ("22.7R2.3", "<", "22.7R2.4"),
+            ("22.7R2", "<", "22.7R2.1"),
+            ("9.1R18.9", "<", "22.7R1"),
+            // 特殊類型與同類型比較
+            ("15.1X49-D100", "<", "15.1X49-D200"),
+        ],
+    );
+    let all = schemes();
+    let junos = all.get("junos").unwrap();
+    assert_eq!(compare(junos, "15.1X49-D200", "21.4R3"), None);
+    unparseable("junos", &["21.4R3-S5-EVO", "21", "R81.20"]);
+}
+
+#[test]
+fn numeric_ordering() {
+    check(
+        "numeric",
+        &[
+            // spec 範例
+            ("14.1-8.50", "<", "14.1-29.72"),
+            (
+                "5.1.7.2770 build 20240315",
+                "<",
+                "5.1.7.2770 build 20240520",
+            ),
+            ("7.0.1-5145", "<", "7.0.1-5161"),
+            ("7.0.1-5145", "=", "7.0.1_5145"),
+            ("R81.10", "<", "R81.20"),
+            ("15 build 39938", "<", "15 Build 41800"),
+            ("5.1.x", "<", "5.1.7.2770 build 20240520"),
+            ("h5.1.7", "<", "h5.2.0"),
+        ],
+    );
+    let all = schemes();
+    let numeric = all.get("numeric").unwrap();
+    assert_eq!(compare(numeric, "h5.1.7", "5.1.7"), None);
+    unparseable(
+        "numeric",
+        &["21.0 MR1", "R81.20 Jumbo Take 50", "ab1.0", ""],
+    );
+}
+
+#[test]
+fn zyxel_ordering() {
+    check(
+        "zyxel",
+        &[
+            // spec 範例（虛構型號代碼）
+            ("V2.70(ABCD.3)C0", "<", "V2.80(ABCD.0)C0"),
+            ("V2.80(ABCD.0)C0", "<", "V2.80(ABCD.1)C0"),
+            ("V2.80(ABCD.1)C0", "=", "2.80(abcd.1)c0"),
+        ],
+    );
+    let all = schemes();
+    let zyxel = all.get("zyxel").unwrap();
+    assert_eq!(compare(zyxel, "V2.80(ABCD.1)C0", "V2.80(WXYZ.1)C0"), None);
+    unparseable("zyxel", &["V2.80(ABCD.1)", "2.80", "V2.80 ABCD"]);
+}
+
+#[test]
+fn catalog_validation_matches_new_comparators() {
+    use cvewatch_core::catalog::scheme::{scheme_by_name, scheme_names};
+    let names = scheme_names();
+    for name in ["cisco", "junos", "numeric", "zyxel"] {
+        assert!(names.contains(&name), "scheme_names 應含 {name}");
+    }
+    let all = schemes();
+    for (name, ok, bad) in [
+        ("cisco", "15.2(7)E8", "15.2"),
+        ("junos", "21.4R3-S5", "21.4 R3 S5"),
+        ("numeric", "7.0.1_5145", "21.0 MR1"),
+        ("zyxel", "V2.80(ABCD.1)C0", "V2.80"),
+    ] {
+        let validator = scheme_by_name(name).unwrap();
+        assert!(validator.parse(ok).is_some(), "{name} 驗證應接受 {ok}");
+        assert!(all.get(name).unwrap().parse(ok).is_some());
+        assert!(validator.parse(bad).is_none(), "{name} 驗證應拒絕 {bad}");
+    }
+}

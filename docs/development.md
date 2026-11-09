@@ -39,6 +39,38 @@ cargo test                                     # 不呼叫外部 API、不存取
 
 測試資料在 `tests/fixtures/`，來源與用途見 [tests/fixtures/ingest/README.md](../tests/fixtures/ingest/README.md)。
 
+## commit 前敏感字詞檢查
+
+版控內容（OpenSpec、種子目錄、測試、fixture、文件）只寫廠牌與產品名稱，不寫實際環境的硬體型號、數量、使用中的版本、資產編號或內部文件編號；
+型號別名與逐型號產品寫在資料目錄的 `catalog.d`（見[資產說明](user-guide/assets.md)）。
+`scripts\check-sensitive.ps1` 以本機的字詞清單比對暫存區新增的行：
+
+1. 建立 `data\sensitive-patterns.txt`（`/data` 已 gitignore，清單本身不會進版控）。UTF-8，每行一項：
+   一般字詞逐字比對、`re:` 開頭為 .NET 正規表示式、`#` 開頭為註解；比對不分大小寫。
+
+   ```text
+   # 型號（以下為虛構示例）
+   XYZ-100
+   re:\bABC-?\d{3}\b
+   ```
+
+2. `git add` 後執行：
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\check-sensitive.ps1
+   ```
+
+   結束碼：`0` 通過；`1` 有命中（列出「檔名:行號」與命中的規則）；`2` 找不到清單、清單為空、規則無效或不在 git repo 內。
+
+3. （選用）掛成本機 pre-commit hook：建立 `.git\hooks\pre-commit`（不入版控），內容為
+
+   ```sh
+   #!/bin/sh
+   exec powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts/check-sensitive.ps1
+   ```
+
+   之後每次 `git commit` 都會先檢查，命中時 commit 中止。`/opsx-auto` 的 commit 步驟前也會執行一次。
+
 ## 以 Claude Code 實作 change
 
 一次只做一個 change，依編號順序；完成並封存後才開始下一個。

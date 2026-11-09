@@ -1,8 +1,10 @@
-//! 版本格式（version scheme）。02 只判斷可否解析；比較邏輯在 04 實作。
+//! 版本格式（version scheme）的寫法驗證：只判斷可否解析；比較邏輯在 `matching::version`。
 
 use std::sync::LazyLock;
 
 use regex::Regex;
+
+use crate::version_text::vendor;
 
 /// 解析結果；`normalized` 為修剪空白、統一小寫後的字串，存入 `component.version_norm`。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -30,9 +32,17 @@ impl VersionScheme for PatternScheme {
 
     fn parse(&self, raw: &str) -> Option<ParsedVersion> {
         let normalized = canonical(raw);
-        let rejected = self.reject.is_some_and(|f| f(&normalized));
-        (!rejected && self.patterns.iter().any(|re| re.is_match(&normalized)))
-            .then_some(ParsedVersion { normalized })
+        // 比較器以 version_text::canonical 解析（另把 `_` 視為空白），驗證也用同一種寫法判斷；
+        // 只有含 `_` 時兩者不同，才需要再正規化一次
+        let text = if normalized.contains('_') {
+            std::borrow::Cow::Owned(crate::version_text::canonical(&normalized))
+        } else {
+            std::borrow::Cow::Borrowed(normalized.as_str())
+        };
+        let accepted = !self.reject.is_some_and(|f| f(&text))
+            && self.patterns.iter().any(|re| re.is_match(&text));
+        drop(text);
+        accepted.then_some(ParsedVersion { normalized })
     }
 }
 
@@ -73,7 +83,21 @@ static ESXI: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 static UBUNTU: LazyLock<Vec<Regex>> =
     LazyLock::new(|| compile(&[r"^\d{2}\.\d{2}(\.\d+)?( ?lts)?$"]));
 
-static SCHEMES: [PatternScheme; 5] = [
+/// Cisco `15.2(7)e8`、`9.18(4)22`、`10.2(3t)`；ASA 點分寫法 `9.18.4.22`
+static CISCO: LazyLock<Vec<Regex>> =
+    LazyLock::new(|| vec![vendor::CISCO.clone(), vendor::DOTTED_FOUR.clone()]);
+
+/// Juniper `21.4r3-s5`、Ivanti `22.7r2.4`、`25.1.1.3`
+static JUNOS: LazyLock<Vec<Regex>> =
+    LazyLock::new(|| vec![vendor::JUNOS.clone(), vendor::DOTTED_FOUR.clone()]);
+
+/// `7.0.1-5145`、`14.1-29.72`、`5.1.7.2770 build 20240520`、`r81.20`
+static NUMERIC: LazyLock<Vec<Regex>> = LazyLock::new(|| vec![vendor::NUMERIC.clone()]);
+
+/// Zyxel `v2.80(abcd.1)c0`
+static ZYXEL: LazyLock<Vec<Regex>> = LazyLock::new(|| vec![vendor::ZYXEL.clone()]);
+
+static SCHEMES: [PatternScheme; 9] = [
     PatternScheme {
         name: "dotted",
         patterns: &DOTTED,
@@ -97,6 +121,26 @@ static SCHEMES: [PatternScheme; 5] = [
     PatternScheme {
         name: "ubuntu",
         patterns: &UBUNTU,
+        reject: None,
+    },
+    PatternScheme {
+        name: "cisco",
+        patterns: &CISCO,
+        reject: None,
+    },
+    PatternScheme {
+        name: "junos",
+        patterns: &JUNOS,
+        reject: None,
+    },
+    PatternScheme {
+        name: "numeric",
+        patterns: &NUMERIC,
+        reject: None,
+    },
+    PatternScheme {
+        name: "zyxel",
+        patterns: &ZYXEL,
         reject: None,
     },
 ];
