@@ -11,7 +11,12 @@ fn input_error(e: std::io::Error) -> CoreError {
 
 /// 不回顯地讀取一行；空白輸入視為錯誤。
 pub fn secret(prompt: &str) -> Result<Zeroizing<String>, CoreError> {
-    let value = Zeroizing::new(rpassword::prompt_password(prompt).map_err(input_error)?);
+    // 提示自行經 stderr 輸出：rpassword 在 Windows 把提示的 UTF-8 位元組直接寫入 CONOUT$，
+    // 主控台字碼頁非 65001（如 950）時中文會變亂碼；std 的主控台輸出走 WriteConsoleW。
+    let mut stderr = std::io::stderr();
+    write!(stderr, "{prompt}").map_err(input_error)?;
+    stderr.flush().map_err(input_error)?;
+    let value = Zeroizing::new(rpassword::read_password().map_err(input_error)?);
     if value.trim().is_empty() {
         return Err(CoreError::Invalid("輸入不可為空".to_string()));
     }
