@@ -29,6 +29,8 @@ pub fn export_key(app: &App) -> Result<ExitCode, CoreError> {
     println!();
     println!("{}", recovery.as_str());
     println!();
+    println!("提醒：cvewatch 不會另外保存這組金鑰，請現在自行存入密碼管理器。");
+    println!("      Windows 重灌或換帳號後，沒有它就打不開資料庫。");
     println!("已記錄匯出時間。Windows 重灌後可用 `cvewatch db import-key` 輸入此金鑰。");
     Ok(ExitCode::Success)
 }

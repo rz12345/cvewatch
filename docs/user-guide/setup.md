@@ -2,7 +2,7 @@
 
 ```powershell
 cvewatch init                                    # 建立資料目錄、範例設定檔、加密資料庫
-cvewatch db export-key                           # 復原金鑰存入密碼管理器
+cvewatch db export-key                           # 顯示復原金鑰，請自行存入密碼管理器
 cvewatch asset template assets.xlsx              # 取得空白清冊範本，填好後匯入
 cvewatch asset import assets.xlsx
 cvewatch sync                                    # 首次同步（約 650 MB baseline）並自動比對
@@ -10,7 +10,7 @@ cvewatch tui                                     # 按 6 進入「設定」畫�
 cvewatch schedule install                        # 建立 cvewatch\sync 與 cvewatch\digest 兩個排程工作
 ```
 
-> 首次 `cvewatch init` 後請立刻執行 `cvewatch db export-key`，把復原金鑰存進密碼管理器。Windows 重灌或換帳號時，沒有它就打不開資料庫。
+> 首次 `cvewatch init` 後請立刻執行 `cvewatch db export-key`，把畫面顯示的復原金鑰自行存進密碼管理器（cvewatch 不會另外保存，也不要存成檔案或截圖）。Windows 重灌或換帳號時，沒有它就打不開資料庫。
 
 清冊的填寫方式見[資產清冊](assets.md)；設定畫面也可以在[視窗版](gui.md)中操作（`Ctrl+6`）。
 
