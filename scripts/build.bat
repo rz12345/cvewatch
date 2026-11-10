@@ -47,6 +47,7 @@ where cargo >nul 2>&1 || (echo [ERROR] cargo not found. Install the Rust MSVC to
 
 rem SQLCipher's vendored OpenSSL needs Strawberry Perl, not Git for Windows' MSYS perl.
 if not defined PERL if exist "C:\Strawberry\perl\bin\perl.exe" set "PERL=C:\Strawberry\perl\bin\perl.exe"
+call :check_perl || exit /b 1
 
 pushd "%ROOT%" || exit /b 1
 
@@ -84,6 +85,28 @@ exit /b 0
 :no_dist
 echo [3/3] Skipped dist\ (nodist). Executables are in "%EXE_DIR%"
 exit /b 0
+
+:check_perl
+rem openssl-src runs %PERL% when it is set, otherwise the first perl on PATH.
+set "PERL_EXE=%PERL%"
+if defined PERL_EXE goto check_perl_exists
+for /f "delims=" %%P in ('where perl 2^>nul') do if not defined PERL_EXE set "PERL_EXE=%%P"
+if defined PERL_EXE goto check_perl_exists
+echo [ERROR] perl not found. Building SQLCipher's vendored OpenSSL needs Strawberry Perl:
+echo           winget install --id StrawberryPerl.StrawberryPerl -e
+echo         then open a new terminal, or set PERL to the full path of perl.exe.
+exit /b 1
+:check_perl_exists
+if exist "%PERL_EXE%" goto check_perl_native
+echo [ERROR] PERL points to a missing file: "%PERL_EXE%"
+exit /b 1
+:check_perl_native
+rem OpenSSL's MSVC build rejects MSYS/Cygwin perl (e.g. Git for Windows' usr\bin\perl.exe).
+"%PERL_EXE%" -e "exit($^O eq 'MSWin32' ? 0 : 1)" >nul 2>&1 && exit /b 0
+echo [ERROR] "%PERL_EXE%" is not a native Windows perl; OpenSSL's MSVC build needs Strawberry Perl:
+echo           winget install --id StrawberryPerl.StrawberryPerl -e
+echo         then set PERL to the full path of Strawberry's perl.exe.
+exit /b 1
 
 :require
 if exist "%~1" exit /b 0
